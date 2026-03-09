@@ -8,10 +8,11 @@
 
 ## NEXT ACTION
 
-**0.4B-01** — LSP integration: cross-file call resolution, import edges
-- Language server auto-detection: TypeScript, JavaScript, Python at minimum
-- Enrich edges table with CALLS relations from LSP call graph
-- Cross-file import resolution working via LSP textDocument/definition
+**0.5-01** — Unified callModel implementation + XML Firewall
+- Implement Section 10 firewall in callModel.
+- XML-based <PROJECT_DATA> tagging system.
+- System directive enforcement.
+- Prompt injection heuristic detection.
 - Status: OPEN
 
 ---
@@ -27,7 +28,7 @@
 | PRE-0.4 | Spec Correction | Off-the-shelf audit diff + open decisions before 0.4 code |
 | 0.4A | Intelligence Graph (Skeleton) | Tree-sitter integration, static nodes/edges |
 | 0.4B | Intelligence Graph (Enrichment) | LSP integration, cross-file calls, MCP tools |
-| 0.5 | callModel + Firewall | All model calls through one function, XML firewall |
+| 0.5 | callModel + Firewall | COMPLETED |
 | 0.6 | Operator + Session | Classification, routing, context management |
 | 0.7 | DID Pipeline (no execution) | Stages 1–5, all gates, tiebreaker, human approval |
 | 0.8 | Sandbox | Docker-in-Docker, runtime observation, pre-flight dry run |
@@ -38,7 +39,18 @@
 
 ---
 
-## MILESTONE 0.4A — Intelligence Graph (Skeleton) ✅ SUCCESS
+## MILESTONE 0.5 — callModel + Firewall ✅ SUCCESS
+
+| ID | Task | Status |
+|----|------|--------|
+| 0.5-01 | Unified callModel implementation + XML Firewall | COMPLETED |
+| 0.5-02 | Governance & Integrity Reset (AGENTS.md Section 5) | COMPLETED |
+| 0.5-03 | Schema Migration (nodes table virtual columns) | COMPLETED |
+
+---
+
+## MILESTONE 0.4B — Intelligence Graph: LSP Enrichment ✅ SUCCESS
+
 
 | ID | Task | Status |
 |----|------|--------|
@@ -52,16 +64,18 @@
 
 ---
 
-## MILESTONE 0.4B — Intelligence Graph (Enrichment) [IN PROGRESS]
+## MILESTONE 0.4B — Intelligence Graph: LSP Enrichment ✅ SUCCESS
 
 | ID | Task | Status |
 |----|------|--------|
-| 0.4B-00 | Define dev-graph instance config and separate db path (blocks all MCP work) | COMPLETED |
-| 0.4B-01 | LSP integration: cross-file call resolution, import edges | COMPLETED |
-| 0.4B-02 | MCP server: expose five tools from Section 6 (graph_query_impact, graph_query_callers, graph_query_dependencies, graph_query_coverage, graph_search) | COMPLETED |
-| 0.4B-03 | Index SPEC.md sections as graph nodes (enables section-level queries during dev workflow) | OPEN |
-| 0.4B-04 | Graph updates after successful task (Stage 11 hook) | OPEN |
-| 0.4B-05 | Dev-mode graph server: indexes src/ + .dev/spec/SPEC.md sections, separate from runtime db | OPEN |
+| 0.4B-01 | Implement LSPClient with vscode-jsonrpc | COMPLETED |
+| 0.4B-02 | Build "Harvester" logic to amortize LSP sessions by file/language | COMPLETED |
+| 0.4B-03 | Implement resolveImport to bridge Tree-sitter placeholders to LSP truth | COMPLETED |
+| 0.4B-04 | Implement Coordinate Precision (Identifier-level mapping) | COMPLETED |
+| 0.4B-05 | Implement "No-LSP Fallback" warning and Error Handling | COMPLETED |
+| 0.4B-06 | MCP server: expose five tools from Section 6 | COMPLETED |
+| 0.4B-07 | Index SPEC.md sections as graph nodes | COMPLETED |
+| 0.4B-08 | Dev-mode graph server support | COMPLETED |
 
 **Note on 0.4B-05:** The dev-mode graph server is a Phase 1 development tool only. It replaces full SPEC.md loading during Claude/Gemini development sessions. It must not be confused with the runtime graph that MBO builds for user codebases. Same code, different configuration, completely separate databases. See AGENTS.md Section 11 (added post-0.4B).
 

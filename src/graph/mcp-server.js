@@ -6,15 +6,20 @@ const {
   ErrorCode,
   McpError
 } = require('@modelcontextprotocol/sdk/types.js');
+const path = require('path');
+const fs = require('fs');
 
-const dbManager = require('../state/db-manager.js');
+const { DBManager } = require('../state/db-manager.js');
 const GraphStore = require('./graph-store.js');
+const StaticScanner = require('./static-scanner.js');
 
 class GraphMCPServer {
   constructor() {
+    this.parseArgs();
+    
     this.server = new Server(
       {
-        name: 'mbo-graph-server',
+        name: `mbo-graph-server-${this.mode}`,
         version: '0.1.0',
       },
       {
@@ -24,15 +29,48 @@ class GraphMCPServer {
       }
     );
 
-    this.graphStore = new GraphStore(dbManager);
+    const dbPath = this.mode === 'dev' 
+      ? path.join(this.root, '.dev/data/dev-graph.db')
+      : path.join(this.root, 'data/mirrorbox.db');
+
+    this.db = new DBManager(dbPath);
+    this.graphStore = new GraphStore(this.db);
+    this.scanner = new StaticScanner(this.graphStore, {
+      instanceType: this.mode,
+      scanRoots: [path.join(this.root, 'src')]
+    });
+
     this.setupToolHandlers();
     
     // Error handling
     this.server.onerror = (error) => console.error('[MCP Error]', error);
-    process.on('SIGINT', async () => {
+    
+    const shutdown = async () => {
+      console.error('[MCP] Shutting down graph server...');
       await this.server.close();
       process.exit(0);
+    };
+
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+    process.on('uncaughtException', (error) => {
+      console.error('[CRITICAL] Uncaught Exception:', error);
+      shutdown();
     });
+  }
+
+  parseArgs() {
+    const args = process.argv.slice(2);
+    this.mode = 'runtime';
+    this.root = process.cwd();
+
+    for (let i = 0; i < args.length; i++) {
+      if (args[i].startsWith('--mode=')) {
+        this.mode = args[i].split('=')[1];
+      } else if (args[i].startsWith('--root=')) {
+        this.root = args[i].split('=')[1];
+      }
+    }
   }
 
   setupToolHandlers() {
@@ -93,6 +131,21 @@ class GraphMCPServer {
             required: ['pattern'],
           },
         },
+        {
+          name: 'graph_update_task',
+          description: 'Update the graph after a task completion by re-scanning modified files.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              modifiedFiles: { 
+                type: 'array', 
+                items: { type: 'string' },
+                description: 'List of relative file paths that were modified.'
+              },
+            },
+            required: ['modifiedFiles'],
+          },
+        }
       ],
     }));
 
@@ -101,47 +154,44 @@ class GraphMCPServer {
         switch (request.params.name) {
           case 'graph_query_impact': {
             const { nodeId } = request.params.arguments;
-            if (!nodeId) throw new McpError(ErrorCode.InvalidParams, 'nodeId is required');
             const impact = this.graphStore.getImpact(nodeId);
-            return {
-              content: [{ type: 'text', text: JSON.stringify(impact, null, 2) }],
-            };
+            return { content: [{ type: 'text', text: JSON.stringify(impact, null, 2) }] };
           }
           
           case 'graph_query_callers': {
             const { nodeId } = request.params.arguments;
-            if (!nodeId) throw new McpError(ErrorCode.InvalidParams, 'nodeId is required');
             const callers = this.graphStore.getCallers(nodeId);
-            return {
-              content: [{ type: 'text', text: JSON.stringify(callers, null, 2) }],
-            };
+            return { content: [{ type: 'text', text: JSON.stringify(callers, null, 2) }] };
           }
           
           case 'graph_query_dependencies': {
             const { nodeId } = request.params.arguments;
-            if (!nodeId) throw new McpError(ErrorCode.InvalidParams, 'nodeId is required');
             const dependencies = this.graphStore.getDependencies(nodeId);
-            return {
-              content: [{ type: 'text', text: JSON.stringify(dependencies, null, 2) }],
-            };
+            return { content: [{ type: 'text', text: JSON.stringify(dependencies, null, 2) }] };
           }
           
           case 'graph_query_coverage': {
             const { nodeId } = request.params.arguments;
-            if (!nodeId) throw new McpError(ErrorCode.InvalidParams, 'nodeId is required');
             const coveringTests = this.graphStore.getCoverage(nodeId);
-            return {
-              content: [{ type: 'text', text: JSON.stringify(coveringTests, null, 2) }],
-            };
+            return { content: [{ type: 'text', text: JSON.stringify(coveringTests, null, 2) }] };
           }
 
           case 'graph_search': {
             const { pattern } = request.params.arguments;
-            if (!pattern) throw new McpError(ErrorCode.InvalidParams, 'pattern is required');
             const results = this.graphStore.search(pattern);
-            return {
-              content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
-            };
+            return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+          }
+
+          case 'graph_update_task': {
+            const { modifiedFiles } = request.params.arguments;
+            for (const file of modifiedFiles) {
+              const absPath = path.resolve(this.root, file);
+              if (fs.existsSync(absPath)) {
+                await this.scanner.scanFile(absPath, this.root);
+              }
+            }
+            await this.scanner.enrich(this.root);
+            return { content: [{ type: 'text', text: `Graph updated for ${modifiedFiles.length} files.` }] };
           }
 
           default:
@@ -158,13 +208,26 @@ class GraphMCPServer {
   }
 
   async run() {
+    if (this.mode === 'dev') {
+      console.error(`[Dev Mode] Initializing dev-graph at ${this.db.dbPath}`);
+      // Index SPEC.md if it exists
+      const specPath = path.join(this.root, '.dev/spec/SPEC.md');
+      if (fs.existsSync(specPath)) {
+        console.error(`[Dev Mode] Indexing SPEC.md...`);
+        await this.scanner.scanFile(specPath, this.root);
+      }
+      // Index src/ if not already done or for fresh start
+      console.error(`[Dev Mode] Scanning src/ directory...`);
+      await this.scanner.scanDirectory(path.join(this.root, 'src'), this.root);
+      console.error(`[Dev Mode] Enriching graph (LSP)...`);
+      await this.scanner.enrich(this.root);
+    }
+
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    console.error('Graph MCP Server running on stdio');
+    console.error(`Graph MCP Server (${this.mode}) running on stdio`);
   }
 }
 
 const server = new GraphMCPServer();
 server.run().catch(console.error);
-
-module.exports = server;

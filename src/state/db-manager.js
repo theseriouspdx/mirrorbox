@@ -69,7 +69,10 @@ class DBManager {
         type     TEXT NOT NULL,
         name     TEXT NOT NULL,
         path     TEXT NOT NULL,
-        metadata TEXT -- JSON blob
+        metadata TEXT, -- JSON blob
+        -- Virtual columns for performance indexing of coordinates
+        nameStartLine INTEGER GENERATED ALWAYS AS (json_extract(metadata, '$.nameStartLine')) VIRTUAL,
+        nameStartColumn INTEGER GENERATED ALWAYS AS (json_extract(metadata, '$.nameStartColumn')) VIRTUAL
       );
 
       CREATE TABLE IF NOT EXISTS edges (
@@ -84,6 +87,7 @@ class DBManager {
 
       CREATE INDEX IF NOT EXISTS idx_nodes_path ON nodes(path);
       CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type);
+      CREATE INDEX IF NOT EXISTS idx_nodes_coords ON nodes(path, nameStartLine, nameStartColumn);
       CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
     `);
 

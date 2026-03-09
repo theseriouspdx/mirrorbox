@@ -61,6 +61,52 @@ If implementation conflicts with spec, the spec wins. If the spec is wrong, stop
 
 ---
 
+## Section 5 — Session Management & Two-World Integrity
+
+This section defines the mandatory protocols for maintaining isolation between the Mirror (Local) and Subject (Target) environments, as well as the requirements for state persistence and recovery.
+
+### Invariant 10 (Two-World Isolation)
+- Every operation shall explicitly declare its target scope: `world_id = mirror | subject`.
+- Read operations may span both worlds for context; write operations must target exactly one world.
+- Any operation with a missing, ambiguous, or invalid `world_id` is a hard failure and must be aborted.
+
+### Invariant 11 (Graph-Based Investigation)
+- All research and retrieval shall follow a mandatory 4-step loop:
+  1. **Intent:** Define the specific query goal.
+  2. **Expansion:** Use `graph_search` to identify relevant entry points.
+  3. **Evidence:** Use `graph_query_impact` and `read_file` to gather structural proof.
+  4. **Deepen:** Resolve dependencies or callers to finalize context.
+- Full `SPEC.md` or bulk file-dump context injection is prohibited by default. Retrieval must be targeted and graph-justified.
+
+### Invariant 12 (HardState Budget)
+- The `HardState` header shall not exceed a 5,000-token ceiling (Section 13).
+- **Allocation:**
+  - 600 tokens: Invariants and active objective.
+  - 1,800 tokens: Evidence (graph results/code snippets).
+  - 1,200 tokens: Prior decisions and session summary.
+  - 900 tokens: Active reasoning/strategy.
+  - 500 tokens: Reserve/Safety buffer.
+- Governance invariants and the Prime Directive are non-evictable and shall never be truncated.
+
+### Invariant 13 (Pre-Mutation Checkpoints)
+- An immutable checkpoint must be created before any mutation occurs in either the `mirror` or `subject` worlds.
+- Every checkpoint shall include a content hash and a reference to the parent event ID in the Event Store.
+
+### Invariant 15 (Non-Destructive Recovery)
+- Destructive recovery patterns, including `rm -f` of databases or `DROP/CREATE` schema resets, are strictly prohibited.
+- Recovery shall only be achieved through forward migration, compatibility adapters, event replay, or rolling back to a verified checkpoint.
+
+### Invariant 16 (Atomic Session-End Backup)
+- On session closure, the orchestrator shall atomically persist the following:
+  - Event Store flush.
+  - Intelligence Graph delta and index update.
+  - Handoff record (`NEXT_SESSION.md`).
+  - Active checkpoint IDs and integrity hashes.
+- A `PRAGMA integrity_check` must be executed as part of the backup validation.
+- The session shall be explicitly marked as `closed_clean` or `closed_with_incident` in the handoff metadata.
+
+---
+
 ## Section 6 — Proactive State Sync & Session Protocols
 
 The human acts as the approval gate and reconciliation point, not the workflow engine.

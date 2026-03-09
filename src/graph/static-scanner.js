@@ -41,6 +41,12 @@ class StaticScanner {
 
   async scanFile(filePath, projectRoot) {
     const ext = path.extname(filePath);
+    
+    if (ext === '.md') {
+      await this.scanMarkdown(filePath, projectRoot);
+      return;
+    }
+
     const parser = this.parsers[ext];
     if (!parser) return;
 
@@ -54,6 +60,16 @@ class StaticScanner {
     if (existingNode && existingNode.metadata?.content_hash === contentHash) {
       return; // Skip re-scanning unchanged file
     }
+
+    // Finding #5: Purge stale symbol nodes and edges owned by this file before re-scan
+    this.graphStore.db.transaction(() => {
+      // Delete edges where this file is the source (DEFINES, IMPORTS, etc.)
+      this.graphStore.db.run("DELETE FROM edges WHERE source_id = ?", [fileId]);
+      // Delete edges where a child symbol of this file is the source (CALLS)
+      this.graphStore.db.run("DELETE FROM edges WHERE source_id IN (SELECT id FROM nodes WHERE path = ? AND type != 'file')", [relativePath]);
+      // Delete the symbols themselves
+      this.graphStore.db.run("DELETE FROM nodes WHERE path = ? AND type != 'file'", [relativePath]);
+    });
 
     const tree = parser.parse(content);
 
@@ -73,6 +89,66 @@ class StaticScanner {
     this.extractImports(tree.rootNode, fileId);
   }
 
+  async scanMarkdown(filePath, projectRoot) {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const relativePath = path.relative(projectRoot, filePath);
+    const fileId = `file://${relativePath}`;
+
+    const contentHash = crypto.createHash('sha256').update(content).digest('hex');
+    const existingNode = this.graphStore.getNode(fileId);
+    if (existingNode && existingNode.metadata?.content_hash === contentHash) {
+      return;
+    }
+
+    // Finding #5: Purge stale spec sections
+    this.graphStore.db.transaction(() => {
+      this.graphStore.db.run("DELETE FROM edges WHERE source_id = ?", [fileId]);
+      this.graphStore.db.run("DELETE FROM nodes WHERE path = ? AND type = 'spec_section'", [relativePath]);
+    });
+
+    this.graphStore.upsertNode({
+      id: fileId,
+      type: 'file',
+      name: path.basename(filePath),
+      path: relativePath,
+      metadata: {
+        size: content.length,
+        content_hash: contentHash,
+        last_modified: Date.now()
+      }
+    });
+
+    const lines = content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Match ## Section or ### Sub-header
+      const match = line.match(/^(#{2,3})\s+(.*)/);
+      if (match) {
+        const level = match[1].length;
+        const title = match[2].trim();
+        const sectionId = `${fileId}#${title.replace(/\s+/g, '-')}`;
+
+        this.graphStore.upsertNode({
+          id: sectionId,
+          type: 'spec_section',
+          name: title,
+          path: relativePath,
+          metadata: {
+            level,
+            startLine: i
+          }
+        });
+
+        this.graphStore.upsertEdge({
+          source_id: fileId,
+          target_id: sectionId,
+          relation: 'DEFINES',
+          source: 'static'
+        });
+      }
+    }
+  }
+
   extractSymbols(rootNode, fileId, relativePath) {
     const walk = (node) => {
       if (
@@ -83,7 +159,8 @@ class StaticScanner {
         const nameNode = node.childForFieldName('name') || node.children.find(c => c.type === 'identifier');
         if (nameNode) {
           const name = nameNode.text;
-          const symbolId = `${fileId}#${name}`;
+          // Finding #4: Identifier-level uniqueness for symbol IDs
+          const symbolId = `${fileId}#${name}@${nameNode.startPosition.row}:${nameNode.startPosition.column}`;
 
           this.graphStore.upsertNode({
             id: symbolId,
@@ -91,10 +168,13 @@ class StaticScanner {
             name: name,
             path: relativePath,
             metadata: {
-              start: node.startPosition,
-              end: node.endPosition,
-              startLine: node.startPosition.row,
-              startColumn: node.startPosition.column
+              // Store the identifier's specific coordinates for LSP matching
+              nameStartLine: nameNode.startPosition.row,
+              nameStartColumn: nameNode.startPosition.column,
+              // Keep block coordinates for scope analysis
+              blockStartLine: node.startPosition.row,
+              blockEndLine: node.endPosition.row,
+              content_hash: crypto.createHash('sha256').update(node.text).digest('hex')
             }
           });
 
@@ -153,8 +233,8 @@ class StaticScanner {
       name: importPath,
       path: importPath,
       metadata: {
-        startLine: position ? position.row : 0,
-        startColumn: position ? position.column : 0
+        nameStartLine: position ? position.row : 0,
+        nameStartColumn: position ? position.column : 0
       }
     });
 
@@ -205,22 +285,32 @@ class StaticScanner {
     }
 
     const clients = new Map();
+    const missingLSPs = new Set();
 
     for (const [filePath, fileNodes] of nodesByFile) {
       const ext = path.extname(filePath);
       const lang = ext === '.py' ? 'python' : (ext === '.ts' || ext === '.tsx' ? 'typescript' : 'javascript');
       
       if (!clients.has(lang)) {
+        if (missingLSPs.has(lang)) continue;
+
         const cmd = detectServer(lang);
         if (!cmd) {
-          console.warn(`[WARN] No LSP server found for ${lang}`);
+          console.warn(`[WARN] No LSP server found for ${lang}. Cross-file enrichment skipped for ${lang} files.`);
+          missingLSPs.add(lang);
           clients.set(lang, null);
           continue;
         }
         // R-05: Ephemeral instances per task handled by scan lifecycle.
         const client = new LSPClient(lang, cmd, ['--stdio'], projectRoot);
-        await client.start();
-        clients.set(lang, client);
+        try {
+          await client.start();
+          clients.set(lang, client);
+        } catch (err) {
+          console.error(`[ERROR] Failed to start LSP server for ${lang}:`, err.message);
+          missingLSPs.add(lang);
+          clients.set(lang, null);
+        }
       }
 
       const client = clients.get(lang);
@@ -231,17 +321,23 @@ class StaticScanner {
       
       for (const node of fileNodes) {
         const metadata = JSON.parse(node.metadata || '{}');
-        const { startLine, startColumn } = metadata;
+        const { nameStartLine, nameStartColumn } = metadata;
         
         if (node.type === 'placeholder') {
-          // Resolve Imports using stored position metadata (R-04)
-          const def = await client.resolveDefinition(absPath, startLine, startColumn);
+          // Finding #1: Robust warmup retries
+          let def = null;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            def = await client.resolveDefinition(absPath, nameStartLine, nameStartColumn);
+            if (def) break;
+            await new Promise(r => setTimeout(r, 500));
+          }
+
           if (def) {
             const targetRelPath = path.relative(projectRoot, fileURLToPath(def.targetUri));
-            // Robust metadata search using json_extract (Issue 6)
+            // Finding #2: Robust metadata search using virtual columns for indexed performance
             const targetNode = this.graphStore.db.get(
-              "SELECT id FROM nodes WHERE path = ? AND json_extract(metadata, '$.startLine') = ?", 
-              [targetRelPath, def.targetRange.start.line]
+              "SELECT id FROM nodes WHERE path = ? AND nameStartLine = ? AND nameStartColumn = ?", 
+              [targetRelPath, def.targetRange.start.line, def.targetRange.start.character]
             );
             if (targetNode) {
               const edge = this.graphStore.db.get("SELECT source_id FROM edges WHERE target_id = ? AND relation = 'IMPORTS'", [node.id]);
@@ -251,14 +347,21 @@ class StaticScanner {
             }
           }
         } else {
-          // Call Hierarchy using stored position metadata (R-04)
-          const calls = await client.getCallHierarchy(absPath, startLine, startColumn);
+          // Finding #1: Robust warmup retries
+          let calls = null;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            calls = await client.getCallHierarchy(absPath, nameStartLine, nameStartColumn);
+            if (calls && (calls.incoming.length > 0 || calls.outgoing.length > 0)) break;
+            await new Promise(r => setTimeout(r, 500));
+          }
+
           if (calls && calls.outgoing) {
             for (const out of calls.outgoing) {
               const targetRelPath = path.relative(projectRoot, fileURLToPath(out.to.uri));
+              // Finding #2: Robust metadata search using virtual columns for indexed performance
               const targetNode = this.graphStore.db.get(
-                "SELECT id FROM nodes WHERE path = ? AND json_extract(metadata, '$.startLine') = ?",
-                [targetRelPath, out.to.selectionRange.start.line]
+                "SELECT id FROM nodes WHERE path = ? AND nameStartLine = ? AND nameStartColumn = ?",
+                [targetRelPath, out.to.selectionRange.start.line, out.to.selectionRange.start.character]
               );
               if (targetNode) {
                 this.graphStore.upsertEdge({

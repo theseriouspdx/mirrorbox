@@ -14,6 +14,15 @@ const {
   CallHierarchyOutgoingCallsRequest
 } = require('vscode-languageserver-protocol');
 
+// Axis 2: Orphan Process Prevention Registry
+const activeLSPProcesses = new Set();
+
+process.on('exit', () => {
+  for (const proc of activeLSPProcesses) {
+    try { proc.kill('SIGKILL'); } catch (e) {}
+  }
+});
+
 class LSPClient {
   constructor(language, serverCommand, serverArgs = [], projectRoot) {
     this.language = language;
@@ -25,6 +34,7 @@ class LSPClient {
     this.isReady = false;
     this.readyPromise = null;
     this.resolveReady = null;
+    this.initStatus = 'uninitialized';
   }
 
   registerWithWatchdog() {
@@ -37,6 +47,9 @@ class LSPClient {
       stdio: ['pipe', 'pipe', 'inherit']
     });
 
+    activeLSPProcesses.add(this.serverProcess);
+    this.serverProcess.on('exit', () => activeLSPProcesses.delete(this.serverProcess));
+
     this.connection = rpc.createMessageConnection(
       new rpc.StreamMessageReader(this.serverProcess.stdout),
       new rpc.StreamMessageWriter(this.serverProcess.stdin)
@@ -45,12 +58,11 @@ class LSPClient {
     this.connection.listen();
     this.registerWithWatchdog();
 
+    // Enhanced state monitoring
     this.connection.onNotification('$/progress', (params) => {
       if (params.value && params.value.kind === 'end') {
         this.isReady = true;
-        if (this.resolveReady) {
-          this.resolveReady();
-        }
+        if (this.resolveReady) this.resolveReady();
       }
     });
 
@@ -72,10 +84,15 @@ class LSPClient {
     };
 
     try {
+      this.initStatus = 'initializing';
       await this.connection.sendRequest(InitializeRequest.type, initParams);
       this.connection.sendNotification(InitializedNotification.type, {});
-      await this.waitForReady();
+      this.initStatus = 'initialized';
+      // Axis 2: Don't block indefinitely on $/progress. 
+      // Many servers (vtsls) are ready immediately after initialized.
+      await this.waitForReady(5000); 
     } catch (err) {
+      this.initStatus = 'failed';
       console.warn(`[LSP:${this.language}] Initialization failed:`, err.message);
     }
   }
@@ -85,9 +102,9 @@ class LSPClient {
     this.readyPromise = new Promise((resolve) => {
       this.resolveReady = resolve;
       setTimeout(() => {
-        if (!this.isReady) {
-          resolve();
-        }
+        // Fallback: Assume ready if timeout reached to prevent blocking Harvester
+        this.isReady = true; 
+        resolve();
       }, timeoutMs);
     });
     return this.readyPromise;

@@ -9,8 +9,24 @@
   - Exposed 5 tools via `StdioServerTransport`: `graph_query_impact`, `graph_query_callers`, `graph_query_dependencies`, `graph_query_coverage`, `graph_search`.
   - Integrated `@modelcontextprotocol/sdk` (Node.js).
   - Created `scripts/test-mcp-server.js` for tool verification.
+- **0.4B-03**: Implemented SPEC.md indexing.
+  - Added `scanMarkdown` to `StaticScanner` for regex-based header extraction (## Section, ### Sub-header).
+  - Indexed headers as `spec_section` nodes with `DEFINES` edges from the file node.
+  - Created `test-spec-indexing.js` for verification.
+- **0.4B-04**: Coordinate Precision and Integrity Refactoring.
+  - Updated `src/graph/static-scanner.js` to capture identifier-level coordinates (`nameStartLine`, `nameStartColumn`).
+  - Updated `enrich` logic to use both line and column for precise LSP symbol matching, preventing same-line collisions.
+  - Implemented **Stale Symbol Purge** (Adversarial Finding #5): `scanFile` now purges all existing nodes/edges owned by a file before re-scanning.
+  - Exposed `graph_update_task` MCP tool for incremental graph updates after task completion.
+- **0.4B-05**: No-LSP Fallback and Robustness.
+  - Implemented **Robust Warmup** (Adversarial Finding #1): Added 3-attempt retry loop with 500ms backoff for LSP requests during indexing.
+  - Implemented graceful detection and user notification for missing LSP servers.
+  - Implemented global process registry in `LSPClient` to prevent orphan child servers.
+  - Added `SIGTERM` and `uncaughtException` handlers to `mcp-server.js`.
 #### Changed
-- **GraphStore**: Added dedicated `getCoverage(nodeId)` method for tool consistency.
+- **GraphStore**: Fixed Invariant 7 (Adversarial Finding #3) — `upsertEdge` now prevents `static` scan from overwriting `runtime` source.
+- **GraphStore**: Improved `getGraphQueryResult` subsystem heuristic and ID formatting for Section 13 compliance.
+- **DBManager**: Added virtual columns and index (`idx_nodes_coords`) for coordinate-based symbol lookups.
 - **Dependencies**: Added `@modelcontextprotocol/sdk` to `package.json`.
 
 ---

@@ -26,11 +26,15 @@ class GraphStore {
   upsertEdge(edge) {
     const { source_id, target_id, relation, source } = edge;
 
+    // Section 22 Invariant 7: Ensure static edges do not overwrite runtime edges.
     this.db.run(`
       INSERT INTO edges (source_id, target_id, relation, source)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(source_id, target_id, relation) DO UPDATE SET
-        source = excluded.source
+        source = CASE 
+          WHEN edges.source = 'runtime' THEN 'runtime'
+          ELSE excluded.source 
+        END
     `, [source_id, target_id, relation, source]);
   }
 
@@ -121,16 +125,20 @@ class GraphStore {
     const dependencies = this.getDependencies(nodeId);
     const coveringTests = this.getCoverage(nodeId);
 
-    // Simple subsystem heuristic: first directory under src/ or root
+    // Section 13: Improved subsystem heuristic
+    // Identifies the top-level directory of the node's file.
     const extractSubsystem = (p) => {
       const parts = p.split('/');
-      return parts[0] === 'src' ? parts[1] : parts[0];
+      if (parts.length > 1) {
+        return parts[0] === 'src' ? parts[1] : parts[0];
+      }
+      return 'root';
     };
 
+    const affectedNodes = impact.map(edge => this.getNode(edge.id)).filter(n => n !== null);
     const affectedFiles = [...new Set(
-      impact
-        .map(edge => this.getNode(edge.id))
-        .filter(n => n && n.type === 'file')
+      affectedNodes
+        .filter(n => n.type === 'file' || n.type === 'function' || n.type === 'class')
         .map(n => n.path)
     )];
 
