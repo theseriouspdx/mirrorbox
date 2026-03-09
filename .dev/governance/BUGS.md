@@ -41,14 +41,14 @@
 - **Severity:** P1 — spec does not document what code now implements
 - **Description:** The chain-linked hash envelope (implemented in BUG-024 fix) includes `seq` in the canonical JSON object, but `seq` does not appear in the Event interface schema in SPEC.md. Spec must be updated to match the implementation.
 - **Fix required:** Add `seq: number` to Event interface in SPEC.md Section 7. Apply as part of PRE-0.4-01.
-- **Status:** OPEN
+- **Status:** COMPLETED — seq: number and prev_hash: string | null added to Event interface in SPEC.md.
 
 ### BUG-028: MCP server implementation decision unresolved — blocks 0.4A
 - **Location:** SPEC.md Section 6 (MCP Server Interface)
 - **Severity:** P1 — blocks 0.4A; no library or framework evaluated
 - **Description:** Section 6 requires an MCP server exposing five tools. Build-vs-buy decision open: `@modelcontextprotocol/sdk` vs hand-rolled JSON-RPC vs stdio transport. Must be resolved before 0.4 code starts.
 - **Fix required:** Research spike before 0.4 begins. Document decision in SPEC.md Section 6. Task: PRE-0.4-02.
-- **Status:** OPEN
+- **Status:** COMPLETED — @modelcontextprotocol/sdk selected and documented in Section 6.
 
 ---
 

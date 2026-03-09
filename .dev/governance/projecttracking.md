@@ -1,16 +1,12 @@
 # projecttracking.md
 ## Mirror Box Orchestrator — Build Tracking
 
-**Current Milestone:** 0.3 — State + Event Foundation [SUCCESS]
-**Next Action:** PRE-0.4-01 — Apply off-the-shelf audit diff to SPEC.md
+**Current Milestone:** PRE-0.4 — Spec Corrections [IN PROGRESS]
+**Next Action:** PRE-0.4-02 — MCP server research spike
 
 ---
 
 ## NEXT ACTION
-
-**PRE-0.4-01** — Apply off-the-shelf audit diff to SPEC.md (0.4A/0.4B split, seq field, redaction note, callModel schema validation note)
-- Reason: SPEC.md Section 7 is missing `seq` field; Section 14/15 needs refinement for 0.4 split.
-- Status: OPEN
 
 **PRE-0.4-02** — MCP server research spike: evaluate @modelcontextprotocol/sdk vs alternatives; document in SPEC.md Section 6
 - Status: OPEN
@@ -26,7 +22,8 @@
 | 0.2 | Auth + Model Routing | CLI detection, OpenRouter, local models |
 | 0.3 | State + Event Foundation | SQLite schema, Event Store, mirrorbox.db |
 | PRE-0.4 | Spec Correction | Off-the-shelf audit diff + open decisions before 0.4 code |
-| 0.4 | Intelligence Graph | Tree-sitter + LSP, MCP server, graph queries |
+| 0.4A | Intelligence Graph (Skeleton) | Tree-sitter integration, static nodes/edges |
+| 0.4B | Intelligence Graph (Enrichment) | LSP integration, cross-file calls, MCP tools |
 | 0.5 | callModel + Firewall | All model calls through one function, XML firewall |
 | 0.6 | Operator + Session | Classification, routing, context management |
 | 0.7 | DID Pipeline (no execution) | Stages 1–5, all gates, tiebreaker, human approval |
@@ -62,8 +59,8 @@
 
 | ID | Task | Status |
 |----|------|--------|
-| PRE-0.4-01 | Apply off-the-shelf audit diff to SPEC.md (0.4A/0.4B split, seq field, redaction note, callModel schema validation note) | OPEN |
-| PRE-0.4-02 | MCP server research spike: evaluate @modelcontextprotocol/sdk vs alternatives; document in SPEC.md Section 6 | OPEN |
+| PRE-0.4-01 | Apply off-the-shelf audit diff to SPEC.md (0.4A/0.4B split, seq field, redaction note, callModel schema validation note) | COMPLETED |
+| PRE-0.4-02 | MCP server research spike: evaluate @modelcontextprotocol/sdk vs alternatives; document in SPEC.md Section 6 | COMPLETED |
 
 ---
 

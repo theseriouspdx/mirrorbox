@@ -3,6 +3,20 @@
 
 ---
 
+### [0.3.1] — 2026-03-08
+#### Fixed
+- **BUG-027**: Added `seq: number` and `prev_hash: string | null` to Event interface in SPEC.md.
+#### Changed
+- **SPEC.md**: Documented `chain_anchors` table and hash verification envelope in Section 7.
+- **SPEC.md**: Split Milestone 0.4 into 0.4A (Skeleton) and 0.4B (Enrichment) in Appendix A.
+- **SPEC.md**: Added Skeleton Graph Safety Invariant to Section 8.
+- **SPEC.md**: Added Redaction Gate and Schema Validation to Section 10 Enforcement.
+- **SPEC.md**: Documented implementation decision for Intelligence Graph MCP server (`@modelcontextprotocol/sdk`).
+- **AGENTS.md**: Mandated DID protocol for all modifications to SPEC.md, AGENTS.md, or the governance directory in Section 2.
+- **PRE-0.4-02**: Completed MCP server research spike. Documented rationale for using official SDK in Section 6.
+
+---
+
 ### [0.3.0] — 2026-03-08
 #### Added
 - **0.3-01**: Implemented Radius One State and Event Foundation.

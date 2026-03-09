@@ -466,7 +466,15 @@ After every successful task, only the files touched by the patch generator are r
 
 The Intelligence Graph exposes an MCP (Model Context Protocol) server. Any model in the pipeline — Claude, Gemini, local models — queries the graph directly through the standardized MCP interface. No custom query layer per model. No bespoke integration work per provider.
 
-This is the integration path for future tooling. If another agent, IDE extension, or AI assistant speaks MCP, it can query the graph without any changes to the orchestrator.
+**Implementation Decision:** The orchestrator uses the official `@modelcontextprotocol/sdk` (Node.js) to implement the server. 
+
+**Rationale:**
+- **Standardization:** Using the official SDK ensures full compliance with the JSON-RPC 2.0 based MCP specification.
+- **Robustness:** The SDK handles stdio transport framing, handshake protocols, and schema registration out of the box.
+- **Extensibility:** Provides a clean path to add `resources` (e.g., raw file views) and `prompts` (e.g., graph-aware planning templates) in future milestones.
+- **Tooling Support:** Enables the use of the MCP Inspector and other ecosystem tools for debugging.
+
+**Transport:** The server uses `StdioServerTransport` for communication with pipeline agents.
 
 **MCP tools exposed:**
 
@@ -497,15 +505,43 @@ The Event Store records every pipeline action. It is append-only. No event is ev
 ```typescript
 interface Event {
   id: string;               // UUID
+  seq: number;              // Monotonic sequence ID per timestamp
   timestamp: number;        // Unix ms
   stage: PipelineStage;
   actor: AgentRole;
   payload: unknown;         // stage-specific structured data
-  hash: string;             // SHA-256 of payload
-  parentEvent: string;      // id of preceding event
+  hash: string;             // SHA-256(JSON.stringify({ id, timestamp, seq, payload, prev_hash }))
+  prev_hash: string | null; // Hash of preceding event in chain
+  parentEvent: string;      // id of preceding event (logical causality link)
   signature?: string;       // reserved for future signing
 }
-```
+
+### Event Verification Envelope
+
+The event store implements a chain-linked hash envelope. Each event commits to its predecessor's hash, making silent deletion or reordering detectable.
+
+**Table: `events`**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | TEXT (PK) | UUID |
+| `timestamp` | INTEGER | Unix ms |
+| `seq` | INTEGER | Monotonic sequence |
+| `stage` | TEXT | Pipeline stage |
+| `actor` | TEXT | Role |
+| `payload` | TEXT | JSON string (redacted) |
+| `hash` | TEXT | Chained hash |
+| `prev_hash` | TEXT | Previous event hash |
+
+**Table: `chain_anchors`**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER (PK) | Constant (1) |
+| `last_hash` | TEXT | Most recent valid hash |
+| `last_seq` | INTEGER | Most recent sequence ID |
+
+### Events Recorded
 
 ### Events Recorded
 
@@ -567,6 +603,8 @@ Single property, single file, no dependencies, no tests affected. **Tier 0 is on
 The operator queries the graph: does anything call this, import this, or depend on this? If the answer is no AND the file is safelisted, the change is made directly without spinning up any additional agents.
 
 **Safety Invariant:** New files never qualify for Tier 0. Any task involving file creation is Tier 1 minimum to ensure structural review of the new node in the Intelligence Graph.
+
+**Skeleton Graph Safety Invariant:** If `graphCompleteness === 'skeleton'` (Milestone 0.4A), Tier 0 routing is disabled and all tasks route Tier 1 minimum. Full blast radius routing is only enabled after LSP enrichment (Milestone 0.4B).
 
 Examples: CSS color value in `styles/`, a config string in `i18n/`, a copy change in a leaf component.
 
@@ -713,6 +751,8 @@ All model calls go through a single function: `callModel(role, prompt, context)`
 1. Wraps all `context` entries in `<PROJECT_DATA>` tags with appropriate `type` and `path`
 2. Prepends the firewall directive to the system prompt
 3. Validates that no `<PROJECT_DATA>` content appears outside the designated context section
+4. **Redaction Gate:** Scans the assembled prompt and all context payloads for secret signatures (API keys, tokens, passwords, private keys, connection strings) before any content is logged to the Event Store or sent to the model. Detected secrets are replaced with `[REDACTED:{type}]` tokens.
+5. **Schema Validation:** Validates that the model response conforms to the expected output schema for the given role (e.g., `Classification`, `ExecutionPlan`, `ReviewerOutput`). A response that does not parse against the expected schema is treated as a malformed output per Section 19 retry policy.
 
 No model call may bypass `callModel`. Direct API calls are a code-level violation.
 
@@ -1578,12 +1618,24 @@ New features go through the orchestrator. Bugs go through the orchestrator. You 
 - [ ] `mirrorbox.db` initialization and basic CRUD
 - [ ] State persistence across sessions
 
-**Milestone 0.4 — Intelligence Graph**  
-- [ ] Graph constructs from a real codebase (test on johnseriouscom)
-- [ ] Basic query capability: "what calls X", "what does X import"
-- [ ] Graph query results format correctly as `GraphQueryResult`
-- [ ] Graph updates after successful task
-- [ ] Tree-sitter + LSP integration
+**Milestone 0.4A — Intelligence Graph: Tree-sitter Skeleton**
+- [ ] Tree-sitter Node bindings installed and functional
+- [ ] `nodes` table populated from Tree-sitter scan of a real codebase (test on johnseriouscom)
+- [ ] `edges` table populated with `DEFINES` and `IMPORTS` relations from static analysis
+- [ ] `graph_query_impact` returns correct results for file-level queries (no LSP dependency)
+- [ ] Incremental re-scan works: only modified files re-scanned after a patch
+- [ ] MCP server exposes `graph_search` and `graph_query_impact` over stdio transport
+- [ ] BUG-028 resolved: MCP server library decision documented in Section 6 (PRE-0.4-02)
+
+**Milestone 0.4B — Intelligence Graph: LSP Enrichment**
+- [ ] LSP client library integrated (decision from PRE-0.4-02 research spike)
+- [ ] Language server auto-detection: TypeScript, JavaScript, Python at minimum
+- [ ] `edges` table enriched with `CALLS` relations from LSP call graph
+- [ ] Cross-file import resolution working via LSP `textDocument/definition`
+- [ ] `graph_query_callers` and `graph_query_dependencies` return correct cross-file results
+- [ ] `graph_query_coverage` populated after test coverage ingestion
+- [ ] Runtime edge enrichment path stubbed (implemented in 0.8 Sandbox milestone)
+- [ ] Full MCP server: all five tools operational (`graph_query_impact`, `graph_query_callers`, `graph_query_dependencies`, `graph_query_coverage`, `graph_search`)
 
 **Milestone 0.5 — callModel + Firewall**  
 - [ ] Unified `callModel` function implementation
