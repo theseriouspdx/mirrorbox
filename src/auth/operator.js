@@ -11,6 +11,20 @@ const eventStore = require('../state/event-store');
  * The persistent session anchor. Classification, routing, and context management.
  */
 class Operator {
+  // Context window sizes by model (tokens). Used when config doesn't specify.
+  static CONTEXT_WINDOWS = {
+    'claude-opus-4':           200000,
+    'claude-3.7-sonnet':       200000,
+    'claude-3.5-sonnet':       200000,
+    'gemini-2.0-pro':          1000000,
+    'gemini-pro-1.5':          1000000,
+    'gpt-4o':                  128000,
+    'qwen2.5-coder-7b':        32768,
+    'deepseek-coder-v2':       32768,
+    'ollama':                  4096,   // conservative fallback for unknown local models
+    'default':                 32000,
+  };
+
   constructor(mode = 'runtime') {
     this.mode = mode;
     this.sessionHistory = [];
@@ -25,7 +39,31 @@ class Operator {
     this.mcpServer = null;
     this.messageId = 1;
     this.mcpCallbacks = new Map();
-    this.contextThreshold = 0.8; // Section 11/18
+    this.contextThreshold = 0.8;      // Section 8: configurable via operatorContextThreshold
+    this.activeModelWindow = null;    // set after routeModels() resolves, see _loadModelWindow()
+  }
+
+  /**
+   * Reads the operator's model window size from routing config.
+   * Falls back to a conservative 32k if the model is unknown.
+   * Called once after MCP start when providers are known.
+   */
+  async _loadModelWindow() {
+    try {
+      const { routingMap } = await (require('./model-router').routeModels());
+      const operatorConfig = routingMap['classifier'] || routingMap['architecturePlanner'];
+      if (operatorConfig) {
+        const modelName = operatorConfig.model || 'default';
+        this.activeModelWindow =
+          Operator.CONTEXT_WINDOWS[modelName] ||
+          Operator.CONTEXT_WINDOWS['default'];
+      } else {
+        this.activeModelWindow = Operator.CONTEXT_WINDOWS['default'];
+      }
+    } catch {
+      this.activeModelWindow = Operator.CONTEXT_WINDOWS['default'];
+    }
+    console.error(`[Operator] Context window set to ${this.activeModelWindow} tokens (threshold: ${Math.floor(this.activeModelWindow * this.contextThreshold)})`);
   }
 
   /**
@@ -69,6 +107,7 @@ class Operator {
       clientInfo: { name: 'mbo-operator', version: '1.0.0' }
     });
     this.sendMCPNotification('notifications/initialized', {});
+    await this._loadModelWindow();
   }
 
   sendMCPNotification(method, params) {
@@ -118,23 +157,39 @@ class Operator {
       primeDirective: this.getPrimeDirective()
     };
 
-    // Placeholder for callModel implementation
-    // For now, use the contract schema but simulate response until callModel is wired to providers
-    const classification = await callModel('classifier', userMessage, input);
+    const prompt = `Classify this user request into a JSON object following this schema:
+{
+  "route": "inline" | "analysis" | "standard" | "complex",
+  "risk": "low" | "medium" | "high",
+  "complexity": 1 | 2 | 3,
+  "files": string[],
+  "rationale": string,
+  "confidence": number
+}
 
-    if (classification !== "Response placeholder" && classification.confidence < 0.6) {
-      return {
-        needsClarification: true,
-        rationale: classification.rationale,
-        confidence: classification.confidence
-      };
-    }
+User request: "${userMessage}"
 
-    if (classification === "Response placeholder") {
+Return ONLY the JSON object. Do not provide conversational filler.`;
+
+    const response = await callModel('classifier', prompt, input);
+
+    try {
+      // Robust JSON extraction in case model wraps in markdown
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      const classification = JSON.parse(jsonMatch ? jsonMatch[0] : response);
+      
+      if (classification.confidence < 0.6) {
+        return {
+          needsClarification: true,
+          rationale: classification.rationale,
+          confidence: classification.confidence
+        };
+      }
+      return classification;
+    } catch (e) {
+      console.error(`[Operator] Model classification parse error: ${e.message}. Falling back to heuristic.`);
       return this._heuristicClassifier(userMessage);
     }
-
-    return classification;
   }
 
   _heuristicClassifier(userMessage) {
@@ -156,8 +211,9 @@ class Operator {
       risk,
       complexity,
       files,
-      rationale: "Heuristic classification (callModel placeholder active).",
-      confidence: 0.8
+      rationale: "Heuristic classification (callModel fallback or placeholder).",
+      confidence: 0.8,
+      _source: 'heuristic' // internal tag for event logging
     };
   }
 
@@ -181,9 +237,11 @@ class Operator {
           const nodeId = `file://${path.resolve(process.cwd(), file)}`;
           const impactResult = await this.callMCPTool('graph_query_impact', { nodeId });
           
-          if (impactResult && impactResult.content) {
+          if (impactResult && impactResult.content && impactResult.content[0]) {
             const impact = JSON.parse(impactResult.content[0].text);
-            blastRadius.push(...(impact.affectedFiles || []));
+            if (impact && impact.affectedFiles) {
+              blastRadius.push(...impact.affectedFiles);
+            }
           }
         } catch (e) {
           console.error(`[Operator] Impact query failed for ${file}:`, e.message);
@@ -242,8 +300,9 @@ class Operator {
    * Summarizes at 80% threshold.
    */
   async checkContextLifecycle() {
-    const estimatedTokens = JSON.stringify(this.sessionHistory).length / 4; // Crude heuristic
-    if (estimatedTokens > 100000 * this.contextThreshold) { // Assume 128k window
+    const window = this.activeModelWindow || Operator.CONTEXT_WINDOWS['default'];
+    const estimatedTokens = JSON.stringify(this.sessionHistory).length / 4;
+    if (estimatedTokens > window * this.contextThreshold) {
       await this.summarizeSession();
     }
   }
@@ -252,10 +311,6 @@ class Operator {
     console.error(`[Operator] Context threshold reached. Summarizing session...`);
     const condensedCount = this.sessionHistory.length;
     const summary = await callModel('operator', 'Summarize the preceding session history into 2000 tokens.', this.sessionHistory);
-    if (summary === "Response placeholder") {
-      this.stateSummary.progressSummary = "[Context summarized — callModel placeholder active]";
-      return;
-    }
     this.sessionHistory = [{ role: 'system', content: summary }];
     this.stateSummary.progressSummary = summary.substring(0, 200);
     console.error(`[CONTEXT RESET] Session summarized at ${new Date().toISOString()}. ${condensedCount} messages condensed.`);
@@ -273,18 +328,27 @@ class Operator {
 
     const routing = await this.determineRouting(classification);
 
-    eventStore.append('CLASSIFICATION', 'operator', { classification, routing });
+    // Distinguish heuristic vs. model-derived classifications in the audit trail
+    const classificationSource = classification._source === 'heuristic' ? 'CLASSIFICATION_HEURISTIC' : 'CLASSIFICATION';
+    const { _source, ...cleanClassification } = classification;
+    eventStore.append(classificationSource, 'operator', { classification: cleanClassification, routing });
 
     this.stateSummary.currentStage = 'classification';
-    this.stateSummary.filesInScope = classification.files;
+    this.stateSummary.filesInScope = cleanClassification.files;
     stateManager.snapshot(this.stateSummary);
 
-    return { classification, routing };
+    return { classification: cleanClassification, routing };
   }
 
   async shutdown() {
     if (this.mcpServer) {
+      // Reject any in-flight MCP requests before killing the process
+      for (const [id, cb] of this.mcpCallbacks) {
+        cb.reject(new Error('MBO shutdown — MCP server terminating'));
+      }
+      this.mcpCallbacks.clear();
       this.mcpServer.kill();
+      this.mcpServer = null;
     }
   }
 }
