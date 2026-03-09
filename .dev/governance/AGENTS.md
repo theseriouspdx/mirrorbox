@@ -18,9 +18,21 @@ No code is written before this sequence completes.
 
 ### Section 1.5 — MCP Server
 
-The MCP server starts automatically. Do not start it manually. Do not verify the PID file.
+The MCP server starts automatically via CLI client config. Do not start it manually under normal conditions. Do not verify the PID file.
 
-The first graph query in Section 11 confirms MCP is reachable. If it fails, fall back to full SPEC.md load.
+The first graph query in Section 11 confirms MCP is reachable. If it fails, fall back to full SPEC.md load and continue — do not block work.
+
+**Known failure mode (BUG-044):** When a Gemini or Claude session pegs CPU (stuck node process), the MCP server becomes unresponsive without crashing. The supervisor does not restart it automatically. This will be resolved by a watchdog in Milestone 0.8. Until then:
+
+**Immediate manual recovery (one command):**
+```bash
+kill -9 $(ps aux | grep 'bin/gemini' | grep -v grep | awk '{print $2}')
+```
+Regular `kill` (SIGTERM) is ignored by a hung Gemini process. Always use `kill -9`. Then open a fresh Gemini terminal — MCP will auto-start.
+
+
+
+**Multi-agent rule:** Do not call `mbo-session-close.sh --terminate-mcp` unless you are the last active agent. Check `.dev/run/` for other live PID files first. Killing MCP while another agent is active drops their session.
 
 ---
 
@@ -157,15 +169,21 @@ Before this session proceeds, you must physically read the required governance f
 Report the following:
 
 "I have read the documents. Here is the proof of state:
-- AGENTS.md sections: [List the exact name of every NUMBERED section]. (Total: X)
-- BUGS.md sections: [List the exact name of every section]. (Total: Y)
-- NEXT_SESSION.md sections: [List the exact name of every section]. (Total: Z)
+- AGENTS.md sections: [List the exact name of every top-level integer section only — e.g. Section 1, Section 2. Do NOT count subsections like Section 1.5 or Section 8.1]. (Total: X)
+- BUGS.md sections: [List the exact name of every top-level integer section only]. (Total: Y)
+- NEXT_SESSION.md sections: [List the exact name of every top-level integer section only]. (Total: Z)
 
 Base nhash: (X+Y+Z) × 3 = [Base Result]
 
 I am ready for the verification salt."
 
 Wait for the human. The human will provide a multiplier. You must calculate (Base nhash × multiplier) and output the final result. Only after the human confirms the math may the session proceed.
+
+### Section 8.1 — Secrecy of State
+The `nhash` calculation and the resulting **Hard State Anchor** are transient secrets. 
+1. **No Persistence**: You MUST NOT document, persist, or commit the `nhash` calculation or its result in any file (including `NEXT_SESSION.md`, `CHANGELOG.md`, or `projecttracking.md`). 
+2. **One-Way Disclosure**: The `nhash` is reported only to the human Operator during the Section 8 affirmation. 
+3. **Hard State Only**: Once confirmed, the result exists only within the `[Hard State: X]` tag in your thinking blocks for the duration of the current session.
 
 ---
 
@@ -178,6 +196,7 @@ When proposing or writing code, agents must operate in Strict Mode:
 3. Do not suggest stylistic, linting, or "cleanliness" changes unless they fix a functional bug or improve performance by >10%.
 4. If no functional logic needs changing, return "NO_CHANGE" instead of rewriting.
 5. Never remove variable data from error strings (e.g., do not replace `${body}` with `'Unknown error'` unless the original caused a functional bug).
+6. No file of any kind — source, config, governance, scripts — is written, created, or modified without explicit human approval. Propose the change and wait. Do not proceed until the human approves. No exceptions.
 
 ---
 
@@ -237,8 +256,11 @@ Do NOT use any tool other than the five MCP tools listed above. Do NOT use codeb
 
 ### If the dev graph server is not running
 
-Fall back to full SPEC.md load and state: "Dev graph unavailable — loading full SPEC.md."
-Do not block work. Do not attempt to start the server without human instruction.
+Do NOT fall back to loading SPEC.md. Do NOT use FindFiles, grep, or any file-system tool to locate or read SPEC.md directly.
+
+State: "Dev graph unavailable. Cannot load context. Awaiting human instruction to resolve MCP."
+
+Stop. Wait for the human. Do not proceed with any task until MCP is confirmed reachable.
 
 ---
 

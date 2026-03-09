@@ -492,6 +492,61 @@ The Intelligence Graph exposes an MCP (Model Context Protocol) server. Any model
 | `graph_query_coverage` | Return tests that cover a given function or file |
 | `graph_search` | Search nodes by name, path, or type |
 
+### MCP Server Process Supervision
+
+The MCP server is a long-lived process supervised by macOS launchd. Crashes are expected in a multi-agent workflow. The process is not manually managed — launchd restarts it automatically.
+
+**Supervisor configuration:** `~/Library/LaunchAgents/com.johnserious.mbo-mcp.plist`  
+- `KeepAlive: true` — launchd restarts on any exit, clean or crash  
+- `ThrottleInterval: 3` — 3-second delay before respawn, prevents rapid crash loops  
+- `RunAtLoad: true` — starts automatically on login, no terminal required  
+
+**Logs:**
+
+| Stream | Path |
+|--------|------|
+| stdout | `/Users/johnserious/MBO/.dev/logs/mcp-stdout.log` |
+| stderr | `/Users/johnserious/MBO/.dev/logs/mcp-stderr.log` |
+
+All startup diagnostics, DB verification warnings, and runtime errors are written to stderr. When debugging a crash, read the stderr log first.
+
+**Startup sequence** (`scripts/mbo-start.sh`):
+
+1. Writes PID file to `.dev/run/{agent}.pid` — cleaned up on exit via trap
+2. Verifies DB integrity with `PRAGMA integrity_check` — non-fatal; a warning is logged but launch continues
+3. Runs `PRAGMA wal_checkpoint(TRUNCATE)` to flush any unflushed WAL data from prior crash
+4. Hands off to `node src/graph/mcp-server.js`
+
+**Note (BUG-036):** The `shutdown()` handler in `mcp-server.js` does not currently WAL-checkpoint before exit. The startup checkpoint is the fallback. This means a hard crash leaves WAL data unflushed until the next startup. No data is lost, but shutdown is not fully clean. Fix deferred to Milestone 0.7.
+
+**Note (BUG-043):** The PID file is not written when the server launches with the default agent name (`operator`). Always pass `--agent=claude` or `--agent=gemini` explicitly if the session-close script needs to terminate by PID.
+
+**Crash recovery procedure (manual fallback):**
+
+launchd handles restarts automatically. Only intervene if the server is stuck in a crash loop (check: `launchctl list | grep mbo` shows a non-zero exit code repeating):
+
+```bash
+# Check supervisor status and last exit code
+launchctl list | grep mbo
+
+# Read the last crash reason
+tail -50 /Users/johnserious/MBO/.dev/logs/mcp-stderr.log
+
+# Force restart (unload + reload)
+launchctl unload ~/Library/LaunchAgents/com.johnserious.mbo-mcp.plist
+launchctl load ~/Library/LaunchAgents/com.johnserious.mbo-mcp.plist
+
+# Verify it came back up
+launchctl list | grep mbo
+```
+
+If the server fails to start after a reload, the most common causes are:
+1. **DB corruption** — `PRAGMA integrity_check` failed and the process exited. Run `node -e "const db = require('better-sqlite3')('.dev/data/dev-graph.db'); console.log(db.prepare('PRAGMA integrity_check').get())"` from the MBO root to inspect.
+2. **Port/stdio conflict** — another process is holding the stdio transport. Check for orphaned `node` processes: `ps aux | grep mcp-server`.
+3. **Node version mismatch** — the PATH in the plist points to `~/.nvm/versions/node/v24.11.1/bin`. If Node has been upgraded via nvm, update the plist `EnvironmentVariables.PATH` to match.
+
+---
+
 ### Required Query Capability
 
 The orchestrator must be able to answer: *"If X changes, what breaks?"* — for any X at any granularity. The `graph_query_impact` tool executes a recursive search up to 3 degrees of separation. That is sufficient for all pipeline routing decisions.
@@ -921,10 +976,12 @@ interface GraphQueryResult {
 }
 
 interface ExecutionPlan {
-  subsystemsImpacted: string[];
+  intent: string;                     // Specific Spec requirement being fulfilled
+  stateTransitions: string[];         // Sequence of state changes/firing orders
   filesToChange: string[];
-  fileMap: Record<string, string>;    // file path → one-line role description
-  changeDescription: string;
+  subsystemsImpacted: string[];
+  invariantsPreserved: string[];      // Safety rules from the spec being guarded
+  rationale: string;
   testsRequired: string[];
   rollbackPlan: string;
 }
@@ -1011,6 +1068,17 @@ The prime directive from onboarding is injected into every model call at every s
 
 The user's request is parsed into a `Classification` object (Section 8). Logged to the event store before the pipeline proceeds. Human can type `reclassify` at any approval gate to return here with feedback.
 
+### Stage 1.5 — Human Intervention Gate (Context Pinning)
+
+Before planning begins, the orchestrator projects the specific, relevant snippets of the `SPEC.md` and codebase identified by the Intelligence Graph.
+
+**The system must pause.** The human must review the projected context and may:
+- **Pin:** Explicitly mark a snippet as "load-bearing" for this task.
+- **Exclude:** Remove irrelevant or misleading context.
+- **Override:** Provide manual context or specific constraints not found in the graph.
+
+Only after the human types `go` does the system proceed to Stage 3.
+
 ### Stage 2 — Architecture Query
 
 The orchestrator queries the Intelligence Graph. Models never receive raw file contents — only structured `GraphQueryResult` objects.
@@ -1031,7 +1099,9 @@ Component Planner receives the same inputs. Produces an `ExecutionPlan` independ
 
 ### Stage 3C — Gate 1: Plan Consensus
 
-Both plans are compared. Agreement on `subsystemsImpacted`, `filesToChange`, and `changeDescription` → Gate 1 passes, proceed to Stage 4A. Divergence on any of these → Stage 3D.
+Plans are evaluated for **Architectural Convergence**. Agreement is defined as both plans fulfilling the same qualitative intent and preserving the same project invariants (Section 13).
+
+Literal parity in `filesToChange` is not required. Agreement on state transitions and conditional logic is mandatory. Divergence in safety logic or contradiction of the Prime Directive triggers Stage 3D.
 
 ### Stage 3D — Tiebreaker (Plan)
 
@@ -1061,26 +1131,14 @@ interface ReviewConcern {
 
 ### Stage 4C — Gate 2: Code Consensus
 
-Reviewer is now shown the Planner's plan and code (`ReviewerComparisonInput`). Produces comparison assessment:
+Reviewer performs a qualitative audit of the Planner's code against the agreed Stage 3 plan.
 
-```typescript
-interface ReviewerComparisonOutput {
-  verdict: 'pass' | 'block';
-  concerns: ReviewConcern[];
-  finalCode: string;
-  comparisonNotes: string;
-}
+**Consensus Metric:** Does the code correctly implement the agreed state transitions and preserve the load-bearing constraints?
 
-interface PlannerRevision {
-  reviewerResponse: 'accepted_draft' | 'rejected_draft';
-  revisedPlan?: ExecutionPlan;
-  acceptanceNote?: string;
-}
-```
-
-The orchestrator parses `reviewerResponse` as a structured field. It does not interpret natural language to determine intent.
+A `block` verdict must be accompanied by a "Spec Violation" citation. Stylistic differences are not grounds for a block.
 
 `pass` → Stage 5. `block` → return to Planner with concerns. Counter increments on each `block` — not on API retries or malformed responses. After 3 blocks → Stage 4D.
+
 
 **Spec Note (BUG-010):** If a tiebreaker's code is subsequently blocked by the reviewer, the task must escalate to the human immediately. No automated tiebreaker/reviewer loop is permitted without explicit human mediation.
 

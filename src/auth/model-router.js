@@ -13,6 +13,7 @@ async function routeModels() {
 
   const routingMap = {
     classifier: null,
+    operator: null,
     architecturePlanner: null,
     componentPlanner: null,
     reviewer: null,
@@ -21,13 +22,16 @@ async function routeModels() {
     onboarding: null
   };
 
-  // 1. Classifier - Local > CLI > OpenRouter (Speed/Cost)
-  if (local.ollama.detected) {
+  // 1. Classifier & Operator - OpenRouter > Local > CLI (Speed/Reliability)
+  if (or.detected) {
+    routingMap.classifier = { provider: 'openrouter', model: 'google/gemini-2.0-flash-001' };
+    routingMap.operator = { provider: 'openrouter', model: 'google/gemini-2.0-flash-001' };
+  } else if (local.ollama.detected) {
     routingMap.classifier = { provider: 'local', model: 'ollama', url: local.ollama.url };
+    routingMap.operator = { provider: 'local', model: 'ollama', url: local.ollama.url };
   } else if (cli.gemini.authenticated) {
     routingMap.classifier = { provider: 'cli', model: 'gemini', binary: cli.gemini.binary };
-  } else if (or.detected) {
-    routingMap.classifier = { provider: 'openrouter', model: 'google/gemini-pro-1.5' };
+    routingMap.operator = { provider: 'cli', model: 'gemini', binary: cli.gemini.binary };
   }
 
   // 2. Planners - Claude-first per Section 11 (Vendor diversity is structural)

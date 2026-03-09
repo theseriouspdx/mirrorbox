@@ -1,8 +1,6 @@
 # AUDIT REPORT — Milestone 0.4A (Intelligence Graph Skeleton)
 **Date:** 2026-03-09
 **Auditor:** Gemini CLI
-**Base nhash:** 63
-**Hard State Anchor:** 504
 **Status:** PASS ✅
 
 ---

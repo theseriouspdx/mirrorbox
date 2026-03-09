@@ -58,7 +58,6 @@ async function detectOpenRouter() {
   if (key) {
     result.configured = true;
     result.detected = await checkOpenRouter(key);
-    result.key = key; // Expose key for callModel consistency
   }
 
   return result;

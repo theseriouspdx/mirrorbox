@@ -1,3 +1,20 @@
+## [0.6.6] — 2026-03-09
+### Added
+- **Safety:** Implemented `world_id` enforcement in `event-store.js` and `state-manager.js` (Invariant 10).
+- **Safety:** Implemented pre-mutation `checkpoint()` mechanism in `state-manager.js` (Invariant 13).
+- **Safety:** Refactored `db-manager.js` migrations to use non-destructive temporary table patterns (Invariant 15).
+- **Operator:** Implemented structural Stage 5 Approval Gate with Tier 1+ "go" requirement (Invariant 3).
+- **Operator:** Added robustness to `model-router.js` with explicit `operator` role mapping.
+- **Lifecycle:** Ensured PID file creation for all agent roles in `mbo-start.sh`.
+
+## [0.6.5] — 2026-03-09
+### Added
+- **Operator:** Improved context window threshold detection with accurate token estimation (`_estimateTokens`).
+- **Operator:** Integrated refined summarization prompt that preserves active tasks, decisions, and `HardState`.
+- **Operator:** Implemented `HardState` budget enforcement (5,000 tokens) with Section 13 priority truncation.
+- **callModel:** Added `HardState` injection as an immutable header in every model call.
+- **Verification:** Verified summarization and `HardState` preservation via mock-based unit tests.
+
 ## [0.6.4] — 2026-03-09
 ### Added
 - **Operator:** Wired classifier and operator roles to real providers in `call-model.js`.

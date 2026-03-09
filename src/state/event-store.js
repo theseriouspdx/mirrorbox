@@ -8,8 +8,13 @@ class EventStore {
   /**
    * Section 7: Append-only Event Store
    * Invariant 4: Every operation is reproducible from the event store.
+   * Invariant 10: Every operation shall explicitly declare its target scope.
    */
-  append(stage, actor, payload) {
+  append(stage, actor, payload, worldId = 'mirror') {
+    if (worldId !== 'mirror' && worldId !== 'subject') {
+      throw new Error(`[INVARIANT VIOLATION] Invalid world_id: ${worldId}. Must be 'mirror' or 'subject'.`);
+    }
+
     // Invariant 8: Secrets never enter the persistent state
     const redactedPayload = redact(payload);
     const payloadStr = typeof redactedPayload === 'string' 

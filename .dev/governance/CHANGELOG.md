@@ -3,6 +3,50 @@
 
 ---
 
+### [0.7.1] — 2026-03-09
+#### Added
+- **DID Qualitative Consensus (0.7-01):** Formally updated `SPEC.md` to redefine consensus from "Checksum Parity" to "Qualitative Intent."
+- **ExecutionPlan Schema:** Added `intent`, `stateTransitions`, and `invariantsPreserved` to the formal contract (Section 13).
+- **Stage 1.5 Human Intervention Gate:** Introduced mandatory pause for human context pinning/exclusion before planning begins (Section 15).
+- **Consensus Metrics:** Redefined Stage 3C and 4C to prioritize architectural convergence and project invariants over literal file-list matching.
+
+### [0.6.5] — 2026-03-09
+#### Added
+- **Session Handoff Persistence (0.6-04):** Refactored `scripts/mbo-session-close.sh` to automatically generate `NEXT_SESSION.md`.
+- **Handoff Automation:** Script now captures last task ID, name, status, and uses `projecttracking.md` to intelligently detect the next action for the next session.
+- **Security Compliance:** Removed all `nhash` persistence from handoff files to comply with `AGENTS.md` Section 8.1 (Secrecy of State).
+- **Integrity Tracking:** Handoff now explicitly records database backup SHA-256 and `PRAGMA integrity_check` results.
+
+### [0.6.4] — 2026-03-09
+#### Fixed (Audit PASS)
+- **BUG-038: JavaScript Graph Enrichment**: Implemented static fallback for import resolution in `src/graph/static-scanner.js`.
+- **Placeholder ID Collision**: Fixed bug where relative imports across different files collided in the Intelligence Graph. Placeholder IDs for relative paths are now unique per source file.
+- **`src/graph/static-scanner.js`**: Refactored `enrich()` to correctly group placeholders by all importing files and properly trigger `staticEnrich()` when no LSP is detected for a language.
+
+### [0.6-audit] — 2026-03-09
+#### Audit
+- **Milestone 0.6 audit** run against full task set (0.6-00 through 0.6-03).
+- Initial verdict: FAIL (Critical: `operator` role undefined; High: heuristic fallback unreachable).
+- Both blocking fixes confirmed applied from prior session. Re-audit verdict: PASS_WITH_CONDITIONS.
+- DID reconciliation with Codex: agreed on `operator` role fix; Stage 5 gate / world_id / pre-mutation checkpoint deferred to 0.7/0.8 as out-of-scope for 0.6.
+#### Filed
+- **BUG-042 (P2):** `graphSummary` truncation branch unreachable — field never populated.
+- **BUG-043 (P2):** PID file not written for default agent name `operator` in `mbo-start.sh`.
+- Audit artifacts: `.dev/audit/0.6_20260309_ClaudeCode/`
+
+### [0.6.3] — 2026-03-09
+#### Fixed
+- **`src/graph/mcp-server.js`**: `graph_query_impact` now calls `getGraphQueryResult()` instead of `getImpact()`. Was returning raw edge rows `{id, relation, source}` instead of the `GraphQueryResult` contract `{subsystems, affectedFiles, callers, callees, coveringTests, dependencyChain}`. Agents were getting useless results and falling back to full SPEC.md load.
+#### Changed
+- **`AGENTS.md` Section 1.5**: Stripped to 3 lines. Removed manual PID verification instructions, agent identity tables, and client config tables that were causing agents to re-run MCP startup manually.
+- **`AGENTS.md` Section 11**: Rewrote with absolute DB paths, explicit MCP tool name table, and auto-start confirmation table. Removed relative paths and ambiguous references Flash was misreading.
+- **`letsgo.md` Gate 0**: Changed from "use graph tools to find relevant sections" to "run the exact queries listed in NEXT_SESSION.md Section 1." Eliminates exploratory search at session start.
+- **`NEXT_SESSION.md` Section 1**: Now includes explicit graph queries for the next task. Agent runs those four queries and stops — no derivation required.
+- **`.gemini/settings.json`**: Created at project root. Gemini MCP now auto-starts via project-level config, same as Claude's `.mcp.json`. Fixed command format (`"bash"` + absolute path args, not combined string).
+- **`.mcp.json`**: Added `trust: true` to match Gemini config.
+#### Filed
+- **BUG-037 (P2)**: MCP lifecycle owned by CLI client configs, not orchestrator. Gate 0 `startCommand` should own this. Deferred to Milestone 0.9.
+
 ### [0.6.2] — 2026-03-09
 #### Added
 - **Tier 3 DID (Claude wins reconciliation)**: Background MCP process isolation via PID files.
@@ -218,3 +262,24 @@
 ### Fixed
 - src/auth/model-router.js: repaired syntax error in routing logic.
 - src/auth/call-model.js: strengthened injection heuristic check.
+
+### [preflight-compiled] — 2026-03-09
+#### Added
+- **`.dev/reports/archive/preflight-did-compiled.md`**: Permanent compiled record of the
+  pre-build DID analysis (Claude + Gemini independent runs + tiebreaker). Summarizes all
+  confirmed blockers, key divergences, off-the-shelf audit consensus, dangerous spec
+  assumptions, and resolution status for each finding.
+#### Changed
+- **`.dev/sessions/NEXT_SESSION.md`**: Removed preflight experiment references. Session
+  handoff now points cleanly at Task 0.6-02 as the active work. Preflight phase closed.
+
+
+### [experiment-compiled] — 2026-03-09
+#### Added
+- **`.dev/reports/archive/experiment-compiled-results.md`**: Compiled results of the context
+  loading experiment suite (E1, E2, E2B, E6 complete; E3/E4/E5 deferred). Key finding:
+  graph-driven loading achieves 12–44x token reduction. MCP must be live at session start
+  for autonomous querying. Gate 0 bottleneck identified and fixed.
+#### Changed
+- **`NEXT_SESSION.md`**: Removed experiment references. Points cleanly at 0.6-02.
+

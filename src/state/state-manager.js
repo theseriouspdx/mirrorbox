@@ -8,48 +8,47 @@ const HANDOFF_MD_PATH = path.join(__dirname, '../../data/NEXT_SESSION.md');
 
 class StateManager {
   /**
+   * Invariant 13: Immutable Pre-Mutation Checkpoint
+   * Required before any mutation in either world.
+   */
+  checkpoint(worldId = 'mirror') {
+    if (worldId !== 'mirror' && worldId !== 'subject') {
+      throw new Error(`[INVARIANT VIOLATION] Invalid world_id: ${worldId}. Must be 'mirror' or 'subject'.`);
+    }
+    const lastEvent = db.get('SELECT id, hash, seq FROM events ORDER BY seq DESC LIMIT 1');
+    const checkpoint = {
+      worldId,
+      timestamp: Date.now(),
+      parentHash: lastEvent ? lastEvent.hash : 'anchor',
+      parentSeq: lastEvent ? lastEvent.seq : 0
+    };
+    eventStore.append('CHECKPOINT', 'state-manager', checkpoint, worldId);
+    return checkpoint;
+  }
+
+  /**
    * Section 17: State Persistence
    * Human-readable snapshot at every stage transition.
    */
-  snapshot(summary) {
+  snapshot(summary, worldId = 'mirror') {
+    if (worldId !== 'mirror' && worldId !== 'subject') {
+      throw new Error(`[INVARIANT VIOLATION] Invalid world_id: ${worldId}. Must be 'mirror' or 'subject'.`);
+    }
     fs.writeFileSync(STATE_JSON_PATH, JSON.stringify(summary, null, 2));
-    eventStore.append(summary.currentStage || 'STATE', summary.activeModel || 'ORCHESTRATOR', summary);
+    eventStore.append(summary.currentStage || 'STATE', summary.activeModel || 'ORCHESTRATOR', summary, worldId);
   }
 
   /**
    * Section 17: Session Handoff
-   * Generates NEXT_SESSION.md on clean shutdown.
+   * Triggers the session-close script to generate NEXT_SESSION.md and backups.
    */
-  generateHandoff(handoffData) {
-    const { lastTask, completedCount, unresolvedIssues, suggestedNextTask } = handoffData;
-    
-    const content = `# NEXT_SESSION.md
-## Mirror Box Orchestrator — Session Handoff
-
-**Session ended:** ${new Date().toISOString().split('T')[0]}
-**Last task:** ${lastTask.name} (${lastTask.status})
-**Status:** ${lastTask.status === 'COMPLETED' ? 'Milestone Progressing' : 'Task Pending'}
-
----
-
-## Section 1 — Next Action
-
-**${suggestedNextTask || 'TBD'}**
-
----
-
-## Section 2 — Session Summary
-
-- Tasks completed this session: ${completedCount}
-- Unresolved issues: ${unresolvedIssues.length > 0 ? unresolvedIssues.join(', ') : 'None'}
-
----
-
-## Section 3 — Directory State
-(Reconstructed from mirrorbox.db)
-`;
-
-    fs.writeFileSync(HANDOFF_MD_PATH, content);
+  generateHandoff() {
+    const { spawnSync } = require('child_process');
+    const scriptPath = path.join(__dirname, '../../scripts/mbo-session-close.sh');
+    const result = spawnSync('bash', [scriptPath], { stdio: 'inherit' });
+    if (result.error || result.status !== 0) {
+      console.error(`[StateManager] Handoff failed: ${result.error || result.status}`);
+    }
   }
 
   /**

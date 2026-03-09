@@ -225,7 +225,10 @@ class StaticScanner {
   }
 
   recordImport(fileId, importPath, position) {
-    const targetId = `import://${importPath}`;
+    // BUG-038: Ensure relative placeholders are unique per source file to avoid collisions
+    const targetId = importPath.startsWith('.') 
+      ? `import://${fileId}:${importPath}` 
+      : `import://${importPath}`;
 
     this.graphStore.upsertNode({
       id: targetId,
@@ -272,16 +275,19 @@ class StaticScanner {
     // R-03: Amortize — open once, run all queries, then close. Group nodes by file.
     const nodesByFile = new Map();
     for (const node of nodes) {
-      let filePath;
       if (node.type === 'placeholder') {
-        const edge = this.graphStore.db.get("SELECT source_id FROM edges WHERE target_id = ? AND relation = 'IMPORTS'", [node.id]);
-        if (!edge) continue;
-        filePath = edge.source_id.replace('file://', '');
+        // BUG-038: A placeholder may be imported by multiple files; group it under each.
+        const edges = this.graphStore.db.query("SELECT source_id FROM edges WHERE target_id = ? AND relation = 'IMPORTS'", [node.id]);
+        for (const edge of edges) {
+          const filePath = edge.source_id.replace('file://', '');
+          if (!nodesByFile.has(filePath)) nodesByFile.set(filePath, []);
+          nodesByFile.get(filePath).push({ ...node, source_id: edge.source_id });
+        }
       } else {
-        filePath = node.path;
+        const filePath = node.path;
+        if (!nodesByFile.has(filePath)) nodesByFile.set(filePath, []);
+        nodesByFile.get(filePath).push(node);
       }
-      if (!nodesByFile.has(filePath)) nodesByFile.set(filePath, []);
-      nodesByFile.get(filePath).push(node);
     }
 
     const clients = new Map();
@@ -292,29 +298,37 @@ class StaticScanner {
       const lang = ext === '.py' ? 'python' : (ext === '.ts' || ext === '.tsx' ? 'typescript' : 'javascript');
       
       if (!clients.has(lang)) {
-        if (missingLSPs.has(lang)) continue;
-
-        const cmd = detectServer(lang);
-        if (!cmd) {
-          console.warn(`[WARN] No LSP server found for ${lang}. Cross-file enrichment skipped for ${lang} files.`);
-          missingLSPs.add(lang);
-          clients.set(lang, null);
-          continue;
-        }
-        // R-05: Ephemeral instances per task handled by scan lifecycle.
-        const client = new LSPClient(lang, cmd, ['--stdio'], projectRoot);
-        try {
-          await client.start();
-          clients.set(lang, client);
-        } catch (err) {
-          console.error(`[ERROR] Failed to start LSP server for ${lang}:`, err.message);
-          missingLSPs.add(lang);
-          clients.set(lang, null);
+        if (missingLSPs.has(lang)) {
+          // Already known missing, fall through to static fallback
+        } else {
+          const cmd = detectServer(lang);
+          if (!cmd) {
+            console.warn(`[WARN] No LSP server found for ${lang}. Fallback to static enrichment for ${lang} files.`);
+            missingLSPs.add(lang);
+            clients.set(lang, null);
+          } else {
+            // R-05: Ephemeral instances per task handled by scan lifecycle.
+            const client = new LSPClient(lang, cmd, ['--stdio'], projectRoot);
+            try {
+              await client.start();
+              clients.set(lang, client);
+            } catch (err) {
+              console.error(`[ERROR] Failed to start LSP server for ${lang}:`, err.message);
+              missingLSPs.add(lang);
+              clients.set(lang, null);
+            }
+          }
         }
       }
 
       const client = clients.get(lang);
-      if (!client) continue;
+      if (!client) {
+        // R-07: Static Fallback for JS/TS when LSP is missing
+        if (lang === 'javascript' || lang === 'typescript') {
+          await this.staticEnrich(projectRoot, filePath, fileNodes);
+        }
+        continue;
+      }
 
       const absPath = path.resolve(projectRoot, filePath);
       await client.openDocument(absPath);
@@ -383,6 +397,49 @@ class StaticScanner {
     for (const client of clients.values()) {
       if (client) await client.shutdown();
     }
+  }
+
+  /**
+   * BUG-038: Static Fallback for import resolution without LSP
+   */
+  async staticEnrich(projectRoot, filePath, fileNodes) {
+    for (const node of fileNodes) {
+      if (node.type !== 'placeholder') continue;
+
+      const importPath = node.name; // recordImport stores raw path in 'name'
+      const targetId = this.resolveLocalPath(filePath, importPath, projectRoot);
+      
+      if (targetId) {
+        this.graphStore.resolveImport(node.source_id, node.id, targetId);
+      }
+    }
+  }
+
+  resolveLocalPath(sourcePath, importPath, projectRoot) {
+    if (!importPath.startsWith('.')) return null;
+
+    const sourceDir = path.dirname(path.join(projectRoot, sourcePath));
+    const targetAbsPath = path.resolve(sourceDir, importPath);
+    
+    // Support common JS/TS resolution patterns
+    const candidates = [
+      '', 
+      '.js', '.ts', '.tsx', 
+      '/index.js', '/index.ts', '/index.tsx'
+    ];
+
+    for (const ext of candidates) {
+      const fullPath = targetAbsPath + ext;
+      if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isDirectory()) {
+        const relPath = path.relative(projectRoot, fullPath);
+        const fileId = `file://${relPath}`;
+        // Ensure the node exists in our graph before linking
+        if (this.graphStore.getNode(fileId)) {
+          return fileId;
+        }
+      }
+    }
+    return null;
   }
 }
 

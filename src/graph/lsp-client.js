@@ -130,13 +130,26 @@ class LSPClient {
     });
   }
 
+  // BUG-044 fix: wrap every sendRequest in a timeout so a dead/unresponsive
+  // LSP process cannot hang the MCP server startup indefinitely.
+  _withTimeout(promise, ms = 5000) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`LSP request timed out after ${ms}ms`)), ms)
+      )
+    ]);
+  }
+
   async resolveDefinition(absolutePath, line, character) {
     const uri = pathToFileURL(absolutePath).href;
     try {
-      const result = await this.connection.sendRequest(DefinitionRequest.type, {
-        textDocument: { uri },
-        position: { line, character }
-      });
+      const result = await this._withTimeout(
+        this.connection.sendRequest(DefinitionRequest.type, {
+          textDocument: { uri },
+          position: { line, character }
+        })
+      );
       if (!result) return null;
       const loc = Array.isArray(result) ? result[0] : result;
       return { targetUri: loc.uri || loc.targetUri, targetRange: loc.range || loc.targetSelectionRange };
@@ -146,15 +159,17 @@ class LSPClient {
   async getCallHierarchy(absolutePath, line, character) {
     const uri = pathToFileURL(absolutePath).href;
     try {
-      const items = await this.connection.sendRequest(PrepareCallHierarchyRequest.type, {
-        textDocument: { uri },
-        position: { line, character }
-      });
+      const items = await this._withTimeout(
+        this.connection.sendRequest(PrepareCallHierarchyRequest.type, {
+          textDocument: { uri },
+          position: { line, character }
+        })
+      );
       if (!items || items.length === 0) return null;
       const item = items[0];
       const [incoming, outgoing] = await Promise.all([
-        this.connection.sendRequest(CallHierarchyIncomingCallsRequest.type, { item }),
-        this.connection.sendRequest(CallHierarchyOutgoingCallsRequest.type, { item })
+        this._withTimeout(this.connection.sendRequest(CallHierarchyIncomingCallsRequest.type, { item })),
+        this._withTimeout(this.connection.sendRequest(CallHierarchyOutgoingCallsRequest.type, { item }))
       ]);
       return { incoming, outgoing };
     } catch (e) { return null; }

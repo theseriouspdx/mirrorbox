@@ -100,8 +100,12 @@ class DBManager {
       this.db.exec(`
         PRAGMA foreign_keys=off;
         BEGIN TRANSACTION;
-        DROP TABLE IF EXISTS nodes_new;
-        CREATE TABLE nodes_new (
+        -- Section 17: Non-destructive migration using temporary storage
+        CREATE TABLE nodes_migration AS SELECT * FROM nodes;
+        
+        DROP TABLE nodes;
+        
+        CREATE TABLE nodes (
           id       TEXT PRIMARY KEY,
           type     TEXT NOT NULL,
           name     TEXT NOT NULL,
@@ -110,10 +114,11 @@ class DBManager {
           nameStartLine INTEGER GENERATED ALWAYS AS (json_extract(metadata, '$.nameStartLine')) VIRTUAL,
           nameStartColumn INTEGER GENERATED ALWAYS AS (json_extract(metadata, '$.nameStartColumn')) VIRTUAL
         );
-        INSERT INTO nodes_new (id, type, name, path, metadata)
-          SELECT id, type, name, path, metadata FROM nodes;
-        DROP TABLE nodes;
-        ALTER TABLE nodes_new RENAME TO nodes;
+        
+        INSERT INTO nodes (id, type, name, path, metadata)
+          SELECT id, type, name, path, metadata FROM nodes_migration;
+          
+        DROP TABLE nodes_migration;
         COMMIT;
         PRAGMA foreign_keys=on;
       `);
@@ -142,19 +147,24 @@ class DBManager {
       this.db.exec(`
         PRAGMA foreign_keys=off;
         BEGIN TRANSACTION;
-        DROP TABLE IF EXISTS chain_anchors_new;
-        CREATE TABLE chain_anchors_new (
+        -- Section 17: Non-destructive migration for chain_anchors
+        CREATE TABLE anchors_migration AS SELECT * FROM chain_anchors;
+        
+        DROP TABLE chain_anchors;
+        
+        CREATE TABLE chain_anchors (
           run_id     TEXT PRIMARY KEY,
           seq        INTEGER NOT NULL,
           event_id   TEXT NOT NULL,
           hash       TEXT NOT NULL,
           created_at INTEGER NOT NULL
         );
-        INSERT INTO chain_anchors_new (run_id, seq, event_id, hash, created_at)
+        
+        INSERT INTO chain_anchors (run_id, seq, event_id, hash, created_at)
           SELECT 'migration-seed', seq, event_id, hash, strftime('%s', 'now') * 1000
-          FROM chain_anchors;
-        DROP TABLE chain_anchors;
-        ALTER TABLE chain_anchors_new RENAME TO chain_anchors;
+          FROM anchors_migration;
+          
+        DROP TABLE anchors_migration;
         COMMIT;
         PRAGMA foreign_keys=on;
       `);

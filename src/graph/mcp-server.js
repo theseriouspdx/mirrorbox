@@ -150,12 +150,14 @@ class GraphMCPServer {
     }));
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      // E1 EXPERIMENT LOGGER — stderr only, does not affect JSON-RPC stream
+      console.error(`[TOOL CALL] ${new Date().toISOString()} ${request.params.name} args: ${JSON.stringify(request.params.arguments)}`);
       try {
         switch (request.params.name) {
           case 'graph_query_impact': {
             const { nodeId } = request.params.arguments;
-            const impact = this.graphStore.getImpact(nodeId);
-            return { content: [{ type: 'text', text: JSON.stringify(impact, null, 2) }] };
+            const result = this.graphStore.getGraphQueryResult(nodeId);
+            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           
           case 'graph_query_callers': {

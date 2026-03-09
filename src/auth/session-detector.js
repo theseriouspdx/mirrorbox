@@ -21,10 +21,12 @@ function detectCliSessions() {
       providers.claude.binary = claudePath;
       providers.claude.version = execSync('claude --version', { encoding: 'utf8' }).trim();
       
-      // Soft auth check: Existence of ~/.claude/session-env (seen in research)
-      const claudeSessionDir = path.join(os.homedir(), '.claude', 'session-env');
-      if (fs.existsSync(claudeSessionDir)) {
+      // Auth check: attempt a no-op invocation. Exit 0 = authenticated session.
+      try {
+        execSync('claude --help', { encoding: 'utf8', stdio: 'pipe', timeout: 5000 });
         providers.claude.authenticated = true;
+      } catch (authErr) {
+        providers.claude.authenticated = false;
       }
     }
   } catch (e) { /* ignore */ }
@@ -36,8 +38,13 @@ function detectCliSessions() {
       providers.gemini.detected = true;
       providers.gemini.binary = geminiPath;
       providers.gemini.version = execSync('gemini --version', { encoding: 'utf8' }).trim();
-      // Authenticated if we are running in a Gemini CLI session
-      providers.gemini.authenticated = !!process.env.GEMINI_CLI;
+      // Auth check: attempt --help. Gemini CLI exits non-zero if not authenticated.
+      try {
+        execSync('gemini --help', { encoding: 'utf8', stdio: 'pipe', timeout: 5000 });
+        providers.gemini.authenticated = true;
+      } catch (authErr) {
+        providers.gemini.authenticated = false;
+      }
     }
   } catch (e) { /* ignore */ }
 

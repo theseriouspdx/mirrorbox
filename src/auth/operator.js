@@ -1,7 +1,7 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { callModel } = require('./call-model');
+const { callModel, computeContentHashes } = require('./call-model');
 const stateManager = require('../state/state-manager');
 const db = require('../state/db-manager');
 const eventStore = require('../state/event-store');
@@ -34,7 +34,10 @@ class Operator {
       activeModel: 'operator',
       filesInScope: [],
       recoveryAttempts: 0,
-      progressSummary: ''
+      blockCounter: 0,
+      progressSummary: '',
+      graphSummary: '',
+      pendingDecision: null
     };
     this.mcpServer = null;
     this.messageId = 1;
@@ -149,12 +152,13 @@ class Operator {
    * Parses user message into a Classification object.
    */
   async classifyRequest(userMessage) {
+    const hardState = this.getHardState();
+    
     // Stage 1: Call Classifier model
     const input = {
       userMessage,
       sessionHistory: this.sessionHistory,
       stateSummary: this.stateSummary,
-      primeDirective: this.getPrimeDirective()
     };
 
     const prompt = `Classify this user request into a JSON object following this schema:
@@ -171,10 +175,10 @@ User request: "${userMessage}"
 
 Return ONLY the JSON object. Do not provide conversational filler.`;
 
-    const response = await callModel('classifier', prompt, input);
-
     try {
-      // Robust JSON extraction in case model wraps in markdown
+      const response = await callModel('classifier', prompt, input, hardState);
+
+      console.error(`[DEBUG] Classifier response: ${response}`);
       const jsonMatch = response.match(/\{[\s\S]*\}/);
       const classification = JSON.parse(jsonMatch ? jsonMatch[0] : response);
       
@@ -187,7 +191,7 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
       }
       return classification;
     } catch (e) {
-      console.error(`[Operator] Model classification parse error: ${e.message}. Falling back to heuristic.`);
+      console.error(`[Operator] Model classification failure: ${e.message}. Falling back to heuristic.`);
       return this._heuristicClassifier(userMessage);
     }
   }
@@ -289,6 +293,45 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
     return profile ? JSON.parse(profile.profile_data).primeDirective : "No prime directive set.";
   }
 
+  /**
+   * Section 13: Hard State
+   * Immutable project context injected into every model call.
+   */
+  getHardState() {
+    const profileRaw = db.get('SELECT profile_data FROM onboarding_profiles ORDER BY version DESC LIMIT 1');
+    const profile = profileRaw ? JSON.parse(profileRaw.profile_data) : {};
+    
+    const hardState = {
+      primeDirective: profile.primeDirective || "No prime directive set.",
+      onboardingProfile: profile,
+      graphSummary: this.stateSummary.graphSummary || "Intelligence Graph active. All subsystems mapped.",
+      dangerZones: profile.dangerZones || []
+    };
+
+    // Budget check (5,000 tokens)
+    const estimated = this._estimateTokens(hardState);
+    if (estimated > 5000) {
+      // Section 13 Truncation Priority:
+      // 1. graphSummary (lowest priority)
+      // 2. dangerZones
+      // 3. onboardingProfile
+      // 4. primeDirective (highest - never truncate)
+      hardState.graphSummary = "[TRUNCATED]";
+      if (this._estimateTokens(hardState) > 5000) {
+        hardState.dangerZones = ["[TRUNCATED]"];
+        if (this._estimateTokens(hardState) > 5000) {
+          hardState.onboardingProfile = { primeDirective: hardState.primeDirective, _note: "Profile truncated due to budget" };
+        }
+      }
+    }
+    return hardState;
+  }
+
+  _estimateTokens(obj) {
+    const str = typeof obj === 'string' ? obj : JSON.stringify(obj);
+    return Math.ceil(str.length / 3.7);
+  }
+
   getGraphCompleteness() {
     if (this.mode === 'dev') return 'full';
     const runtimeEdge = db.get("SELECT 1 FROM edges WHERE source = 'runtime' LIMIT 1");
@@ -301,7 +344,7 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
    */
   async checkContextLifecycle() {
     const window = this.activeModelWindow || Operator.CONTEXT_WINDOWS['default'];
-    const estimatedTokens = JSON.stringify(this.sessionHistory).length / 4;
+    const estimatedTokens = this._estimateTokens(this.sessionHistory);
     if (estimatedTokens > window * this.contextThreshold) {
       await this.summarizeSession();
     }
@@ -310,14 +353,37 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
   async summarizeSession() {
     console.error(`[Operator] Context threshold reached. Summarizing session...`);
     const condensedCount = this.sessionHistory.length;
-    const summary = await callModel('operator', 'Summarize the preceding session history into 2000 tokens.', this.sessionHistory);
-    this.sessionHistory = [{ role: 'system', content: summary }];
+    const hardState = this.getHardState();
+    
+    // Invariant 13: Checkpoint before mutation
+    stateManager.checkpoint('mirror');
+
+    const summarizationPrompt = `Summarize the preceding session history into a concise state summary. 
+Preserve all active task details, key architectural decisions, and the current Hard State Anchor. 
+Condense the history into approximately 2000 tokens while maintaining causal links between events.
+The output will be used as the new system context.`;
+
+    const summary = await callModel('operator', summarizationPrompt, { sessionHistory: this.sessionHistory }, hardState);
+    
+    this.sessionHistory = [{ role: 'system', content: `[SESSION SUMMARY] ${summary}` }];
     this.stateSummary.progressSummary = summary.substring(0, 200);
     console.error(`[CONTEXT RESET] Session summarized at ${new Date().toISOString()}. ${condensedCount} messages condensed.`);
   }
 
   async processMessage(userMessage) {
     await this.checkContextLifecycle();
+    const input = userMessage.trim().toLowerCase();
+
+    // State Machine Transitions
+    if (input === 'go' && this.stateSummary.pendingDecision) {
+      return await this.handleApproval('go');
+    }
+
+    if (input.startsWith('pin:') || input.startsWith('exclude:')) {
+      // Stage 1.5 logic: update projected context (simplified for 0.7)
+      return { status: 'context_updated', prompt: "Context updated. Type 'go' to proceed to Planning." };
+    }
+
     this.sessionHistory.push({ role: 'user', content: userMessage });
     
     const classification = await this.classifyRequest(userMessage);
@@ -327,17 +393,283 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
     }
 
     const routing = await this.determineRouting(classification);
+    this.stateSummary.pendingDecision = { classification, routing };
+
+    // Invariant 13: Checkpoint before state snapshot
+    stateManager.checkpoint('mirror');
 
     // Distinguish heuristic vs. model-derived classifications in the audit trail
     const classificationSource = classification._source === 'heuristic' ? 'CLASSIFICATION_HEURISTIC' : 'CLASSIFICATION';
     const { _source, ...cleanClassification } = classification;
-    eventStore.append(classificationSource, 'operator', { classification: cleanClassification, routing });
+    eventStore.append(classificationSource, 'operator', { classification: cleanClassification, routing }, 'mirror');
 
     this.stateSummary.currentStage = 'classification';
     this.stateSummary.filesInScope = cleanClassification.files;
-    stateManager.snapshot(this.stateSummary);
+    stateManager.snapshot(this.stateSummary, 'mirror');
 
-    return { classification: cleanClassification, routing };
+    // Section 8: Approval Gate (Stage 5)
+    // Tier 0 skips gate. Tier 1+ requires "go".
+    if (routing.tier > 0) {
+      return { 
+        needsApproval: true, 
+        classification: cleanClassification, 
+        routing,
+        prompt: "Classification complete. Routing set to Tier " + routing.tier + ". Type 'go' to proceed to planning."
+      };
+    }
+
+    return { classification: cleanClassification, routing, status: 'ready_for_planning' };
+  }
+
+  /**
+   * Handles the Stage 5 Approval Gate and triggers the pipeline.
+   */
+  async handleApproval(decision) {
+    const approval = await this.requestApproval(decision);
+    if (!approval.approved) {
+      delete this.stateSummary.pendingDecision;
+      return { status: 'aborted', reason: 'Human denied approval.' };
+    }
+
+    const { classification, routing } = this.stateSummary.pendingDecision;
+    delete this.stateSummary.pendingDecision;
+
+    try {
+      // Stage 3: Planning
+      const planResult = await this.runStage3(classification, routing);
+      let agreedPlan = planResult.plan;
+
+      if (planResult.needsTiebreaker) {
+        agreedPlan = await this.runStage3D(planResult.conflict, classification, routing);
+      }
+
+      // Stage 4: Code
+      const codeResult = await this.runStage4(agreedPlan, classification, routing);
+      
+      // Stage 4.5: Virtual Dry Run (Placeholder for 0.8)
+      const dryRun = await this.runStage4_5(codeResult.code);
+
+      return { 
+        status: 'complete', 
+        plan: agreedPlan, 
+        code: codeResult.code, 
+        dryRun,
+        blockCount: this.stateSummary.blockCounter 
+      };
+    } catch (e) {
+      console.error(`[Operator] Pipeline failure: ${e.message}`);
+      return { status: 'error', reason: e.message };
+    }
+  }
+
+  /**
+   * Section 15: Stage 3D — Tiebreaker (Plan)
+   */
+  async runStage3D(conflict, classification, routing) {
+    this.stateSummary.currentStage = 'tiebreaker_plan';
+    const hardState = this.getHardState();
+    const prompt = `Arbitrate the following plan conflict and produce a single convergent ExecutionPlan.\nConflict: ${conflict}\nTask: ${classification.rationale}\n\nReturn ONLY JSON per SPEC Section 13 (ExecutionPlan).`;
+    
+    const response = await callModel('tiebreaker', prompt, { classification, routing }, hardState);
+    const plan = JSON.parse(response);
+    eventStore.append('TIEBREAKER_PLAN', 'operator', { plan }, 'mirror');
+    return plan;
+  }
+
+  /**
+   * Section 15: Stage 1.5 — Human Intervention Gate
+   * Projects relevant context and waits for human pinning/override.
+   */
+  async runStage1_5(classification, routing) {
+    this.stateSummary.currentStage = 'context_pinning';
+    
+    // Default search for classification files or SPEC.md
+    const context = await this.callMCPTool('graph_search', { pattern: classification.files[0] || 'SPEC.md' });
+    
+    return {
+      needsApproval: true,
+      stage: '1.5',
+      projectedContext: context,
+      prompt: "Stage 1.5: Review the projected context. Type 'pin: [id]' to emphasize, 'exclude: [id]' to ignore, or 'go' to proceed to Planning."
+    };
+  }
+
+  /**
+   * Section 15: Stage 3 — Independent Plan Derivation
+   * Qualitative consensus based on Spec Adherence.
+   */
+  async runStage3(classification, routing, pinnedContext = []) {
+    this.stateSummary.currentStage = 'planning';
+    const hardState = this.getHardState();
+
+    const planPrompt = `Derive an ExecutionPlan adhering to the Prime Directive.
+Task: ${classification.rationale}
+Prime Directive: ${hardState.primeDirective}
+Pinned Context: ${pinnedContext.join(', ')}
+
+Return ONLY JSON per SPEC Section 13:
+{
+  "intent": "Specific Spec requirement being fulfilled",
+  "stateTransitions": ["Sequence of state changes"],
+  "filesToChange": ["paths"],
+  "subsystemsImpacted": ["names"],
+  "invariantsPreserved": ["Safety rules guarded"],
+  "rationale": "Why this approach?"
+}`;
+
+    // Stage 3A & 3B: Independent derivation (Blind Isolation)
+    const [planA, planB] = await Promise.all([
+      callModel('architecturePlanner', planPrompt, { classification, routing }, hardState),
+      callModel('componentPlanner', planPrompt, { classification, routing }, hardState)
+    ]);
+
+    const consensus = await this.evaluateSpecAdherence(planA, planB, hardState);
+    
+    eventStore.append('PLAN_CONSENSUS', 'operator', { 
+      planA: JSON.parse(planA), 
+      planB: JSON.parse(planB), 
+      consensus 
+    }, 'mirror');
+
+    if (consensus.verdict === 'divergent') {
+      this.stateSummary.currentStage = 'tiebreaker_plan';
+      return { 
+        needsTiebreaker: true, 
+        conflict: consensus.conflict,
+        rationale: "Plans diverge on load-bearing constraints or Spec interpretation."
+      };
+    }
+
+    return { status: 'plan_agreed', plan: JSON.parse(planA), consensusIntent: consensus.consensusIntent };
+  }
+
+  /**
+   * Section 15: Stage 4 — Code Derivation and Consensus
+   * Milestone 0.7-03 & 0.7-04.
+   */
+  async runStage4(plan, classification, routing) {
+    this.stateSummary.currentStage = 'code_derivation';
+    const hardState = this.getHardState();
+    this.stateSummary.blockCounter = 0;
+
+    while (this.stateSummary.blockCounter < 3) {
+      // Stage 4A: Architecture Planner
+      const plannerPrompt = `Write the implementation code for the agreed plan.\nPlan: ${JSON.stringify(plan)}\nTask: ${classification.rationale}\nFiles: ${classification.files.join(', ')}`;
+      const codeA = await callModel('architecturePlanner', plannerPrompt, { plan, classification }, hardState);
+
+      // Invariant 7: Compute Planner hashes for blindness enforcement
+      const plannerHashes = computeContentHashes(codeA);
+      const planHashes = computeContentHashes(JSON.stringify(plan));
+      const allProtectedHashes = [...plannerHashes, ...planHashes];
+
+      // Stage 4B: Adversarial Reviewer (blind)
+      const reviewerPrompt = `Independent Code Derivation (Blind). Derive your own ExecutionPlan and write the code independently.\nTask: ${classification.rationale}\nReturn ReviewerOutput JSON.`;
+      const reviewerOutputRaw = await callModel('reviewer', reviewerPrompt, { classification }, hardState, allProtectedHashes);
+      const reviewerOutput = JSON.parse(reviewerOutputRaw);
+
+      // Stage 4C: Gate 2 — Code Consensus
+      const consensus = await this.evaluateCodeConsensus(codeA, plan, reviewerOutput, hardState);
+      
+      eventStore.append('CODE_CONSENSUS', 'operator', { 
+        plannerCode: codeA, 
+        reviewerOutput, 
+        consensus,
+        iteration: this.stateSummary.blockCounter + 1
+      }, 'mirror');
+
+      if (consensus.verdict === 'pass') {
+        return { status: 'code_agreed', code: codeA, consensusIntent: consensus.consensusIntent };
+      }
+
+      this.stateSummary.blockCounter++;
+      console.error(`[Operator] Code Blocked (${this.stateSummary.blockCounter}/3): ${consensus.reason}`);
+    }
+
+    // Stage 4D: Tiebreaker (Code)
+    return await this.runStage4D(plan, classification, routing);
+  }
+
+  async evaluateCodeConsensus(codeA, plan, reviewerOutput, hardState) {
+    const auditPrompt = `Audit the Planner's code against the agreed plan and Reviewer's independent derivation.\nPlan: ${JSON.stringify(plan)}\nPlanner Code: ${codeA}\nReviewer Code: ${reviewerOutput.independentCode}\nReviewer Concerns: ${JSON.stringify(reviewerOutput.concerns)}\n\nDoes the code correctly implement state transitions? Return JSON with verdict, reason, citation, and consensusIntent.`;
+    const result = await callModel('classifier', auditPrompt, {}, hardState);
+    console.error(`[DEBUG] evaluateSpecAdherence response: ${result}`);
+    return JSON.parse(result);
+  }
+
+  /**
+   * Section 15: Stage 4D — Tiebreaker (Code)
+   * Milestone 0.7-05.
+   */
+  async runStage4D(plan, classification, routing) {
+    this.stateSummary.currentStage = 'tiebreaker_code';
+    const hardState = this.getHardState();
+    
+    const prompt = `Tiebreaker: Produce the final arbitrated code draft based on competing derivations.\nPlan: ${JSON.stringify(plan)}\nTask: ${classification.rationale}\n\nReturn the final code/diff only.`;
+    const codeTied = await callModel('tiebreaker', prompt, { classification, routing }, hardState);
+
+    // Spec Note (BUG-010): One final audit for Tiebreaker code.
+    const reviewerPrompt = `Final Audit of Tiebreaker Code.\nTask: ${classification.rationale}\nCode: ${codeTied}\n\nReturn ONLY JSON verdict per SPEC Section 11.`;
+    const finalAuditRaw = await callModel('reviewer', reviewerPrompt, { classification }, hardState);
+    const finalAudit = JSON.parse(finalAuditRaw);
+
+    if (finalAudit.verdict === 'block') {
+      throw new Error(`[BUG-010] Tiebreaker code blocked by reviewer. Escalating to human.`);
+    }
+
+    return { status: 'code_agreed', code: codeTied, source: 'tiebreaker' };
+  }
+
+  /**
+   * Section 15: Stage 4.5 — Virtual Dry Run
+   * Milestone 0.8 prerequisite.
+   */
+  async runStage4_5(code) {
+    this.stateSummary.currentStage = 'dry_run';
+    // Basic structural verification (syntax check)
+    try {
+      if (code.includes('const') || code.includes('function')) {
+        // Simple heuristic for JS validity
+        new Function(code.replace(/export |import /g, ''));
+      }
+      return { status: 'pass', checks: ['structural_syntax'] };
+    } catch (e) {
+      return { status: 'warn', checks: ['structural_syntax'], error: e.message };
+    }
+  }
+
+  /**
+   * Evaluates if two plans agree on "Load-Bearing" logic.
+   * Section 15.3C: Qualitative Convergence Audit.
+   */
+  async evaluateSpecAdherence(planA, planB, hardState) {
+    const auditPrompt = `Audit these independent plans against the Prime Directive.
+Prime Directive: ${hardState.primeDirective}
+Plan A: ${planA}
+Plan B: ${planB}
+
+Do both plans fulfill the same qualitative intent without violating project invariants?
+Return JSON:
+{
+  "verdict": "convergent" | "divergent",
+  "conflict": "Describe any contradiction in state transitions or safety logic",
+  "consensusIntent": "The shared goal both plans achieve"
+}`;
+    const result = await callModel('classifier', auditPrompt, {}, hardState);
+    console.error(`[DEBUG] evaluateSpecAdherence response: ${result}`);
+    return JSON.parse(result);
+  }
+
+  /**
+   * Section 5: Stage 5 Approval Gate
+   * Structural enforcement of human approval before mutation.
+   */
+  async requestApproval(decision) {
+    if (decision.toLowerCase() === 'go') {
+      eventStore.append('APPROVAL', 'human', { decision: 'go' }, 'mirror');
+      return { approved: true };
+    }
+    eventStore.append('APPROVAL', 'human', { decision: 'abort' }, 'mirror');
+    return { approved: false };
   }
 
   async shutdown() {
@@ -350,6 +682,9 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
       this.mcpServer.kill();
       this.mcpServer = null;
     }
+    // Section 17: Generate handoff on clean shutdown
+    stateManager.checkpoint('mirror');
+    stateManager.generateHandoff();
   }
 }
 

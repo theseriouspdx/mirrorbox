@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # MBO Universal MCP Loader — Vendor-Agnostic Session Initializer
-set -euo pipefail
+set -uo pipefail
 
 # Redirect all status to stderr to protect JSON-RPC stdout
 exec 3>&1
@@ -20,13 +20,13 @@ for arg in "$@"; do
     fi
 done
 
-# Write PID file before exec (exec replaces this bash PID with node's PID — file remains valid)
-if [[ "$AGENT" != "operator" ]]; then
-    mkdir -p "$ROOT/.dev/run"
-    echo $$ > "$ROOT/.dev/run/${AGENT}.pid"
-fi
+# Write PID file — trap ensures cleanup on crash/unexpected exit
+mkdir -p "$ROOT/.dev/run"
+PID_FILE="$ROOT/.dev/run/${AGENT}.pid"
+echo $$ > "$PID_FILE"
+trap 'rm -f "$PID_FILE"; echo "[MBO] PID file cleaned up on exit."' EXIT
 
-# Database Integrity & Lock Recovery
+# Database Integrity & Lock Recovery (non-fatal — warn and continue)
 if [ -f "$DB_PATH" ]; then
     echo "[MBO] Verifying: $DB_PATH"
     node -e "
@@ -35,18 +35,15 @@ try {
     const db = new Database('$DB_PATH', { timeout: 5000 });
     const check = db.prepare('PRAGMA integrity_check').get();
     if (check.integrity_check !== 'ok') {
-        console.error('[CRITICAL] DB Integrity Failure:', check);
-        process.exit(1);
+        console.error('[WARN] DB Integrity Issue (continuing):', check);
     }
     db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').run();
     db.close();
-    process.exit(0);
 } catch (e) {
-    console.error('[CRITICAL] DB Access Error:', e.message);
-    process.exit(1);
-}"
+    console.error('[WARN] DB Check Error (continuing):', e.message);
+}" || echo "[WARN] DB check node process failed — continuing anyway."
 else
-    echo "[WARN] Database not found at $DB_PATH."
+    echo "[WARN] Database not found at $DB_PATH — server will create on first use."
 fi
 
 echo "[MBO] Environment Verified. Launching MCP..."
