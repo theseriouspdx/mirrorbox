@@ -15,3 +15,7 @@ mirrorbox.db*
 .env
 .env.*
 !.env.sandbox
+
+# Local MCP configs (machine-specific paths — see AGENTS.md Section 11 for setup)
+.mcp.json
+.gemini/

@@ -12,47 +12,15 @@ Every development session begins in this order. No exceptions.
 1. Read this file (`.dev/governance/AGENTS.md`)
 2. Read `.dev/governance/projecttracking.md` — identify current milestone and active task
 3. Read `.dev/governance/BUGS.md` — check for anything P0 blocking current milestone
-4. Read `.dev/spec/SPEC.md` — the implementation contract is the source of truth
+4. Load SPEC.md context per **Section 11** — graph-first if MCP reachable, full load if not
 
 No code is written before this sequence completes.
 
-### Section 1.5 — Pre-Session MCP Requirement
+### Section 1.5 — MCP Server
 
-Before any session work begins, the dev-mode MCP server must be reachable.
-`scripts/mbo-start.sh` is the **source of truth** for MCP server lifecycle — not any vendor-specific config file.
-It MUST be started as a background process with `--agent` set to the calling agent identity.
+The MCP server starts automatically. Do not start it manually. Do not verify the PID file.
 
-**Mandatory session start (all agents, all vendors):**
-```bash
-bash scripts/mbo-start.sh --mode=dev --agent=<claude|gemini> &
-```
-The script writes its PID to `.dev/run/{agent}.pid`. Wait 2 seconds then verify the process
-is alive: `kill -0 $(cat .dev/run/{agent}.pid)`. If this fails, stop. Do not proceed until resolved.
-
-**Agent identity values:**
-
-| Calling agent | `--agent` value |
-|---------------|-----------------|
-| Claude Code | `claude` |
-| Gemini CLI | `gemini` |
-| Runtime Operator (internal) | `operator` — managed by `operator.js` directly, no PID file |
-
-**MCP client configuration:**
-
-| Client | Config | Command |
-|--------|--------|---------|
-| Claude Code | `.mcp.json` | `bash scripts/mbo-start.sh --mode=dev --agent=claude` |
-| Gemini CLI | per Gemini MCP spec | `bash scripts/mbo-start.sh --mode=dev --agent=gemini` |
-| Python orchestrator | `subprocess.run(...)` | `bash scripts/mbo-start.sh --mode=dev --agent=operator` |
-
-**If MCP server is unavailable at Gate 0:**
-Fall back to full SPEC.md load (Section 11) and state:
-`"Dev graph unavailable — MCP not reachable. Loaded full SPEC.md."`
-
-**Stale session recovery:**
-`mbo-start.sh` runs `PRAGMA integrity_check` + `PRAGMA wal_checkpoint(TRUNCATE)` before launch.
-Do not delete `.db-wal` / `.db-shm` files manually — this discards unflushed data.
-WAL checkpoint is the correct recovery path.
+The first graph query in Section 11 confirms MCP is reachable. If it fails, fall back to full SPEC.md load.
 
 ---
 
@@ -106,12 +74,8 @@ This section defines the mandatory protocols for maintaining isolation between t
 - Missing or invalid world_id is a hard failure.
 
 ### Invariant 11 (Graph Investigation)
-- Mandatory 4-step retrieval loop:
-  1) Intent
-  2) Expansion
-  3) Evidence
-  4) Deepen
-- Retrieval must use graph_search and graph_query_impact.
+- Run only the graph queries specified in NEXT_SESSION.md Section 1.
+- Load only what those queries return. Do not expand further.
 - Full SPEC/file-dump context injection is disallowed by default.
 
 ### Invariant 12 (HardState Budget)
@@ -169,9 +133,7 @@ If the human confirms "end session", perform all steps in 6B, PLUS:
    ```bash
    bash scripts/mbo-session-close.sh --terminate-mcp --agent=<claude|gemini>
    ```
-   This sends SIGTERM to the PID in `.dev/run/{agent}.pid`, waits up to 5 seconds for
-   clean shutdown (WAL operations in-flight), then SIGKILL if still running.
-   Removes `.dev/run/{agent}.pid` on completion.
+   Do not verify the PID file. The script handles cleanup.
 3. Output the END SESSION CHECKLIST.
 4. State: "Handoff complete. It is now safe to clear context."
 
@@ -241,31 +203,63 @@ If at any point you cannot recall the Hard State Anchor, or if your context wind
 
 ### Two graph instances — never conflate them
 
-| Instance | db path | indexes | purpose |
-|----------|---------|---------|---------|
+| Instance | DB path (relative to repo root) | Indexes | Purpose |
+|----------|--------------------------------|---------|---------|
 | **Dev graph** | `.dev/data/dev-graph.db` | `src/` + SPEC.md sections | Development tool — used by Claude/Gemini during Phase 1 |
 | **Runtime graph** | `data/mirrorbox.db` | User's codebase | Product feature — built by MBO during onboarding |
 
 `data/mirrorbox.db` is the product. Never query it for development context. Never write dev graph data into it.
 
-### Starting the dev graph server (Future: Not yet implemented)
+### MCP setup (first-time on a new machine)
 
+MCP configs are machine-local and gitignored. Create the appropriate file once after cloning.
+
+**Claude Code** — create `.mcp.json` in the repo root:
+```json
+{
+  "mcpServers": {
+    "mbo-graph": {
+      "command": "bash",
+      "args": ["scripts/mbo-start.sh", "--mode=dev", "--agent=claude"],
+      "cwd": "<absolute path to repo root>",
+      "trust": true
+    }
+  }
+}
 ```
-# Milestone 0.4B Task: src/graph/mcp-server.js
-# node src/graph/mcp-server.js --mode=dev --root=/Users/johnserious/mbo
+
+**Gemini CLI** — create `.gemini/settings.json` in the repo root:
+```json
+{
+  "mcpServers": {
+    "mbo-graph": {
+      "command": "bash",
+      "args": ["scripts/mbo-start.sh", "--mode=dev", "--agent=gemini"],
+      "cwd": "<absolute path to repo root>"
+    }
+  }
+}
 ```
+
+Both configs run `mbo-start.sh`, which is vendor-agnostic and self-locating. Only `cwd` is machine-specific. Once created, the server auto-starts on session open.
+
+The MCP server exposes these tools (use these exact names — do not guess or invent tool names):
+
+| Tool | What it does |
+|------|-------------|
+| `graph_search` | Find nodes by keyword — returns node IDs, types, paths |
+| `graph_query_impact` | Given a node ID, return all nodes affected by a change |
+| `graph_query_dependencies` | Return the full dependency chain for a file or function |
+| `graph_query_callers` | Return all nodes that call a given function |
+| `graph_query_coverage` | Return tests that cover a given function or file |
 
 ### Replacing full SPEC.md loads with graph queries
 
-After 0.4B, agents must NOT load SPEC.md in full at session start. Instead:
+After 0.4B, agents must NOT load SPEC.md in full at session start. Run only the queries listed in NEXT_SESSION.md Section 1. Load only the files and SPEC sections those queries return. Stop there.
 
-1. Read governance docs as normal (AGENTS.md, projecttracking.md, BUGS.md — these stay full)
-2. Run: `graph_query_impact(active_task_id)` against the dev graph
-3. Load ONLY the SPEC sections returned in `GraphQueryResult.subsystems`
-4. Load ONLY the source files in `GraphQueryResult.affectedFiles`
-5. State: "Graph query complete. SPEC sections loaded: [X, Y, Z]. Source files in scope: [A, B, C]."
+State: "Graph query complete. SPEC sections loaded: [X]. Source files in scope: [Y]."
 
-This replaces the ~85KB SPEC.md full load with ~8KB of targeted sections for any given task. Full SPEC.md loading is only required for: re-onboarding, milestone boundary reviews, and spec correction tasks.
+Do NOT use any tool other than the five MCP tools listed above. Do NOT use codebase_investigator, grep, SearchText, ReadFolder, or any file-system exploration tool to load context.
 
 ### If the dev graph server is not running
 
