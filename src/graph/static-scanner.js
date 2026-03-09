@@ -1,9 +1,12 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const Parser = require('tree-sitter');
 const JavaScript = require('tree-sitter-javascript');
 const TypeScript = require('tree-sitter-typescript');
 const Python = require('tree-sitter-python');
+const { LSPClient, detectServer } = require('./lsp-client');
+const { fileURLToPath } = require('url');
 
 class StaticScanner {
   /**
@@ -42,16 +45,28 @@ class StaticScanner {
     if (!parser) return;
 
     const content = fs.readFileSync(filePath, 'utf8');
-    const tree = parser.parse(content);
     const relativePath = path.relative(projectRoot, filePath);
     const fileId = `file://${relativePath}`;
+
+    // BUG-009: Staleness logic
+    const contentHash = crypto.createHash('sha256').update(content).digest('hex');
+    const existingNode = this.graphStore.getNode(fileId);
+    if (existingNode && existingNode.metadata?.content_hash === contentHash) {
+      return; // Skip re-scanning unchanged file
+    }
+
+    const tree = parser.parse(content);
 
     this.graphStore.upsertNode({
       id: fileId,
       type: 'file',
       name: path.basename(filePath),
       path: relativePath,
-      metadata: { size: content.length }
+      metadata: { 
+        size: content.length,
+        content_hash: contentHash,
+        last_modified: Date.now()
+      }
     });
 
     this.extractSymbols(tree.rootNode, fileId, relativePath);
@@ -77,7 +92,9 @@ class StaticScanner {
             path: relativePath,
             metadata: {
               start: node.startPosition,
-              end: node.endPosition
+              end: node.endPosition,
+              startLine: node.startPosition.row,
+              startColumn: node.startPosition.column
             }
           });
 
@@ -104,7 +121,7 @@ class StaticScanner {
         const sourceNode = node.children.find(c => c.type === 'string');
         if (sourceNode) {
           const importPath = sourceNode.text.replace(/['"]/g, '');
-          this.recordImport(fileId, importPath);
+          this.recordImport(fileId, importPath, sourceNode.startPosition);
         }
       }
 
@@ -114,7 +131,7 @@ class StaticScanner {
           const argNode = node.childForFieldName('arguments')?.children.find(c => c.type === 'string');
           if (argNode) {
             const importPath = argNode.text.replace(/['"]/g, '');
-            this.recordImport(fileId, importPath);
+            this.recordImport(fileId, importPath, argNode.startPosition);
           }
         }
       }
@@ -127,16 +144,18 @@ class StaticScanner {
     walk(rootNode);
   }
 
-  recordImport(fileId, importPath) {
-    // Raw string for now — LSP resolves paths in 0.4B.
-    // Node must be upserted before edge to satisfy FK constraint.
+  recordImport(fileId, importPath, position) {
     const targetId = `import://${importPath}`;
 
     this.graphStore.upsertNode({
       id: targetId,
       type: 'placeholder',
       name: importPath,
-      path: importPath
+      path: importPath,
+      metadata: {
+        startLine: position ? position.row : 0,
+        startColumn: position ? position.column : 0
+      }
     });
 
     this.graphStore.upsertEdge({
@@ -149,7 +168,7 @@ class StaticScanner {
 
   async scanDirectory(dirPath, projectRoot) {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    const defaultExclude = ['node_modules', '.git', '.dev'];
+    const defaultExclude = ['node_modules', '.git', '.dev', 'data', 'audit'];
     const excluded = new Set([...defaultExclude, ...this.config.exclude]);
 
     for (const entry of entries) {
@@ -161,6 +180,105 @@ class StaticScanner {
       } else {
         await this.scanFile(fullPath, projectRoot);
       }
+    }
+  }
+
+  /**
+   * Phase 2: The Semantic Muscle (LSP Enrichment)
+   */
+  async enrich(projectRoot) {
+    const nodes = this.graphStore.db.query("SELECT * FROM nodes WHERE type IN ('function', 'class', 'placeholder')");
+    
+    // R-03: Amortize — open once, run all queries, then close. Group nodes by file.
+    const nodesByFile = new Map();
+    for (const node of nodes) {
+      let filePath;
+      if (node.type === 'placeholder') {
+        const edge = this.graphStore.db.get("SELECT source_id FROM edges WHERE target_id = ? AND relation = 'IMPORTS'", [node.id]);
+        if (!edge) continue;
+        filePath = edge.source_id.replace('file://', '');
+      } else {
+        filePath = node.path;
+      }
+      if (!nodesByFile.has(filePath)) nodesByFile.set(filePath, []);
+      nodesByFile.get(filePath).push(node);
+    }
+
+    const clients = new Map();
+
+    for (const [filePath, fileNodes] of nodesByFile) {
+      const ext = path.extname(filePath);
+      const lang = ext === '.py' ? 'python' : (ext === '.ts' || ext === '.tsx' ? 'typescript' : 'javascript');
+      
+      if (!clients.has(lang)) {
+        const cmd = detectServer(lang);
+        if (!cmd) {
+          console.warn(`[WARN] No LSP server found for ${lang}`);
+          clients.set(lang, null);
+          continue;
+        }
+        // R-05: Ephemeral instances per task handled by scan lifecycle.
+        const client = new LSPClient(lang, cmd, ['--stdio'], projectRoot);
+        await client.start();
+        clients.set(lang, client);
+      }
+
+      const client = clients.get(lang);
+      if (!client) continue;
+
+      const absPath = path.resolve(projectRoot, filePath);
+      await client.openDocument(absPath);
+      
+      for (const node of fileNodes) {
+        const metadata = JSON.parse(node.metadata || '{}');
+        const { startLine, startColumn } = metadata;
+        
+        if (node.type === 'placeholder') {
+          // Resolve Imports using stored position metadata (R-04)
+          const def = await client.resolveDefinition(absPath, startLine, startColumn);
+          if (def) {
+            const targetRelPath = path.relative(projectRoot, fileURLToPath(def.targetUri));
+            // Robust metadata search using json_extract (Issue 6)
+            const targetNode = this.graphStore.db.get(
+              "SELECT id FROM nodes WHERE path = ? AND json_extract(metadata, '$.startLine') = ?", 
+              [targetRelPath, def.targetRange.start.line]
+            );
+            if (targetNode) {
+              const edge = this.graphStore.db.get("SELECT source_id FROM edges WHERE target_id = ? AND relation = 'IMPORTS'", [node.id]);
+              if (edge) {
+                this.graphStore.resolveImport(edge.source_id, node.id, targetNode.id);
+              }
+            }
+          }
+        } else {
+          // Call Hierarchy using stored position metadata (R-04)
+          const calls = await client.getCallHierarchy(absPath, startLine, startColumn);
+          if (calls && calls.outgoing) {
+            for (const out of calls.outgoing) {
+              const targetRelPath = path.relative(projectRoot, fileURLToPath(out.to.uri));
+              const targetNode = this.graphStore.db.get(
+                "SELECT id FROM nodes WHERE path = ? AND json_extract(metadata, '$.startLine') = ?",
+                [targetRelPath, out.to.selectionRange.start.line]
+              );
+              if (targetNode) {
+                this.graphStore.upsertEdge({
+                  source_id: node.id,
+                  target_id: targetNode.id,
+                  relation: 'CALLS',
+                  source: 'static'
+                });
+              }
+            }
+          }
+        }
+      }
+
+      await client.closeDocument(absPath);
+    }
+
+    // R-05: Shutdown ephemeral clients
+    for (const client of clients.values()) {
+      if (client) await client.shutdown();
     }
   }
 }

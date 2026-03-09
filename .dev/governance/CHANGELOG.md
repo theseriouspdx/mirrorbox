@@ -3,6 +3,38 @@
 
 ---
 
+### [0.4.2] — 2026-03-09
+#### Added
+- **0.4B-01**: Implemented LSP enrichment for cross-file call resolution and import edges.
+  - Created `src/graph/lsp-client.js` with `vscode-jsonrpc` for stdio transport.
+  - Implemented `LSPClient` lifecycle: R-01 (rootUri), R-02 (waitForReady), R-03 (didOpen/didClose), R-05 (ephemeral shutdown), and R-06 (Watchdog registration).
+  - Implemented cross-file `resolveDefinition` and `getCallHierarchy` (incoming/outgoing).
+  - Added `resolveImport` Spec Extension to `GraphStore` for atomic placeholder rewriting.
+#### Changed
+- **Scanner Enrichment**: 
+  - Updated `src/graph/static-scanner.js` to store 0-indexed position metadata (R-04).
+  - Implemented Phase 2 `enrich(projectRoot)` logic with file-grouping (R-03) and robust `json_extract` metadata lookups.
+  - Integrated `LSPClient` auto-detection for TypeScript, JavaScript, and Python.
+- **Dependencies**: Added `vscode-jsonrpc` and `vscode-languageserver-protocol` to `package.json`.
+#### Fixed
+- **BUG-033**: Enforced ephemeral `LSPClient` instances to prevent task-boundary coupling.
+- **BUG-035**: Verified `db.get()` existence in `db-manager.js` for enrichment pass lookups.
+
+---
+
+### [0.4.1] — 2026-03-09
+#### Added
+- **0.4A-03**: Implemented Intelligence Graph queries and BUG-009.
+  - Added `getCallers`, `getDependencies` (refined for imports/calls), and `getImpact` (recursive 3-degree) to `GraphStore`.
+  - Implemented `content_hash` staleness logic in `StaticScanner`. Uses SHA-256 hashing to skip redundant re-scans.
+- **0.4A-04**: Implemented Section 13 `GraphQueryResult` formal contract in `GraphStore`.
+#### Fixed (0.4A Structural Audit)
+- **Structural Reconciliation**: Removed hallucinated methods (`findNodeByPath`) and fixed SQL syntax errors introduced during execution.
+- **Database Integrity**: Scrubbed databases of garbage nodes; verified zero unapproved metadata fields remain.
+- **Event Store Chain**: Verified chain integrity through seq 18 following a `RECOVERY` reconciliation event.
+
+---
+
 ### [0.4.0] — 2026-03-09
 #### Added
 - **0.4A-01**: Implemented Tree-sitter integration for `src/` scanning.
@@ -106,4 +138,4 @@
 
 ---
 
-*Last updated: 2026-03-08*
+*Last updated: 2026-03-09*

@@ -1,17 +1,17 @@
 # projecttracking.md
 ## Mirror Box Orchestrator — Build Tracking
 
-**Current Milestone:** 0.4A — Intelligence Graph (Skeleton) [IN PROGRESS]
-**Next Action:** 0.4A-03 — Basic query capability + staleness logic (BUG-009)
+**Current Milestone:** 0.4B — Intelligence Graph (Enrichment) [IN PROGRESS]
+**Next Action:** 0.4B-01 — LSP integration: cross-file call resolution, import edges
 
 ---
 
 ## NEXT ACTION
 
-**0.4A-03** — Basic query capability + staleness logic (BUG-009)
-- Implement getCallers, getDependencies, getImpact queries in GraphStore
-- Implement content_hash staleness logic in StaticScanner/GraphStore
-- Verify GraphQueryResult matches Section 13 contract (Task 0.4A-04)
+**0.4B-01** — LSP integration: cross-file call resolution, import edges
+- Language server auto-detection: TypeScript, JavaScript, Python at minimum
+- Enrich edges table with CALLS relations from LSP call graph
+- Cross-file import resolution working via LSP textDocument/definition
 - Status: OPEN
 
 ---
@@ -38,26 +38,26 @@
 
 ---
 
-## MILESTONE 0.4A — Intelligence Graph (Skeleton) [IN PROGRESS]
+## MILESTONE 0.4A — Intelligence Graph (Skeleton) ✅ SUCCESS
 
 | ID | Task | Status |
 |----|------|--------|
 | 0.4A-01 | Tree-sitter integration: scan src/, extract nodes/edges | COMPLETED |
 | 0.4A-02 | graph-store.js: write nodes and edges to mirrorbox.db | COMPLETED |
-| 0.4A-03 | Basic query: what calls X, what does X import | OPEN |
-| 0.4A-04 | GraphQueryResult format matches Section 13 contract | OPEN |
+| 0.4A-03 | Basic query: what calls X, what does X import | COMPLETED |
+| 0.4A-04 | GraphQueryResult format matches Section 13 contract | COMPLETED |
 | 0.4A-05 | Fix 0.4A Audit FAIL (Item 5): event-store.js + SPEC.md | COMPLETED |
 | 0.4A-06 | Fix 0.4A Audit WARN (Item 6): AGENTS.md server ref | COMPLETED |
 | 0.4A-07 | AGENTS.md Section 9: Diff-only + Peer Review rules | COMPLETED |
 
 ---
 
-## MILESTONE 0.4B — Intelligence Graph (Enrichment) [PLANNED]
+## MILESTONE 0.4B — Intelligence Graph (Enrichment) [IN PROGRESS]
 
 | ID | Task | Status |
 |----|------|--------|
 | 0.4B-00 | Define dev-graph instance config and separate db path (blocks all MCP work) | COMPLETED |
-| 0.4B-01 | LSP integration: cross-file call resolution, import edges | OPEN |
+| 0.4B-01 | LSP integration: cross-file call resolution, import edges | COMPLETED |
 | 0.4B-02 | MCP server: expose five tools from Section 6 (graph_query_impact, graph_query_callers, graph_query_dependencies, graph_query_coverage, graph_search) | OPEN |
 | 0.4B-03 | Index SPEC.md sections as graph nodes (enables section-level queries during dev workflow) | OPEN |
 | 0.4B-04 | Graph updates after successful task (Stage 11 hook) | OPEN |
@@ -141,4 +141,4 @@
 
 ---
 
-*Last updated: 2026-03-08*
+*Last updated: 2026-03-09*

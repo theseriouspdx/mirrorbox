@@ -34,6 +34,18 @@ class GraphStore {
     `, [source_id, target_id, relation, source]);
   }
 
+  /**
+   * resolveImport: Atomic placeholder rewriting.
+   * Required for Milestone 0.4B.
+   */
+  resolveImport(sourceId, placeholderId, realTargetId) {
+    this.db.run(`
+      UPDATE edges 
+      SET target_id = ? 
+      WHERE source_id = ? AND target_id = ? AND relation = 'IMPORTS'
+    `, [realTargetId, sourceId, placeholderId]);
+  }
+
   getNode(id) {
     const node = this.db.get('SELECT * FROM nodes WHERE id = ?', [id]);
     if (node && node.metadata) {
@@ -86,8 +98,48 @@ class GraphStore {
     return this.db.query(`
       SELECT target_id as id, relation, source
       FROM edges
-      WHERE source_id = ?
+      WHERE source_id = ? AND relation IN ('IMPORTS', 'CALLS', 'DEPENDS_ON')
     `, [nodeId]);
+  }
+
+  /**
+   * Section 13: Formal Input Contract for GraphQueryResult
+   */
+  getGraphQueryResult(nodeId) {
+    const node = this.getNode(nodeId);
+    if (!node) return null;
+
+    const impact = this.getImpact(nodeId);
+    const callers = this.getCallers(nodeId);
+    const dependencies = this.getDependencies(nodeId);
+
+    // Simple subsystem heuristic: first directory under src/ or root
+    const extractSubsystem = (p) => {
+      const parts = p.split('/');
+      return parts[0] === 'src' ? parts[1] : parts[0];
+    };
+
+    const affectedFiles = [...new Set(
+      impact
+        .map(edge => this.getNode(edge.id))
+        .filter(n => n && n.type === 'file')
+        .map(n => n.path)
+    )];
+
+    const subsystems = [...new Set(affectedFiles.map(extractSubsystem))];
+
+    return {
+      subsystems,
+      affectedFiles,
+      callers: callers.map(c => c.id),
+      callees: dependencies.filter(d => d.relation === 'CALLS').map(d => d.id),
+      coveringTests: this.db.query(`
+        SELECT source_id FROM edges 
+        WHERE target_id = ? AND relation = 'COVERS'
+      `, [nodeId]).map(r => r.source_id),
+      dependencyChain: dependencies.map(d => d.id),
+      runtimeEdges: [] // To be populated in Milestone 0.8
+    };
   }
 
   search(pattern) {
