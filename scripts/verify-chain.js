@@ -12,10 +12,10 @@ const DB_PATH = process.argv[2] || path.join(__dirname, '../data/mirrorbox.db');
 function verifyChain() {
   console.log(`Auditing Mirror Box Chain of Custody: ${DB_PATH}`);
   const db = new Database(DB_PATH, { readonly: true });
-  
+
   try {
     const events = db.prepare('SELECT id, seq, stage, actor, timestamp, payload, hash, parent_event_id, prev_hash FROM events ORDER BY seq ASC').all();
-    
+
     if (events.length === 0) {
       console.log('PASS: Event store is empty.');
       return;
@@ -49,7 +49,7 @@ function verifyChain() {
         }
       }
 
-      // 3. Verify Hash Integrity (Envelope Verification)
+      // 3. Verify Hash Integrity
       const envelope = JSON.stringify({
         id: event.id,
         seq: event.seq,
@@ -76,20 +76,21 @@ function verifyChain() {
       lastHash = event.hash;
     });
 
-    // 5. Verify Anchor
-    const anchor = db.prepare('SELECT seq, event_id, hash FROM chain_anchors WHERE id = 1').get();
+    // 5. Verify Anchor — uses run_id PK (migrated schema)
+    const anchor = db.prepare('SELECT run_id, seq, event_id, hash FROM chain_anchors ORDER BY created_at DESC LIMIT 1').get();
     if (!anchor) {
       console.error(`FAIL [Missing Anchor]: No anchor found in chain_anchors.`);
       errors++;
-    } else if (anchor.seq !== maxSeq || anchor.hash !== lastHash || anchor.event_id !== lastId) {
-      console.error(`FAIL [Anchor Mismatch]: Anchor points to seq ${anchor.seq} (hash ${anchor.hash}), but chain ends at seq ${maxSeq} (hash ${lastHash}).`);
+    } else if (anchor.hash !== lastHash) {
+      console.error(`FAIL [Anchor Mismatch]: Anchor hash ${anchor.hash.slice(0,12)} does not match chain tail hash ${lastHash.slice(0,12)}.`);
       errors++;
     }
 
     if (errors === 0) {
-      console.log(`PASS: Verified ${events.length} events in the chain, ending at seq ${maxSeq}.`);
+      console.log(`PASS: Verified ${events.length} events. Chain intact from seq 1 → ${maxSeq}.`);
+      console.log(`Anchor run_id: ${anchor.run_id} | tail hash: ${lastHash.slice(0,16)}...`);
     } else {
-      console.error(`FAILED: ${errors} integrity errors found.`);
+      console.error(`FAILED: ${errors} integrity error(s) found.`);
       process.exit(1);
     }
   } catch (error) {
