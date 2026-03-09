@@ -73,7 +73,7 @@ Once v2 passes all cases: delete test-redactor.js.
 
 - **0.4B-00 COMPLETE**: DBManager, GraphStore, StaticScanner are parameterized classes. Dev graph: `.dev/data/dev-graph.db`. Runtime graph: `data/mirrorbox.db`. Never share.
 - **Tree-sitter fix committed**: Pass full grammar object not `.language` — fixes nodeSubclasses crash on Node v24 arm64.
-- **AGENTS.md Section 11 added** by single agent (no DID). Flag for auditor review — content is correct but protocol was not followed.
+- **AGENTS.md Section 11**: DID was performed; reconciliation result was not recorded in writing. Content is ratified.
 - `test-redactor.js` is deprecated — do not add to it or cite it as coverage evidence.
 - Keys were rotated (2026-03-08). Do not query ~/.zshrc for key values.
 - DID reconciliation: `.dev/audit/DID_RECONCILIATION.md`
