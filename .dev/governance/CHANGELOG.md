@@ -9,6 +9,12 @@
   - Implemented `src/auth/call-model.js` supporting CLI (Claude, Gemini, OpenAI), Local (Ollama), and OpenRouter.
   - Verified round-trips with Gemini CLI and OpenRouter.
   - Added `.dev/governance/TECHNICAL_DEBT.md` for OpenAI/Ollama pending verification.
+  - **Fixed P0/P1 issues via Adversarial Review**:
+    - BUG-014: Resolved ghost binary crash in `session-detector.js`.
+    - BUG-015: Added 30s timeout to CLI spawns in `call-model.js`.
+    - BUG-016: Fixed JSON escaping for OpenAI CLI via `JSON.stringify`.
+    - BUG-017: Re-aligned model routing with SPEC priority (Local > CLI > OpenRouter).
+    - BUG-018: Implemented missing `tiebreaker` role in `model-router.js`.
 - **0.2-04**: Model routing logic implementation.
   - Implemented `src/auth/model-router.js` with priority-based role mapping.
   - Priority established: Local > CLI Session > OpenRouter.

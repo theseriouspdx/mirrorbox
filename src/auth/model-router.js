@@ -4,6 +4,7 @@ const { detectOpenRouter } = require('./openrouter-detector');
 
 /**
  * Routes model roles to specific providers based on detection and priority.
+ * Priority (Section 9): 1. Local, 2. CLI Session, 3. OpenRouter
  */
 async function routeModels() {
   const cli = detectCliSessions();
@@ -15,51 +16,45 @@ async function routeModels() {
     architecturePlanner: null,
     componentPlanner: null,
     reviewer: null,
+    tiebreaker: null,
     patchGenerator: null,
     onboarding: null
   };
 
-  // 1. Classifier - Gemini (CLI) as fallback for classifier if local is empty
-  if (local.ollama.detected) {
-    routingMap.classifier = { provider: 'local', model: 'ollama', url: local.ollama.url };
-  } else if (cli.gemini.authenticated) {
-    routingMap.classifier = { provider: 'cli', model: 'gemini', binary: cli.gemini.binary };
-  } else if (or.detected) {
-    routingMap.classifier = { provider: 'openrouter', model: 'google/gemini-pro-1.5' };
+  /**
+   * Helper to find the best available provider for a role based on SPEC priority.
+   */
+  function findProvider(localPref, cliPref, orPref) {
+    if (local.ollama.detected) return { provider: 'local', model: 'ollama', url: local.ollama.url };
+    if (cli[cliPref] && cli[cliPref].authenticated) return { provider: 'cli', model: cliPref, binary: cli[cliPref].binary };
+    if (or.detected) return { provider: 'openrouter', model: orPref };
+    return null;
   }
 
-  // 2. Planners - Claude CLI is top priority
-  if (cli.claude.authenticated) {
-    routingMap.architecturePlanner = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
-    routingMap.componentPlanner = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
-  } else if (or.detected) {
-    routingMap.architecturePlanner = { provider: 'openrouter', model: 'anthropic/claude-3.7-sonnet' };
-    routingMap.componentPlanner = { provider: 'openrouter', model: 'anthropic/claude-3.5-sonnet' };
-  }
+  // 1. Classifier - Local > CLI > OpenRouter
+  routingMap.classifier = findProvider('ollama', 'gemini', 'google/gemini-pro-1.5');
 
-  // 3. Reviewer - Gemini CLI (Diverse Vendor from Planner)
-  if (cli.gemini.authenticated) {
-    routingMap.reviewer = { provider: 'cli', model: 'gemini', binary: cli.gemini.binary };
-  } else if (or.detected) {
-    routingMap.reviewer = { provider: 'openrouter', model: 'google/gemini-pro-1.5' };
-  }
+  // 2. Planners - Local > CLI > OpenRouter
+  routingMap.architecturePlanner = findProvider('ollama', 'claude', 'anthropic/claude-3.7-sonnet');
+  routingMap.componentPlanner = findProvider('ollama', 'claude', 'anthropic/claude-3.5-sonnet');
 
-  // 4. Patch Generator - Local or OpenRouter
-  if (local.ollama.detected) {
-    routingMap.patchGenerator = { provider: 'local', model: 'ollama', url: local.ollama.url };
-  } else if (cli.claude.authenticated) {
-    routingMap.patchGenerator = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
-  } else if (or.detected) {
-    routingMap.patchGenerator = { provider: 'openrouter', model: 'anthropic/claude-3.5-haiku' };
-  }
+  // 3. Reviewer - Local > CLI > OpenRouter (Adversarial vendor from planner is handled via Role configuration)
+  routingMap.reviewer = findProvider('ollama', 'gemini', 'google/gemini-pro-1.5');
 
-  // 5. Onboarding - Highest Capability
+  // 4. Tiebreaker - Best available frontier (OpenRouter > CLI > Local)
   if (or.detected) {
-    routingMap.onboarding = { provider: 'openrouter', model: 'anthropic/claude-3.7-sonnet' };
+    routingMap.tiebreaker = { provider: 'openrouter', model: 'anthropic/claude-3.7-sonnet' };
   } else if (cli.claude.authenticated) {
-    routingMap.onboarding = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
+    routingMap.tiebreaker = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
+  } else if (local.ollama.detected) {
+    routingMap.tiebreaker = { provider: 'local', model: 'ollama', url: local.ollama.url };
   }
 
+  // 5. Patch Generator - Local > CLI > OpenRouter
+  routingMap.patchGenerator = findProvider('ollama', 'claude', 'anthropic/claude-3.5-haiku');
+
+  // 6. Onboarding - Local > CLI > OpenRouter
+  routingMap.onboarding = findProvider('ollama', 'claude', 'anthropic/claude-3.7-sonnet');
 
   return { routingMap, providers: { cli, local, or } };
 }

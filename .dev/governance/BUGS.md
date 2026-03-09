@@ -75,7 +75,7 @@
 ### BUG-010: Tiebreaker reviewer block loop undefined | Milestone: 0.7 | OPEN
 ### BUG-011: HardState truncation priority undefined | Milestone: 0.6 | OPEN
 ### BUG-012: Smoke test failure loop has no maximum retry count | Milestone: 0.7 | OPEN
-### BUG-013: CLI sandbox interaction undefined for terminal context | Milestone: 0.8 | OPEN
+- **BUG-014 to BUG-018:** Resolved via adversarial review and implementation fixes (Milestone 0.2).
 
 ---
 

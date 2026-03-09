@@ -9,7 +9,7 @@ const os = require('os');
 function detectCliSessions() {
   const providers = {
     claude: { detected: false, binary: null, authenticated: false, version: null },
-    gemini: { detected: false, binary: null, authenticated: true, version: null }, // Current session assumed auth
+    gemini: { detected: false, binary: null, authenticated: false, version: null },
     openai: { detected: false, binary: null, authenticated: false, version: null }
   };
 

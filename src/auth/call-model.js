@@ -40,10 +40,13 @@ function callCliProvider(config, prompt) {
   } else if (config.model === 'gemini') {
     args = ['-p', prompt]; // gemini -p "prompt"
   } else if (config.model === 'openai') {
-    args = ['chat', 'completions', 'create', '--model', 'gpt-4o', '--messages', `[{"role": "user", "content": "${prompt.replace(/"/g, '\\"')}"}]`];
+    const payload = JSON.stringify([
+      { role: 'user', content: prompt }
+    ]);
+    args = ['chat', 'completions', 'create', '--model', 'gpt-4o', '--messages', payload];
   }
 
-  const res = spawnSync(config.binary, args, { encoding: 'utf8' });
+  const res = spawnSync(config.binary, args, { encoding: 'utf8', timeout: 30000 });
   if (res.error) throw res.error;
   if (res.status !== 0) throw new Error(res.stderr || 'CLI execution failed');
 
