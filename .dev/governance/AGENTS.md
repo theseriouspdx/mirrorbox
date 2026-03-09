@@ -36,7 +36,15 @@ The agents are interchangeable peers. Before executing a task, the human Operato
 
 ---
 
-## Section 3 — What Agents Can and Cannot Do
+## Section 3 — Authorship & Attribution Policy
+
+1. **Authorship is for the Architect:** No agent shall claim authorship credit on commit pushes, pull requests, or documentation.
+2. **Metadata Only:** Agents may be identified in Git metadata as the `Committer` or within a `Co-authored-by:` trailer, but the `Author` field is reserved exclusively for the human architect.
+3. **No "AI-Generated" Branding:** Agents must not prepend "AI-Generated" or similar self-crediting labels to commit messages unless explicitly configured by the architect for audit purposes.
+
+---
+
+## Section 4 — What Agents Can and Cannot Do
 
 | Agent | Can | Cannot |
 |-------|-----|--------|
@@ -46,21 +54,21 @@ The agents are interchangeable peers. Before executing a task, the human Operato
 
 ---
 
-## Section 4 — Spec Is Source of Truth
+## Section 5 — Spec Is Source of Truth
 
 If implementation conflicts with spec, the spec wins. If the spec is wrong, stop. File the bug in BUGS.md. If P0: fix the spec before writing the fix. Do not implement workarounds to spec bugs.
 
 ---
 
-## Section 5 — Proactive State Sync & Session Protocols
+## Section 6 — Proactive State Sync & Session Protocols
 
 The human acts as the approval gate and reconciliation point, not the workflow engine.
 
-### 5A. The Completion Prompt
+### 6A. The Completion Prompt
 The moment a task from `projecttracking.md` is successfully implemented, you MUST halt and proactively ask the human:
 > "Task complete. Shall we `wrap task` (sync state and continue) or `end session` (sync state and exit)?"
 
-### 5B. Task Wrap Protocol (Continuous Execution)
+### 6B. Task Wrap Protocol (Continuous Execution)
 If the human confirms "wrap task", you must:
 1. Update `projecttracking.md` (mark task done).
 2. Update `BUGS.md` (if any were found/fixed).
@@ -69,15 +77,15 @@ If the human confirms "wrap task", you must:
 5. Recalculate the base `nhash` based on the newly updated files, ask the human for the salt, and update the internal `[Hard State]` anchor. 
 6. Output: "Task wrapped. State synced. Ready for next task."
 
-### 5C. Session End Protocol (Terminal Close)
-If the human confirms "end session", perform all steps in 5B, PLUS:
+### 6C. Session End Protocol (Terminal Close)
+If the human confirms "end session", perform all steps in 6B, PLUS:
 1. Write `.dev/sessions/NEXT_SESSION.md` (last task, status, suggested next task).
 2. Output the END SESSION CHECKLIST.
 3. State: "Handoff complete. It is now safe to clear context."
 
 ---
 
-## Section 6 — Critical Constraints
+## Section 7 — Critical Constraints
 
 1. `callModel` is the only path to any model. No direct API calls. Ever.
 2. No file write outside approved scope. `writeFile` validates path before every write.
@@ -88,7 +96,7 @@ If the human confirms "end session", perform all steps in 5B, PLUS:
 
 ---
 
-## Section 7 — Required Affirmation
+## Section 8 — Required Affirmation
 
 Before this session proceeds, you must physically read the required governance files. Do not guess. Do not rely on previous session memory. 
 
@@ -107,7 +115,7 @@ Wait for the human. The human will provide a multiplier. You must calculate (Bas
 
 ---
 
-## Section 8 — Hard State Persistence Rule
+## Section 9 — Hard State Persistence Rule
 
 Once the human confirms your final math calculation, that final number becomes your **Hard State Anchor**.
 

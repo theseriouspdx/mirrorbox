@@ -60,9 +60,22 @@ Derived from DID pre-build analysis. Replaces Appendix A ordering in spec.
 | 0.1-01 | Initialize git repo with .gitignore | COMPLETED |
 | 0.1-02 | Write AGENTS.md for .dev/ development process (governs Phase 1 human builders) | COMPLETED |
 | 0.1-02a | Write AGENTS.md for src/ codebase (governs MBO's own agents at 1.0) | COMPLETED |
-| 0.1-03 | Docker container builds and runs | NOT STARTED |
-| 0.1-04 | Gate 0 checks pass: Mac, Linux, WSL2 | NOT STARTED |
-| 0.1-05 | Dummy task through development protocol end-to-end | NOT STARTED |
+| 0.1-03 | Docker container builds and runs | COMPLETED |
+| 0.1-04 | Gate 0 checks pass: Mac, Linux, WSL2 | COMPLETED |
+| 0.1-05 | Dummy task through development protocol end-to-end | COMPLETED |
+
+---
+
+## MILESTONE 0.2 — Auth + Model Routing
+
+| ID | Task | Status |
+|----|------|--------|
+| 0.2-01 | CLI session detection (Claude, Gemini, OpenAI) | NOT STARTED |
+| 0.2-02 | Local model detection (Ollama, LM Studio) | NOT STARTED |
+| 0.2-03 | OpenRouter fallback operational | NOT STARTED |
+| 0.2-04 | Model routing config loads and routes correctly | NOT STARTED |
+| 0.2-05 | All providers complete a simple prompt round-trip | NOT STARTED |
+
 
 **Note on 0.1-02 vs 0.1-02a:** Two separate AGENTS.md files, two purposes.
 - `.dev/governance/AGENTS.md` — governs Phase 1 human developers building MBO (exists now, will be refined at 0.1-02)

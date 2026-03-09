@@ -1,0 +1,8 @@
+{
+  "name": "mbo-engine",
+  "version": "0.1.0",
+  "description": "Mirror Box Orchestrator Engine",
+  "main": "src/index.js",
+  "dependencies": {},
+  "private": true
+}

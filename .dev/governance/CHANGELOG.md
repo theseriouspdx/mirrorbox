@@ -1,10 +1,13 @@
-## 0.1.0 — Environment (in progress)
+## 0.1.0 — Environment (complete)
 
 ### 2026-03-08 (session 6)
 - **0.1-01**: Git repository initialized and .gitignore created.
-- **0.1-02**: AGENTS.md refined to govern Phase 1 Human-Builder development. Peer-DID protocol established for interchangeable agents.
-- **0.1-02a**: Autonomous AGENTS.md created at project root. Codified Section 3: Authorship & Attribution Policy (Authorship is for the Architect).
-- nhash verified: 48 × 8 = 384 ✅
+- **0.1-02**: AGENTS.md refined for Phase 1 Peer-DID development.
+- **0.1-02a**: Autonomous AGENTS.md created with Authorship Policy.
+- **0.1-03**: Dockerfile created and build verified (Node 18 + Docker CLI).
+- **0.1-04**: Gate 0 checks pass for Mac environment.
+- **0.1-05**: Peer-DID protocol verified via ROADMAP.md reconciliation with Agent B (Claude).
+- nhash verified: 48 × 8 = 384 ✅ (Recalculated to 408 after Section 3 addition).
 
 ---
 
