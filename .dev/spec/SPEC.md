@@ -1675,13 +1675,11 @@ Build one orchestrator. Ship three surfaces. The core pipeline has zero UI depen
 
 ### The Setup
 
-Phase 1 development uses Claude Code and Gemini CLI as the development team. They follow an **Adversarial Review** protocol during this foundation-building stage. This is a high-signal review loop, but it is distinct from the Dual Independent Derivation (DID) the orchestrator will eventually enforce.
+Phase 1 development uses Claude Code and Gemini CLI as a peer development team. They follow a **Dual Independent Derivation (DID)** protocol during this foundation-building stage. 
 
-**Adversarial Review (Phase 1):** One agent proposes an implementation (diff); the second agent reviews the diff blind against the spec. This catches bugs and spec violations but does not guarantee independent agreement on the solution path itself.
+**Dual Independent Derivation (Phase 1):** Both agents are interchangeable. For higher-tier tasks, one agent proposes a solution, and the second agent independently derives their own implementation without seeing the first's work. Consensus and reconciliation are required before any code is committed.
 
-**Dual Independent Derivation (MBO Core):** Two agents independently derive their own full solutions. Consensus is earned by arriving at the same result from the same spec without seeing each other's work.
-
-The governance documents, the adversarial review loop, and the human approval gate are all active from day one.
+The governance documents, the DID loop, and the human approval gate are all active from day one.
 
 ### Session Start Protocol
 
@@ -1694,15 +1692,15 @@ Every development session begins the same way:
 
 No code is written before this sequence completes.
 
-### Task Execution Protocol (Adversarial Review)
+### Task Execution Protocol (DID)
 
-1. Identify the task in `projecttracking.md`
-2. Claude Code proposes implementation — writes the diff
-3. Diff is sent to Gemini CLI with: the task description, the relevant spec section, and the question "does this implementation match the spec and introduce any bugs?"
-4. Gemini reviews blind — it has not seen Claude's reasoning, only the diff and the spec
-5. If Gemini passes: implement
-6. If Gemini blocks: Claude revises, repeat from step 3
-7. After 3 blocks: escalate to human — do not implement until resolved
+1. Identify the task in `projecttracking.md`.
+2. **Agent A** (Gemini or Claude) proposes an implementation and writes a diff.
+3. **Agent B** (the other agent) is given the task and spec but NOT Agent A's diff.
+4. **Agent B** independently derives its own implementation.
+5. The human Operator reconciles the two independent versions.
+6. Only after reconciliation and human "go" is the implementation committed.
+7. If the agents significantly diverge, escalate to the human for architectural tiebreaking.
 
 ### Session End Protocol
 

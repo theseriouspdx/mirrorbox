@@ -1,7 +1,7 @@
 # AGENTS.md
-## Mirror Box Orchestrator — Agent Rules and Constraints
+## Mirror Box Orchestrator — Phase 1: Human-Builder Governance
 
-**Scope:** This file governs all agents working on the MBO codebase during Phase 1 development. Read at the start of every session before any code is written.
+**Scope:** This file governs the development of the MBO foundation during Phase 1. It applies to all agents (e.g., Gemini CLI, Claude Code) acting as a peer development team for human architects. Read at the start of every session before any code is written.
 
 ---
 
@@ -18,22 +18,21 @@ No code is written before this sequence completes.
 
 ---
 
-## Section 2 — Development Protocol & Routing Tiers
+## Section 2 — Development Protocol (DID) & Routing Tiers
 
 **Every task must exist in `projecttracking.md` before code is written.**
 
-Before executing a task, the human Operator determines the Routing Tier based on risk and blast radius:
+The agents are interchangeable peers. Before executing a task, the human Operator determines the Routing Tier:
 
-**Tier 0 & 1 (Low Risk / Single File / Docs):** Gemini CLI proposes the implementation and writes the diff. If the human approves, Gemini implements it directly. No Claude review required.
+**Tier 0 & 1 (Low Risk / Single File / Docs):**
+- A single agent proposes the implementation and writes the diff. 
+- If the human approves, that agent implements it directly.
 
-**Tier 2 & 3 (High Risk / Multi-File / Architecture):**
-1. Gemini CLI proposes the implementation and writes the diff.
-2. Gemini MUST halt and state: "HALTING FOR CLAUDE REVIEW. Please pass this diff to Claude."
-3. The human passes the diff, task description, and spec to Claude Code.
-4. Claude Code reviews blind against the spec.
-   - Claude passes → human tells Gemini to implement.
-   - Claude blocks → human feeds block to Gemini, Gemini revises.
-   - 3 blocks → escalate to human. Do not implement until resolved.
+**Tier 2 & 3 (High Risk / Multi-File / Architecture):** (Dual Independent Derivation)
+1. **Agent A** (Gemini or Claude) proposes the implementation and writes a diff.
+2. **Agent B** (the other agent) MUST independently derive their own implementation BLIND (without seeing Agent A's code).
+3. The human Operator reconciles the two versions.
+4. Only after reconciliation and human "go" is the implementation committed.
 
 ---
 
@@ -41,8 +40,8 @@ Before executing a task, the human Operator determines the Routing Tier based on
 
 | Agent | Can | Cannot |
 |-------|-----|--------|
-| Gemini CLI | Primary driver. Propose implementations, write diffs, read all .dev/ files | Write to src/ without task in projecttracking.md |
-| Claude Code | Escalation reviewer. Review diffs against spec, flag violations, propose alternatives | See Gemini's reasoning before producing its own review |
+| Gemini CLI | Peer developer. Propose, review, derive, and implement. | Write to src/ without task in projecttracking.md |
+| Claude Code | Peer developer. Propose, review, derive, and implement. | See the other agent's reasoning before producing its own |
 | Either | Read SPEC.md, BUGS.md, projecttracking.md, AGENTS.md | Modify governance docs without human approval |
 
 ---
@@ -55,10 +54,10 @@ If implementation conflicts with spec, the spec wins. If the spec is wrong, stop
 
 ## Section 5 — Proactive State Sync & Session Protocols
 
-To minimize human cognitive load and maximize token efficiency, the agent must drive the workflow transitions. The human acts as the approval gate, not the workflow engine.
+The human acts as the approval gate and reconciliation point, not the workflow engine.
 
 ### 5A. The Completion Prompt
-The moment a task from `projecttracking.md` is successfully implemented, you (the agent) MUST halt and proactively ask the human:
+The moment a task from `projecttracking.md` is successfully implemented, you MUST halt and proactively ask the human:
 > "Task complete. Shall we `wrap task` (sync state and continue) or `end session` (sync state and exit)?"
 
 ### 5B. Task Wrap Protocol (Continuous Execution)
@@ -97,8 +96,8 @@ Report the following:
 
 "I have read the documents. Here is the proof of state:
 - AGENTS.md sections: [List the exact name of every NUMBERED section]. (Total: X)
-- BUGS.md sections: [List the exact name of every NUMBERED section]. (Total: Y)
-- NEXT_SESSION.md sections: [List the exact name of every NUMBERED section]. (Total: Z)
+- BUGS.md sections: [List the exact name of every section]. (Total: Y)
+- NEXT_SESSION.md sections: [List the exact name of every section]. (Total: Z)
 
 Base nhash: (X+Y+Z) × 3 = [Base Result]
 

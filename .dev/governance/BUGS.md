@@ -82,6 +82,7 @@
 ## Section 4 — Resolved
 
 - **BUG-001 to BUG-008:** Spec corrections and structural invariants addressed in `SPEC.md`. Completed Milestone PRE-0.1.
+- **BUG-005 (Re-evaluated):** Peer-DID protocol established as Phase 1 standard in `AGENTS.md` and `SPEC.md`. Interchangeable roles confirmed.
 
 ---
 

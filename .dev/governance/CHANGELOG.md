@@ -2,6 +2,7 @@
 
 ### 2026-03-08 (session 6)
 - **0.1-01**: Git repository initialized and .gitignore created.
+- **0.1-02**: AGENTS.md refined to govern Phase 1 Human-Builder development. Peer-DID protocol established for interchangeable agents.
 - nhash verified: 48 × 8 = 384 ✅
 
 ---
