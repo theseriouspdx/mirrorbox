@@ -59,7 +59,7 @@ Derived from DID pre-build analysis. Replaces Appendix A ordering in spec.
 |----|------|--------|
 | 0.1-01 | Initialize git repo with .gitignore | COMPLETED |
 | 0.1-02 | Write AGENTS.md for .dev/ development process (governs Phase 1 human builders) | COMPLETED |
-| 0.1-02a | Write AGENTS.md for src/ codebase (governs MBO's own agents at 1.0) | NOT STARTED |
+| 0.1-02a | Write AGENTS.md for src/ codebase (governs MBO's own agents at 1.0) | COMPLETED |
 | 0.1-03 | Docker container builds and runs | NOT STARTED |
 | 0.1-04 | Gate 0 checks pass: Mac, Linux, WSL2 | NOT STARTED |
 | 0.1-05 | Dummy task through development protocol end-to-end | NOT STARTED |
