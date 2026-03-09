@@ -5,6 +5,13 @@
 
 ### [0.2.0] — 2026-03-08
 #### Added
+- **0.2-04**: Model routing logic implementation.
+  - Implemented `src/auth/model-router.js` with priority-based role mapping.
+  - Priority established: Local > CLI Session > OpenRouter.
+  - Verified deterministic mapping for all specification roles (Classifier, Planner, Reviewer, etc.).
+- **0.2-03**: OpenRouter fallback operational.
+  - Implemented `src/auth/openrouter-detector.js` prioritizing `OPENROUTER_API_KEY` environment variable.
+  - Verified authentication and connectivity to OpenRouter API.
 - **0.2-02**: Local model detection (Ollama, LM Studio).
   - Implemented `src/auth/local-detector.js` using HTTP health checks.
   - Verified detection of `Ollama` in Darwin environment.

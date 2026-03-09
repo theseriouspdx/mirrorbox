@@ -75,7 +75,8 @@ If the human confirms "wrap task", you must:
 3. Update `CHANGELOG.md` (record what was done).
 4. Commit the changes referencing the task ID.
 5. Recalculate the base `nhash` based on the newly updated files, ask the human for the salt, and update the internal `[Hard State]` anchor. 
-6. Output: "Task wrapped. State synced. Ready for next task."
+6. Output a visual checklist of the current milestone's tasks and their status from `projecttracking.md`.
+7. Output: "Task wrapped. State synced. Ready for next task."
 
 ### 6C. Session End Protocol (Terminal Close)
 If the human confirms "end session", perform all steps in 6B, PLUS:
@@ -124,20 +125,6 @@ To ensure this state survives context summarization and prevents context drift, 
 Example: `<thinking>[Hard State: 384] Analyzing the file...`
 
 If at any point you cannot recall the Hard State Anchor, or if your context window is cleared and you lose it, you are structurally compromised. You must immediately halt all work and state: "CONTEXT LOST. REQUESTING NEW NHASH PROTOCOL." You must not proceed until the verification handshake is performed again.
-
----
-
----
-
-## Section 10 — Current Milestone Progress (0.2)
-
-This checklist is updated at every task wrap to provide a real-time status of the active milestone.
-
-- [x] **0.2-01** — CLI session detection (Claude, Gemini, OpenAI)
-- [x] **0.2-02** — Local model detection (Ollama, LM Studio)
-- [ ] **0.2-03** — OpenRouter fallback operational
-- [ ] **0.2-04** — Model routing config loads and routes correctly
-- [ ] **0.2-05** — All providers complete a simple prompt round-trip
 
 ---
 
