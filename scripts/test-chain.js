@@ -47,8 +47,11 @@ function testChain() {
   db.prepare('UPDATE events SET actor = ? WHERE seq = ?').run(event1.actor, event1.seq);
 
   // Test 4: Anchor mismatch detected
-  db.prepare('UPDATE chain_anchors SET hash = ? WHERE id = 1').run('badhash');
-  assert.strictEqual(runVerify(TEST_DB_PATH), false, 'Chain should fail on anchor mismatch');
+  const lastAnchor = db.prepare('SELECT run_id FROM chain_anchors ORDER BY created_at DESC LIMIT 1').get();
+  if (lastAnchor) {
+    db.prepare('UPDATE chain_anchors SET hash = ? WHERE run_id = ?').run('badhash', lastAnchor.run_id);
+    assert.strictEqual(runVerify(TEST_DB_PATH), false, 'Chain should fail on anchor mismatch');
+  }
 
   // Test 5: Event deletion detected (Tail Deletion)
   // Delete the tail event to test if the anchor mismatch catches it

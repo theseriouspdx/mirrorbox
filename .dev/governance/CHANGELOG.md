@@ -3,6 +3,22 @@
 
 ---
 
+### [0.4.0] — 2026-03-09
+#### Added
+- **0.4A-01**: Implemented Tree-sitter integration for `src/` scanning.
+  - Extracted nodes (file, function, class) and edges (DEFINES, IMPORTS).
+  - Fixed nodeSubclasses crash on Node v24 arm64 (passed full grammar objects).
+- **0.4A-02**: Implemented `GraphStore` and `StaticScanner` as parameterized classes for instance separation (dev vs runtime).
+#### Fixed (0.4A Audit Findings)
+- **FAIL (Item 5)**: Reconciled `event-store.js` write path with migrated `chain_anchors` schema.
+- **FAIL (Item 5)**: Reconciled `SPEC.md` Section 7 hash envelope with actual implementation fields.
+- **WARN (Item 6)**: Corrected `AGENTS.md` dev-graph server reference to mark as future task.
+- **scripts**: Updated `test-chain.js` to match `run_id` primary key.
+#### Governance
+- **AGENTS.md**: Updated Section 9 to mandate "Diff-Only Edits" and "Mandatory Peer Review" for high-risk tasks.
+
+---
+
 ### [0.3.1] — 2026-03-08
 #### Fixed
 - **BUG-027**: Added `seq: number` and `prev_hash: string | null` to Event interface in SPEC.md.

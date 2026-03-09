@@ -2,18 +2,17 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 0.4A — Intelligence Graph (Skeleton) [IN PROGRESS]
-**Next Action:** 0.4B-00 — Define dev-graph instance config and separate db path before any MCP server code is written
+**Next Action:** 0.4A-03 — Basic query capability + staleness logic (BUG-009)
 
 ---
 
 ## NEXT ACTION
 
-**0.4B-00** — Define dev-graph instance config and separate db path
-- The graph constructor must be parameterized by instance type (dev vs runtime) before MCP server code is written
-- Dev graph db: `.dev/data/dev-graph.db` — indexes MBO's own src/ + SPEC sections
-- Runtime graph db: `data/mirrorbox.db` — indexes user's codebase (the product)
-- These must never share a database. Separation enforced at config level, not just convention.
-- Status: OPEN (blocks 0.4B MCP server work)
+**0.4A-03** — Basic query capability + staleness logic (BUG-009)
+- Implement getCallers, getDependencies, getImpact queries in GraphStore
+- Implement content_hash staleness logic in StaticScanner/GraphStore
+- Verify GraphQueryResult matches Section 13 contract (Task 0.4A-04)
+- Status: OPEN
 
 ---
 
@@ -43,10 +42,13 @@
 
 | ID | Task | Status |
 |----|------|--------|
-| 0.4A-01 | Tree-sitter integration: scan src/, extract nodes/edges | IN PROGRESS |
-| 0.4A-02 | graph-store.js: write nodes and edges to mirrorbox.db | IN PROGRESS |
+| 0.4A-01 | Tree-sitter integration: scan src/, extract nodes/edges | COMPLETED |
+| 0.4A-02 | graph-store.js: write nodes and edges to mirrorbox.db | COMPLETED |
 | 0.4A-03 | Basic query: what calls X, what does X import | OPEN |
 | 0.4A-04 | GraphQueryResult format matches Section 13 contract | OPEN |
+| 0.4A-05 | Fix 0.4A Audit FAIL (Item 5): event-store.js + SPEC.md | COMPLETED |
+| 0.4A-06 | Fix 0.4A Audit WARN (Item 6): AGENTS.md server ref | COMPLETED |
+| 0.4A-07 | AGENTS.md Section 9: Diff-only + Peer Review rules | COMPLETED |
 
 ---
 
@@ -54,7 +56,7 @@
 
 | ID | Task | Status |
 |----|------|--------|
-| 0.4B-00 | Define dev-graph instance config and separate db path (blocks all MCP work) | OPEN |
+| 0.4B-00 | Define dev-graph instance config and separate db path (blocks all MCP work) | COMPLETED |
 | 0.4B-01 | LSP integration: cross-file call resolution, import edges | OPEN |
 | 0.4B-02 | MCP server: expose five tools from Section 6 (graph_query_impact, graph_query_callers, graph_query_dependencies, graph_query_coverage, graph_search) | OPEN |
 | 0.4B-03 | Index SPEC.md sections as graph nodes (enables section-level queries during dev workflow) | OPEN |

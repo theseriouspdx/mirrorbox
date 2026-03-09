@@ -2,6 +2,8 @@ const db = require('./db-manager');
 const { redact } = require('./redactor');
 const crypto = require('crypto');
 
+const RUN_ID = crypto.randomUUID();
+
 class EventStore {
   /**
    * Section 7: Append-only Event Store
@@ -26,6 +28,7 @@ class EventStore {
       const seq = lastEvent ? lastEvent.seq + 1 : 1;
 
       // 3. Compute final hash before INSERT (Eliminate PENDING state)
+      // Section 7: Canonical envelope includes chaining fields
       const envelope = JSON.stringify({
         id,
         seq,
@@ -44,7 +47,11 @@ class EventStore {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [id, seq, timestamp, stage, actor, payloadStr, hash, parent_event_id, prev_hash]);
       
-      db.run('INSERT OR REPLACE INTO chain_anchors (id, seq, event_id, hash) VALUES (1, ?, ?, ?)', [seq, id, hash]);
+      // Section 7: Chain Anchor update (run_id is the PK)
+      db.run(`
+        INSERT OR REPLACE INTO chain_anchors (run_id, seq, event_id, hash, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `, [RUN_ID, seq, id, hash, timestamp]);
 
       return id;
     });

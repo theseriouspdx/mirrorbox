@@ -121,9 +121,11 @@ Wait for the human. The human will provide a multiplier. You must calculate (Bas
 
 When proposing or writing code, agents must operate in Strict Mode:
 
-1. Do not suggest stylistic, linting, or "cleanliness" changes unless they fix a functional bug or improve performance by >10%.
-2. If no functional logic needs changing, return "NO_CHANGE" instead of rewriting.
-3. Never remove variable data from error strings (e.g., do not replace `${body}` with `'Unknown error'` unless the original caused a functional bug).
+1. **Diff-Only Edits:** All modifications to existing code MUST be proposed as a unified diff. Do not use full-file replacements for targeted edits.
+2. **Mandatory Peer Review:** For Tier 2 and Tier 3 tasks, the proposed diff MUST be independently reviewed by the peer agent (DID) and reconciled by the human Operator before implementation.
+3. Do not suggest stylistic, linting, or "cleanliness" changes unless they fix a functional bug or improve performance by >10%.
+4. If no functional logic needs changing, return "NO_CHANGE" instead of rewriting.
+5. Never remove variable data from error strings (e.g., do not replace `${body}` with `'Unknown error'` unless the original caused a functional bug).
 
 ---
 
@@ -156,10 +158,11 @@ If at any point you cannot recall the Hard State Anchor, or if your context wind
 
 `data/mirrorbox.db` is the product. Never query it for development context. Never write dev graph data into it.
 
-### Starting the dev graph server
+### Starting the dev graph server (Future: Not yet implemented)
 
 ```
-node src/graph/mcp-server.js --mode=dev --root=/Users/johnserious/mbo
+# Milestone 0.4B Task: src/graph/mcp-server.js
+# node src/graph/mcp-server.js --mode=dev --root=/Users/johnserious/mbo
 ```
 
 ### Replacing full SPEC.md loads with graph queries

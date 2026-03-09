@@ -518,7 +518,7 @@ interface Event {
 
 ### Chain Integrity
 
-The Event Store uses a hash-chained append-only log. Each event's `hash` field is a SHA-256 of a canonical envelope containing `{ seq, id, timestamp, stage, actor, payload }`. The `prev_hash` field commits each event to its predecessor, making silent insertion, deletion, or reordering detectable.
+The Event Store uses a hash-chained append-only log. Each event's `hash` field is a SHA-256 of a canonical envelope containing `{ id, seq, stage, actor, timestamp, parent_event_id, prev_hash, payload }`. The `prev_hash` field commits each event to its predecessor, making silent insertion, deletion, or reordering detectable.
 
 **Table: `chain_anchors`**
 
