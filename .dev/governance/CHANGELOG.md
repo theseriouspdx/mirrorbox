@@ -13,7 +13,7 @@
   - Created `verify-chain.js` and `verify-chain.py` audit utilities.
 #### Fixed (Radius One Audit Findings)
 - **BUG-023**: Fixed redactor offset confusion in `String.replace()` by adding explicit capture groups.
-- **BUG-024, BUG-026**: Upgraded chain hash to cover full `id, seq, stage, actor, timestamp, payload, parent_event_id` envelope. Added atomic `chain_anchors` mechanism.
+- **BUG-024, BUG-026**: Upgraded chain hash to cover full `id, seq, stage, actor, timestamp, payload, parent_event_id, prev_hash` envelope. Added atomic `chain_anchors` mechanism and immutable chaining (single INSERT, no PENDING state).
 - **BUG-025, BUG-028**: Fixed non-deterministic chain ordering by introducing transaction-assigned `seq` primary key.
 - **BUG-027**: Fixed `recover()` silently corrupting state by restricting queries to `stage = 'STATE'` events.
 - **BUG-029**: Gated DB corruption rollover behavior behind `NODE_ENV` to prevent silent destruction in production.

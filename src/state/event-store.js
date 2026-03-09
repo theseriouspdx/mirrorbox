@@ -8,9 +8,6 @@ class EventStore {
    * Invariant 4: Every operation is reproducible from the event store.
    */
   append(stage, actor, payload) {
-    const id = crypto.randomUUID();
-    const timestamp = Date.now();
-    
     // Invariant 8: Secrets never enter the persistent state
     const redactedPayload = redact(payload);
     const payloadStr = typeof redactedPayload === 'string' 
@@ -18,24 +15,35 @@ class EventStore {
       : JSON.stringify(redactedPayload);
 
     return db.transaction(() => {
-      const lastEvent = db.get('SELECT id FROM events ORDER BY seq DESC LIMIT 1');
-      const parent_event_id = lastEvent ? lastEvent.id : null;
-
-      const result = db.run(`
-        INSERT INTO events (id, timestamp, stage, actor, payload, hash, parent_event_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, [id, timestamp, stage, actor, payloadStr, 'PENDING', parent_event_id]);
+      // 1. Immutable Data Generation inside transaction
+      const id = crypto.randomUUID();
+      const timestamp = Date.now();
       
-      const seq = result.lastInsertRowid;
+      // 2. Fetch previous event for chaining
+      const lastEvent = db.get('SELECT id, hash, seq FROM events ORDER BY seq DESC LIMIT 1');
+      const parent_event_id = lastEvent ? lastEvent.id : null;
+      const prev_hash = lastEvent ? lastEvent.hash : null;
+      const seq = lastEvent ? lastEvent.seq + 1 : 1;
 
+      // 3. Compute final hash before INSERT (Eliminate PENDING state)
       const envelope = JSON.stringify({
-        id, seq, stage, actor, timestamp,
+        id,
+        seq,
+        stage,
+        actor,
+        timestamp,
         parent_event_id: parent_event_id ?? null,
+        prev_hash: prev_hash ?? null,
         payload: payloadStr
       });
       const hash = crypto.createHash('sha256').update(envelope).digest('hex');
 
-      db.run('UPDATE events SET hash = ? WHERE seq = ?', [hash, seq]);
+      // 4. Single Immutable INSERT
+      db.run(`
+        INSERT INTO events (id, seq, timestamp, stage, actor, payload, hash, parent_event_id, prev_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [id, seq, timestamp, stage, actor, payloadStr, hash, parent_event_id, prev_hash]);
+      
       db.run('INSERT OR REPLACE INTO chain_anchors (id, seq, event_id, hash) VALUES (1, ?, ?, ?)', [seq, id, hash]);
 
       return id;

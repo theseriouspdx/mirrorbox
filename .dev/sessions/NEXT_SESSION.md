@@ -1,82 +1,87 @@
 # NEXT_SESSION.md
 ## Mirror Box Orchestrator — Session Handoff
 
-**Session ended:** 2026-03-08 (session 10)
-**Last task:** Governance update — logged 0.3 audit findings, filed BUG-023 through BUG-028, updated projecttracking.md with 0.3 bug-fix block and PRE-0.4 spec correction block.
-**Status:** Milestone 0.3 IN AUDIT — FAIL. Bug-fix tasks queued.
+**Written:** 2026-03-08  
+**Hard State Anchor:** 57  
+**Milestone 0.3:** SUCCESS (DID reconciliation complete)
 
 ---
 
-## Section 1 — Next Action
+## NEXT ACTION
 
-**0.3-BF-01** — Rotate leaked OpenRouter key (do this first, before any code work)
+**PRE-0.4-01** — Apply off-the-shelf audit diff to SPEC.md
 
-Then in order:
-- **0.3-BF-02** — Fix BUG-023: Redactor callback offset/group1 confusion (`src/state/redactor.js`)
-- **0.3-BF-03** — Fix BUG-024 + BUG-027: Chain-linked hash envelope + `seq` field (spec fix first, then `event-store.js` + both verify-chain scripts)
-- **0.3-BF-04** — Fix BUG-025: Move id/timestamp/seq inside transaction
-- **0.3-BF-05** — Fix BUG-026: Snapshot type guard on `recover()`
-- **0.3-BF-06** — Rebuild `mirrorbox.db` clean
-- **0.3-RE-AUDIT** — Re-audit all four findings
+Changes required:
+1. Add `seq: number` to Event interface in Section 7 (BUG-027)
+2. Add `prev_hash: string | null` to Event interface in Section 7
+3. Document `chain_anchors` table in Section 7 SQLite schema
+4. Split Milestone 0.4 into 0.4A (Tree-sitter skeleton) and 0.4B (LSP enrichment) in Appendix A
+5. Add redaction note to Section 10 (secrets must be redacted before event store write)
+6. Add callModel schema validation as step 4 in Section 10 enforcement list
 
-After 0.3 closes:
-- **PRE-0.4-01** — Apply off-the-shelf audit diff to SPEC.md
-- **PRE-0.4-02** — MCP server research spike
+After PRE-0.4-01: run **PRE-0.4-02** (MCP server research spike).
 
 ---
 
-## Section 2 — Session Start Protocol
+## OPEN VERIFICATION TASK
 
-1. Read `.dev/governance/AGENTS.md` — complete required affirmation (Base nhash: 54)
-2. Read `.dev/governance/projecttracking.md` — current milestone is 0.3 (AUDIT FAIL), next action is 0.3-BF-01
-3. Read `.dev/governance/BUGS.md` — P0s are BUG-023 and BUG-024; key rotation is operational prerequisite
-4. Read `.dev/spec/SPEC.md` — source of truth
+Before the audit folder is fully closed, the coding agent must run the tamper proof against
+the current DB. This is a verification run, not a code change:
 
----
+```bash
+cd /Users/johnserious/mbo
+node scripts/verify-chain.js
+python3 scripts/verify-chain.py
 
-## Section 3 — Operational Notes
-
-- **Rotate the OpenRouter key before writing any code.** It is live in `data/mirrorbox.db` Event 2.
-- BUG-023 fix and BUG-024 fix are independent — they can be implemented in parallel but BUG-027 spec fix (add `seq` to Event interface) must land before BUG-024 implementation.
-- The three audit copy databases (`mirrorbox.audit.actor.db`, `mirrorbox.audit.copy.db`, `mirrorbox.audit.recover.db`) can be deleted after 0.3 closes — they are audit artifacts, not production state.
-- PRE-0.4 spec work is two tasks, not many. Don't let it balloon.
-- Current Hard State Anchor: **456**
-
----
-
-## Section 4 — Directory State
-
+cp data/mirrorbox.db /tmp/test_tamper_final.db
+# tamper seq 2 payload+hash in sqlite3
+node scripts/verify-chain.js /tmp/test_tamper_final.db   # must FAIL
+python3 scripts/verify-chain.py /tmp/test_tamper_final.db  # must FAIL
 ```
-/Users/johnserious/mbo/
-├── AGENTS.md
-├── Dockerfile
-├── ROADMAP.md
-├── package.json
-├── .gitignore
-├── data/
-│   ├── mirrorbox.db              (COMPROMISED — contains leaked key in Event 2)
-│   ├── mirrorbox.audit.actor.db  (audit artifact)
-│   ├── mirrorbox.audit.copy.db   (audit artifact)
-│   ├── mirrorbox.audit.recover.db (audit artifact)
-│   └── state.json
-├── scripts/
-│   ├── test-chain.js
-│   ├── test-recovery.js
-│   ├── test-redactor.js
-│   ├── test-state.js
-│   ├── verify-chain.js           (needs update for chain-linked hash — BUG-024)
-│   └── verify-chain.py           (needs update for chain-linked hash — BUG-024)
-└── src/
-    ├── index.js
-    ├── auth/
-    │   ├── call-model.js
-    │   ├── model-router.js
-    │   ├── session-detector.js
-    │   ├── local-detector.js
-    │   └── openrouter-detector.js
-    └── state/
-        ├── db-manager.js
-        ├── event-store.js         (needs chain-linked hash — BUG-024, BUG-025)
-        ├── redactor.js            (needs callback fix — BUG-023)
-        └── state-manager.js      (needs snapshot type guard — BUG-026)
-```
+
+Both verifiers must exit non-zero on tampered DB. Record output in `.dev/audit/`.
+
+---
+
+## OPEN CODE TASK
+
+**Write test-redactor-v2.js** (scripts/test-redactor-v2.js) and retire test-redactor.js.
+
+Codex referenced this file but it does not exist. The old test-redactor.js has known gaps
+(no Buffer, no Anthropic coverage; was written to pass against broken code).
+
+Required coverage for v2:
+- Raw OpenRouter string
+- Raw Anthropic string (sk-ant-api03-*)
+- Object camelCase apiKey
+- Object secretKey
+- Buffer-encoded key
+- Nested object
+- Multiple secrets in one string
+- Clean object (must pass through unchanged)
+- String at position 0 (regression for original offset bug)
+
+Once v2 passes all cases: delete test-redactor.js.
+
+---
+
+## MILESTONE STATUS
+
+| Milestone | Status |
+|-----------|--------|
+| PRE-0.1 | COMPLETED |
+| 0.1 | COMPLETED |
+| 0.2 | COMPLETED |
+| 0.3 | SUCCESS |
+| PRE-0.4 | IN PROGRESS (PRE-0.4-01, PRE-0.4-02 OPEN) |
+| 0.4+ | NOT STARTED |
+
+---
+
+## KEY AWARENESS
+
+- `bypass_proofs.js` is a proof-of-failure tool. `[UNEXPECTED]` output means the fix is
+  working. Do not misread as failure.
+- `test-redactor.js` is deprecated — do not add to it or cite it as coverage evidence.
+- Keys were rotated (2026-03-08). Do not query ~/.zshrc for key values.
+- DID reconciliation: `.dev/audit/DID_RECONCILIATION.md`

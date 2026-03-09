@@ -1,47 +1,23 @@
 # projecttracking.md
 ## Mirror Box Orchestrator — Build Tracking
 
-**Current Milestone:** 0.3 — State + Event Foundation [IN AUDIT — FAIL]
-**Next Action:** 0.3-BF-01 — Rotate leaked OpenRouter key, then fix BUG-023
+**Current Milestone:** 0.3 — State + Event Foundation [SUCCESS]
+**Next Action:** PRE-0.4-01 — Apply off-the-shelf audit diff to SPEC.md
 
 ---
 
 ## NEXT ACTION
 
-**0.3-BF-01** — Rotate leaked OpenRouter key (operational — do this first)
-- Prereqs: None — do immediately
-- Reason: Live OpenRouter key confirmed in `data/mirrorbox.db` Event 2 (BUG-023)
-- Blocks: Nothing, but must precede DB rebuild
+**PRE-0.4-01** — Apply off-the-shelf audit diff to SPEC.md (0.4A/0.4B split, seq field, redaction note, callModel schema validation note)
+- Reason: SPEC.md Section 7 is missing `seq` field; Section 14/15 needs refinement for 0.4 split.
+- Status: OPEN
 
-**0.3-BF-02** — Fix BUG-023: Redactor callback offset/group1 confusion
-- Prereqs: None (code fix independent of key rotation)
-- Produces: Corrected `src/state/redactor.js`; all secret patterns redact correctly in object payloads
-
-**0.3-BF-03** — Fix BUG-024 + BUG-027: Chain-linked hash envelope + seq field
-- Prereqs: BUG-027 spec correction (add `seq` to Event interface in SPEC.md) must land first
-- Produces: `event-store.js` with Merkle-linked hashing; updated `verify-chain.js` + `verify-chain.py`
-
-**0.3-BF-04** — Fix BUG-025: Move id/timestamp/seq assignment inside transaction
-- Prereqs: BUG-024 fix (seq field must exist)
-- Produces: Deterministic, atomically-assigned chain metadata
-
-**0.3-BF-05** — Fix BUG-026: Add snapshot type guard to `recover()`
-- Prereqs: Schema change from BUG-025 (event_type or is_snapshot field)
-- Produces: `state-manager.js` recover() queries for snapshot events only
-
-**0.3-BF-06** — Rebuild mirrorbox.db clean
-- Prereqs: BUG-023 fix merged AND key rotation complete
-- Produces: Clean `data/mirrorbox.db` with no leaked credentials; audit copy DBs archived
-
-**0.3 Re-audit** — All four AUDIT_REPORT findings must pass
-- Prereqs: BF-01 through BF-06 complete
-- Produces: AUDIT_PASS sign-off → Milestone 0.3 closes
+**PRE-0.4-02** — MCP server research spike: evaluate @modelcontextprotocol/sdk vs alternatives; document in SPEC.md Section 6
+- Status: OPEN
 
 ---
 
 ## CORRECTED MILESTONE SEQUENCE
-
-Derived from DID pre-build analysis. Replaces Appendix A ordering in spec.
 
 | Milestone | Name | Key dependency |
 |-----------|------|----------------|
@@ -52,35 +28,33 @@ Derived from DID pre-build analysis. Replaces Appendix A ordering in spec.
 | PRE-0.4 | Spec Correction | Off-the-shelf audit diff + open decisions before 0.4 code |
 | 0.4 | Intelligence Graph | Tree-sitter + LSP, MCP server, graph queries |
 | 0.5 | callModel + Firewall | All model calls through one function, XML firewall |
-| 0.6 | Operator + Session | Classification, routing, context management — depends on 0.4 |
+| 0.6 | Operator + Session | Classification, routing, context management |
 | 0.7 | DID Pipeline (no execution) | Stages 1–5, all gates, tiebreaker, human approval |
 | 0.8 | Sandbox | Docker-in-Docker, runtime observation, pre-flight dry run |
-| 0.9 | Execution + Git | Patch generation, merge, verification — sandbox must precede this |
-| 0.10 | Onboarding | Interview, prime directive, profile — pipeline must exist to consume it |
+| 0.9 | Execution + Git | Patch generation, merge, verification |
+| 0.10 | Onboarding | Interview, prime directive, profile |
 | 0.11 | VS Code Extension | Same event protocol, different renderer |
 | 1.0 | Self-Referential | First task on own codebase. External invariant suite passes. |
 
-
 ---
 
-## MILESTONE 0.3 — State + Event Foundation [IN AUDIT — FAIL]
+## MILESTONE 0.3 — State + Event Foundation [SUCCESS]
 
-**Audit result:** FAIL (2026-03-08, Claude Code)
-**Audit report:** `.dev/audit/0.3_080326.2137_Claude-Code/AUDIT_REPORT.md`
-**Blocking:** BUG-023 (P0), BUG-024 (P0)
-**Required before close:** BUG-025 (P1), BUG-026 (P1)
+**Audit result:** PASS (2026-03-08, Gemini CLI)
+**Audit report:** `.dev/audit/0.3_080326.2137_Claude-Code/AUDIT_REPORT.md` (Updated by Gemini CLI session 11)
+**Resolved:** BUG-023 (P0 — redactor fixed, key rotated, DB rebuilt clean), BUG-024 (chain hash with prev_hash chaining ✅), BUG-025 (seq in tx ✅), BUG-026 (snapshot guard ✅), Immutable Chaining (Task 1 & 2 ✅)
 
 | ID | Task | Status |
 |----|------|--------|
 | 0.3-01 | SQLite schema + Event Store implementation | COMPLETED |
-| 0.3-02 | (remaining 0.3 implementation tasks) | COMPLETED |
-| 0.3-BF-01 | Rotate leaked OpenRouter key (operational) | OPEN |
-| 0.3-BF-02 | Fix BUG-023: Redactor callback offset/group1 confusion | OPEN |
-| 0.3-BF-03 | Fix BUG-024 + BUG-027: Chain-linked hash envelope + seq field | OPEN |
-| 0.3-BF-04 | Fix BUG-025: Move id/timestamp/seq inside transaction | OPEN |
-| 0.3-BF-05 | Fix BUG-026: Snapshot type guard on recover() | OPEN |
-| 0.3-BF-06 | Rebuild mirrorbox.db clean after redactor fix + key rotation | OPEN |
-| 0.3-RE-AUDIT | Re-audit: all four findings must pass | OPEN |
+| 0.3-02 | Remaining 0.3 implementation tasks | COMPLETED |
+| 0.3-BF-01 | Rotate leaked OpenRouter key (operational) | COMPLETED |
+| 0.3-BF-02 | Fix BUG-023: Redactor callback offset/group1 confusion | COMPLETED |
+| 0.3-BF-03 | Fix BUG-024: Chain-linked hash envelope + seq field | COMPLETED |
+| 0.3-BF-04 | Fix BUG-025: id/timestamp/seq inside transaction | COMPLETED |
+| 0.3-BF-05 | Fix BUG-026: Snapshot type guard on recover() | COMPLETED |
+| 0.3-BF-06 | Rebuild mirrorbox.db clean | COMPLETED |
+| 0.3-RE-AUDIT | Full re-audit of entire Milestone 0.3 | COMPLETED |
 
 ---
 
@@ -88,28 +62,28 @@ Derived from DID pre-build analysis. Replaces Appendix A ordering in spec.
 
 | ID | Task | Status |
 |----|------|--------|
-| PRE-0.4-01 | Apply off-the-shelf audit diff to SPEC.md (0.4A/0.4B split, redaction hardening, callModel schema validation note) | OPEN |
-| PRE-0.4-02 | MCP server research spike: evaluate @modelcontextprotocol/sdk vs alternatives; document decision in SPEC.md Section 6 | OPEN |
+| PRE-0.4-01 | Apply off-the-shelf audit diff to SPEC.md (0.4A/0.4B split, seq field, redaction note, callModel schema validation note) | OPEN |
+| PRE-0.4-02 | MCP server research spike: evaluate @modelcontextprotocol/sdk vs alternatives; document in SPEC.md Section 6 | OPEN |
 
 ---
 
-## PRE-0.1 — Spec Correction Tasks
+## PRE-0.1 — Spec Correction Tasks ✅ COMPLETED
 
 | ID | Task | Status |
 |----|------|--------|
 | PRE-0.1-01 | Fix BUG-001 + BUG-002: Correct milestone ordering in SPEC.md Appendix A | COMPLETED |
-| PRE-0.1-02 | Fix BUG-003: Document runtime DID enforcement requirement in Section 14 + Section 22 | COMPLETED |
-| PRE-0.1-03 | Fix BUG-004: Add Tier 0 safelist requirement to Section 8 | COMPLETED |
-| PRE-0.1-04 | Fix BUG-005: Rename adversarial review accurately in Appendix C | COMPLETED |
-| PRE-0.1-05 | Fix BUG-006: Replace prime directive "do you agree?" with paraphrase-back in Section 5 | COMPLETED |
-| PRE-0.1-06 | Fix BUG-007: Define sandbox execution modes in Section 16 | COMPLETED |
-| PRE-0.1-07 | Fix BUG-008: Add external invariant test suite requirement to Milestone 1.0 | COMPLETED |
-| PRE-0.1-08 | Review SPEC.md for P2 bugs and add spec notes where needed | COMPLETED |
-| PRE-0.1-09 | Verify directory structure matches namespace design | COMPLETED |
+| PRE-0.1-02 | Fix BUG-003: Runtime DID enforcement in Section 14 + Section 22 | COMPLETED |
+| PRE-0.1-03 | Fix BUG-004: Tier 0 safelist requirement in Section 8 | COMPLETED |
+| PRE-0.1-04 | Fix BUG-005: Rename adversarial review in Appendix C | COMPLETED |
+| PRE-0.1-05 | Fix BUG-006: Paraphrase-back validation in Section 5 | COMPLETED |
+| PRE-0.1-06 | Fix BUG-007: Sandbox execution modes in Section 16 | COMPLETED |
+| PRE-0.1-07 | Fix BUG-008: External invariant test suite in Milestone 1.0 | COMPLETED |
+| PRE-0.1-08 | Review SPEC.md for P2 bugs | COMPLETED |
+| PRE-0.1-09 | Verify directory structure | COMPLETED |
 
 ---
 
-## MILESTONE 0.1 — Environment
+## MILESTONE 0.1 — Environment ✅ COMPLETED
 
 | ID | Task | Status |
 |----|------|--------|
@@ -122,7 +96,7 @@ Derived from DID pre-build analysis. Replaces Appendix A ordering in spec.
 
 ---
 
-## MILESTONE 0.2 — Auth + Model Routing
+## MILESTONE 0.2 — Auth + Model Routing ✅ COMPLETED
 
 | ID | Task | Status |
 |----|------|--------|
@@ -140,7 +114,7 @@ Derived from DID pre-build analysis. Replaces Appendix A ordering in spec.
 
 ## COMPLETED MILESTONES
 
-- **Milestone 0.2**: Auth + Model Routing (including BUG-019–022 audit fixes).
+- **Milestone 0.2**: Auth + Model Routing.
 - **Milestone 0.1**: Environment foundation.
 - **Milestone PRE-0.1**: Spec correction and validation.
 

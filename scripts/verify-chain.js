@@ -7,14 +7,14 @@ const DB_PATH = process.argv[2] || path.join(__dirname, '../data/mirrorbox.db');
 /**
  * Section 7: Audit Tool
  * Verifies Invariant 4: Every operation is reproducible from the event store.
- * Checks SHA-256 hashes, sequence continuity, and parent-child linkage.
+ * Checks SHA-256 hashes, sequence continuity, and hash chaining (prev_hash).
  */
 function verifyChain() {
   console.log(`Auditing Mirror Box Chain of Custody: ${DB_PATH}`);
   const db = new Database(DB_PATH, { readonly: true });
   
   try {
-    const events = db.prepare('SELECT id, seq, stage, actor, timestamp, payload, hash, parent_event_id FROM events ORDER BY seq ASC').all();
+    const events = db.prepare('SELECT id, seq, stage, actor, timestamp, payload, hash, parent_event_id, prev_hash FROM events ORDER BY seq ASC').all();
     
     if (events.length === 0) {
       console.log('PASS: Event store is empty.');
@@ -35,16 +35,29 @@ function verifyChain() {
       }
       expectedSeq++;
       maxSeq = event.seq;
-      lastHash = event.hash;
 
-      // 2. Verify Hash Integrity
+      // 2. Verify Hash Chaining
+      if (index === 0) {
+        if (event.prev_hash !== null) {
+          console.error(`FAIL [Root Chain]: Root event ${event.id} should have prev_hash null, found ${event.prev_hash}`);
+          errors++;
+        }
+      } else {
+        if (event.prev_hash !== lastHash) {
+          console.error(`FAIL [Chain Breach]: Event ${event.id} (seq ${event.seq}) refers to prev_hash ${event.prev_hash}, expected ${lastHash}`);
+          errors++;
+        }
+      }
+
+      // 3. Verify Hash Integrity (Envelope Verification)
       const envelope = JSON.stringify({
         id: event.id,
         seq: event.seq,
         stage: event.stage,
         actor: event.actor,
         timestamp: event.timestamp,
-        parent_event_id: event.parent_event_id,
+        parent_event_id: event.parent_event_id ?? null,
+        prev_hash: event.prev_hash ?? null,
         payload: event.payload
       });
       const calculatedHash = crypto.createHash('sha256').update(envelope).digest('hex');
@@ -53,16 +66,17 @@ function verifyChain() {
         errors++;
       }
 
-      // 3. Verify Parent Linkage
+      // 4. Verify Parent Linkage
       if (index > 0 && event.parent_event_id !== lastId) {
         console.error(`FAIL [Broken Link]: Event ${event.id} refers to parent ${event.parent_event_id}, expected ${lastId}`);
         errors++;
       }
 
       lastId = event.id;
+      lastHash = event.hash;
     });
 
-    // 4. Verify Anchor
+    // 5. Verify Anchor
     const anchor = db.prepare('SELECT seq, event_id, hash FROM chain_anchors WHERE id = 1').get();
     if (!anchor) {
       console.error(`FAIL [Missing Anchor]: No anchor found in chain_anchors.`);

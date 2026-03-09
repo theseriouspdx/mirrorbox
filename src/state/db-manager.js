@@ -65,6 +65,7 @@ class DBManager {
     const tableInfo = this.db.prepare('PRAGMA table_info(events)').all();
     const hasEventsTable = tableInfo.length > 0;
     const hasSeq = tableInfo.some(col => col.name === 'seq');
+    const hasPrevHash = tableInfo.some(col => col.name === 'prev_hash');
 
     if (!hasEventsTable) {
       this.db.exec(`
@@ -77,10 +78,12 @@ class DBManager {
           payload         TEXT NOT NULL,
           hash            TEXT NOT NULL,
           parent_event_id TEXT,
+          prev_hash       TEXT,
           FOREIGN KEY(parent_event_id) REFERENCES events(id)
         );
       `);
-    } else if (!hasSeq) {
+    } else if (!hasPrevHash) {
+      // Handle upgrade for seq and prev_hash simultaneously
       this.db.exec(`
         PRAGMA foreign_keys=off;
         BEGIN TRANSACTION;
@@ -94,11 +97,13 @@ class DBManager {
           payload         TEXT NOT NULL,
           hash            TEXT NOT NULL,
           parent_event_id TEXT,
+          prev_hash       TEXT,
           FOREIGN KEY(parent_event_id) REFERENCES events(id)
         );
+        -- Migrating existing data; prev_hash will be null for migrated records
         INSERT INTO events_new (id, timestamp, stage, actor, payload, hash, parent_event_id)
           SELECT id, timestamp, stage, actor, payload, hash, parent_event_id
-          FROM events ORDER BY timestamp ASC, id ASC;
+          FROM events ORDER BY seq ASC;
         DROP TABLE events;
         ALTER TABLE events_new RENAME TO events;
         COMMIT;
