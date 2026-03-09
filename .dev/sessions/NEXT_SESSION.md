@@ -1,32 +1,25 @@
 # NEXT_SESSION.md
 ## Mirror Box Orchestrator — Session Handoff
 
-**Written:** 2026-03-08  
-**Hard State Anchor:** 57  
-**Milestone 0.3:** SUCCESS (DID reconciliation complete)
+**Written:** 2026-03-08
+**Hard State Anchor:** 432
+**Milestone PRE-0.4:** CLOSED ✅
+**Milestone 0.4A:** IN PROGRESS
 
 ---
 
 ## NEXT ACTION
 
-**PRE-0.4-01** — Apply off-the-shelf audit diff to SPEC.md
-
-Changes required:
-1. Add `seq: number` to Event interface in Section 7 (BUG-027)
-2. Add `prev_hash: string | null` to Event interface in Section 7
-3. Document `chain_anchors` table in Section 7 SQLite schema
-4. Split Milestone 0.4 into 0.4A (Tree-sitter skeleton) and 0.4B (LSP enrichment) in Appendix A
-5. Add redaction note to Section 10 (secrets must be redacted before event store write)
-6. Add callModel schema validation as step 4 in Section 10 enforcement list
-
-After PRE-0.4-01: run **PRE-0.4-02** (MCP server research spike).
+**0.4A-03** — Basic query capability: what calls X, what does X import
+- `GraphStore` methods exist (`getCallers`, `getDependencies`, `getImpact`)
+- Need integration test against real scan output
+- `GraphQueryResult` format (Section 13) must be verified — task 0.4A-04
 
 ---
 
-## OPEN VERIFICATION TASK
+## OPEN VERIFICATION TASK (carried from previous session)
 
-Before the audit folder is fully closed, the coding agent must run the tamper proof against
-the current DB. This is a verification run, not a code change:
+Before the 0.3 audit folder is fully closed, run tamper-proof against current DB:
 
 ```bash
 cd /Users/johnserious/mbo
@@ -43,12 +36,9 @@ Both verifiers must exit non-zero on tampered DB. Record output in `.dev/audit/`
 
 ---
 
-## OPEN CODE TASK
+## OPEN CODE TASK (carried from previous session)
 
 **Write test-redactor-v2.js** (scripts/test-redactor-v2.js) and retire test-redactor.js.
-
-Codex referenced this file but it does not exist. The old test-redactor.js has known gaps
-(no Buffer, no Anthropic coverage; was written to pass against broken code).
 
 Required coverage for v2:
 - Raw OpenRouter string
@@ -72,16 +62,18 @@ Once v2 passes all cases: delete test-redactor.js.
 | PRE-0.1 | COMPLETED |
 | 0.1 | COMPLETED |
 | 0.2 | COMPLETED |
-| 0.3 | SUCCESS |
-| PRE-0.4 | IN PROGRESS (PRE-0.4-01, PRE-0.4-02 OPEN) |
-| 0.4+ | NOT STARTED |
+| 0.3 | CLOSED ✅ |
+| PRE-0.4 | CLOSED ✅ |
+| 0.4A | IN PROGRESS (0.4A-01 ✅, 0.4A-02 ✅, 0.4A-03 OPEN, 0.4A-04 OPEN) |
+| 0.4B+ | NOT STARTED |
 
 ---
 
 ## KEY AWARENESS
 
-- `bypass_proofs.js` is a proof-of-failure tool. `[UNEXPECTED]` output means the fix is
-  working. Do not misread as failure.
+- **0.4B-00 COMPLETE**: DBManager, GraphStore, StaticScanner are parameterized classes. Dev graph: `.dev/data/dev-graph.db`. Runtime graph: `data/mirrorbox.db`. Never share.
+- **Tree-sitter fix committed**: Pass full grammar object not `.language` — fixes nodeSubclasses crash on Node v24 arm64.
+- **AGENTS.md Section 11 added** by single agent (no DID). Flag for auditor review — content is correct but protocol was not followed.
 - `test-redactor.js` is deprecated — do not add to it or cite it as coverage evidence.
 - Keys were rotated (2026-03-08). Do not query ~/.zshrc for key values.
 - DID reconciliation: `.dev/audit/DID_RECONCILIATION.md`

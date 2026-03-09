@@ -28,11 +28,12 @@ The agents are interchangeable peers. Before executing a task, the human Operato
 - A single agent proposes the implementation and writes the diff. 
 - If the human approves, that agent implements it directly.
 
-**Tier 2 & 3 (High Risk / Multi-File / Architecture):** (Dual Independent Derivation)
-1. **Agent A** (Gemini or Claude) proposes the implementation and writes a diff.
-2. **Agent B** (the other agent) MUST independently derive their own implementation BLIND (without seeing Agent A's code).
-3. The human Operator reconciles the two versions.
-4. Only after reconciliation and human "go" is the implementation committed.
+**Tier 2 & 3 (High Risk / Multi-File / Architecture / Governance):** (Dual Independent Derivation)
+1. Any modification to `SPEC.md`, `AGENTS.md`, or the governance directory.
+2. Agent A (Gemini or Claude) proposes the implementation and writes the diff. 
+3. Agent B (the other agent) MUST independently derive their own implementation BLIND (without seeing Agent A's code).
+4. The human Operator reconciles the two versions.
+5. Only after reconciliation and human "go" is the implementation committed.
 
 ---
 
@@ -135,6 +136,48 @@ To ensure this state survives context summarization and prevents context drift, 
 Example: `<thinking>[Hard State: 384] Analyzing the file...`
 
 If at any point you cannot recall the Hard State Anchor, or if your context window is cleared and you lose it, you are structurally compromised. You must immediately halt all work and state: "CONTEXT LOST. REQUESTING NEW NHASH PROTOCOL." You must not proceed until the verification handshake is performed again.
+
+---
+
+*Last updated: 2026-03-08*
+
+---
+
+## Section 11 — Graph-Assisted Context Loading (active after Milestone 0.4B)
+
+**Prerequisite:** Milestone 0.4B complete. Dev-mode graph server running.
+
+### Two graph instances — never conflate them
+
+| Instance | db path | indexes | purpose |
+|----------|---------|---------|---------|
+| **Dev graph** | `.dev/data/dev-graph.db` | `src/` + SPEC.md sections | Development tool — used by Claude/Gemini during Phase 1 |
+| **Runtime graph** | `data/mirrorbox.db` | User's codebase | Product feature — built by MBO during onboarding |
+
+`data/mirrorbox.db` is the product. Never query it for development context. Never write dev graph data into it.
+
+### Starting the dev graph server
+
+```
+node src/graph/mcp-server.js --mode=dev --root=/Users/johnserious/mbo
+```
+
+### Replacing full SPEC.md loads with graph queries
+
+After 0.4B, agents must NOT load SPEC.md in full at session start. Instead:
+
+1. Read governance docs as normal (AGENTS.md, projecttracking.md, BUGS.md — these stay full)
+2. Run: `graph_query_impact(active_task_id)` against the dev graph
+3. Load ONLY the SPEC sections returned in `GraphQueryResult.subsystems`
+4. Load ONLY the source files in `GraphQueryResult.affectedFiles`
+5. State: "Graph query complete. SPEC sections loaded: [X, Y, Z]. Source files in scope: [A, B, C]."
+
+This replaces the ~85KB SPEC.md full load with ~8KB of targeted sections for any given task. Full SPEC.md loading is only required for: re-onboarding, milestone boundary reviews, and spec correction tasks.
+
+### If the dev graph server is not running
+
+Fall back to full SPEC.md load and state: "Dev graph unavailable — loading full SPEC.md."
+Do not block work. Do not attempt to start the server without human instruction.
 
 ---
 

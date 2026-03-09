@@ -1,15 +1,19 @@
 # projecttracking.md
 ## Mirror Box Orchestrator — Build Tracking
 
-**Current Milestone:** PRE-0.4 — Spec Corrections [IN PROGRESS]
-**Next Action:** PRE-0.4-02 — MCP server research spike
+**Current Milestone:** 0.4A — Intelligence Graph (Skeleton) [IN PROGRESS]
+**Next Action:** 0.4B-00 — Define dev-graph instance config and separate db path before any MCP server code is written
 
 ---
 
 ## NEXT ACTION
 
-**PRE-0.4-02** — MCP server research spike: evaluate @modelcontextprotocol/sdk vs alternatives; document in SPEC.md Section 6
-- Status: OPEN
+**0.4B-00** — Define dev-graph instance config and separate db path
+- The graph constructor must be parameterized by instance type (dev vs runtime) before MCP server code is written
+- Dev graph db: `.dev/data/dev-graph.db` — indexes MBO's own src/ + SPEC sections
+- Runtime graph db: `data/mirrorbox.db` — indexes user's codebase (the product)
+- These must never share a database. Separation enforced at config level, not just convention.
+- Status: OPEN (blocks 0.4B MCP server work)
 
 ---
 
@@ -35,7 +39,33 @@
 
 ---
 
-## MILESTONE 0.3 — State + Event Foundation [SUCCESS]
+## MILESTONE 0.4A — Intelligence Graph (Skeleton) [IN PROGRESS]
+
+| ID | Task | Status |
+|----|------|--------|
+| 0.4A-01 | Tree-sitter integration: scan src/, extract nodes/edges | IN PROGRESS |
+| 0.4A-02 | graph-store.js: write nodes and edges to mirrorbox.db | IN PROGRESS |
+| 0.4A-03 | Basic query: what calls X, what does X import | OPEN |
+| 0.4A-04 | GraphQueryResult format matches Section 13 contract | OPEN |
+
+---
+
+## MILESTONE 0.4B — Intelligence Graph (Enrichment) [PLANNED]
+
+| ID | Task | Status |
+|----|------|--------|
+| 0.4B-00 | Define dev-graph instance config and separate db path (blocks all MCP work) | OPEN |
+| 0.4B-01 | LSP integration: cross-file call resolution, import edges | OPEN |
+| 0.4B-02 | MCP server: expose five tools from Section 6 (graph_query_impact, graph_query_callers, graph_query_dependencies, graph_query_coverage, graph_search) | OPEN |
+| 0.4B-03 | Index SPEC.md sections as graph nodes (enables section-level queries during dev workflow) | OPEN |
+| 0.4B-04 | Graph updates after successful task (Stage 11 hook) | OPEN |
+| 0.4B-05 | Dev-mode graph server: indexes src/ + .dev/spec/SPEC.md sections, separate from runtime db | OPEN |
+
+**Note on 0.4B-05:** The dev-mode graph server is a Phase 1 development tool only. It replaces full SPEC.md loading during Claude/Gemini development sessions. It must not be confused with the runtime graph that MBO builds for user codebases. Same code, different configuration, completely separate databases. See AGENTS.md Section 11 (added post-0.4B).
+
+---
+
+## MILESTONE 0.3 — State + Event Foundation ✅ SUCCESS
 
 **Audit result:** PASS (2026-03-08, Gemini CLI)
 **Audit report:** `.dev/audit/0.3_080326.2137_Claude-Code/AUDIT_REPORT.md` (Updated by Gemini CLI session 11)
@@ -55,7 +85,7 @@
 
 ---
 
-## PRE-0.4 — Spec Corrections (after 0.3 closes)
+## PRE-0.4 — Spec Corrections ✅ COMPLETED
 
 | ID | Task | Status |
 |----|------|--------|
@@ -106,14 +136,6 @@
 | BUG-020 | Add timeout handlers in HTTP providers | COMPLETED |
 | BUG-021 | Unify OpenRouter key sourcing | COMPLETED |
 | BUG-022 | Align role routing with Section 11 | COMPLETED |
-
----
-
-## COMPLETED MILESTONES
-
-- **Milestone 0.2**: Auth + Model Routing.
-- **Milestone 0.1**: Environment foundation.
-- **Milestone PRE-0.1**: Spec correction and validation.
 
 ---
 

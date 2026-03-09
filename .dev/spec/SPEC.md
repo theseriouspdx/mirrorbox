@@ -505,41 +505,32 @@ The Event Store records every pipeline action. It is append-only. No event is ev
 ```typescript
 interface Event {
   id: string;               // UUID
-  seq: number;              // Monotonic sequence ID per timestamp
+  seq: number;              // monotonic sequence number, assigned inside SQLite transaction
   timestamp: number;        // Unix ms
   stage: PipelineStage;
   actor: AgentRole;
   payload: unknown;         // stage-specific structured data
-  hash: string;             // SHA-256(JSON.stringify({ id, timestamp, seq, payload, prev_hash }))
-  prev_hash: string | null; // Hash of preceding event in chain
-  parentEvent: string;      // id of preceding event (logical causality link)
+  hash: string;             // SHA-256 of canonical envelope: { seq, id, timestamp, stage, actor, payload }
+  prev_hash: string | null; // hash of the immediately preceding event; null for seq=1 (chain anchor)
+  parentEvent: string;      // logical parent event id (causal link, may differ from seq-1)
   signature?: string;       // reserved for future signing
 }
 
-### Event Verification Envelope
+### Chain Integrity
 
-The event store implements a chain-linked hash envelope. Each event commits to its predecessor's hash, making silent deletion or reordering detectable.
-
-**Table: `events`**
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | TEXT (PK) | UUID |
-| `timestamp` | INTEGER | Unix ms |
-| `seq` | INTEGER | Monotonic sequence |
-| `stage` | TEXT | Pipeline stage |
-| `actor` | TEXT | Role |
-| `payload` | TEXT | JSON string (redacted) |
-| `hash` | TEXT | Chained hash |
-| `prev_hash` | TEXT | Previous event hash |
+The Event Store uses a hash-chained append-only log. Each event's `hash` field is a SHA-256 of a canonical envelope containing `{ seq, id, timestamp, stage, actor, payload }`. The `prev_hash` field commits each event to its predecessor, making silent insertion, deletion, or reordering detectable.
 
 **Table: `chain_anchors`**
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | INTEGER (PK) | Constant (1) |
-| `last_hash` | TEXT | Most recent valid hash |
-| `last_seq` | INTEGER | Most recent sequence ID |
+| `run_id` | TEXT (PK) | UUID identifying the pipeline run |
+| `seq` | INTEGER | Sequence number of the anchor event (always 1 for a new run) |
+| `event_id` | TEXT | ID of the first event in this run's chain |
+| `hash` | TEXT | Hash of the anchor event |
+| `created_at` | INTEGER | Unix ms |
+
+A chain anchor is written when the first event of a new pipeline run is appended. Chain verification begins from the anchor and walks forward through `seq` order, recomputing hashes and verifying `prev_hash` at each step. Any break in the chain signals tampering or corruption.
 
 ### Events Recorded
 
@@ -751,8 +742,8 @@ All model calls go through a single function: `callModel(role, prompt, context)`
 1. Wraps all `context` entries in `<PROJECT_DATA>` tags with appropriate `type` and `path`
 2. Prepends the firewall directive to the system prompt
 3. Validates that no `<PROJECT_DATA>` content appears outside the designated context section
-4. **Redaction Gate:** Scans the assembled prompt and all context payloads for secret signatures (API keys, tokens, passwords, private keys, connection strings) before any content is logged to the Event Store or sent to the model. Detected secrets are replaced with `[REDACTED:{type}]` tokens.
-5. **Schema Validation:** Validates that the model response conforms to the expected output schema for the given role (e.g., `Classification`, `ExecutionPlan`, `ReviewerOutput`). A response that does not parse against the expected schema is treated as a malformed output per Section 19 retry policy.
+4. Scans the assembled prompt and all context payloads for secret signatures (API keys, tokens, passwords, private keys, connection strings) before any content is logged to the Event Store. Detected secrets are replaced with `[REDACTED:{type}]` tokens. This step runs before the model call is dispatched — not after.
+5. Validates that the model response conforms to the expected output schema for the given role (e.g., `Classification`, `ExecutionPlan`, `ReviewerOutput`). A response that does not parse against the expected schema is treated as malformed output per Section 19 retry policy and is never passed downstream as valid output.
 
 No model call may bypass `callModel`. Direct API calls are a code-level violation.
 
@@ -1620,12 +1611,14 @@ New features go through the orchestrator. Bugs go through the orchestrator. You 
 
 **Milestone 0.4A — Intelligence Graph: Tree-sitter Skeleton**
 - [ ] Tree-sitter Node bindings installed and functional
+- [ ] Target language grammars loaded (`tree-sitter-typescript`, `tree-sitter-javascript`, `tree-sitter-python` at minimum)
 - [ ] `nodes` table populated from Tree-sitter scan of a real codebase (test on johnseriouscom)
 - [ ] `edges` table populated with `DEFINES` and `IMPORTS` relations from static analysis
 - [ ] `graph_query_impact` returns correct results for file-level queries (no LSP dependency)
 - [ ] Incremental re-scan works: only modified files re-scanned after a patch
 - [ ] MCP server exposes `graph_search` and `graph_query_impact` over stdio transport
-- [ ] BUG-028 resolved: MCP server library decision documented in Section 6 (PRE-0.4-02)
+- [ ] BUG-028 resolved: MCP server library decision documented in SPEC.md Section 6 (PRE-0.4-02)
+- [ ] `graphCompleteness` flag implemented: skeleton-only graph forces Tier 1 minimum routing in operator (Section 8)
 
 **Milestone 0.4B — Intelligence Graph: LSP Enrichment**
 - [ ] LSP client library integrated (decision from PRE-0.4-02 research spike)
@@ -1634,8 +1627,8 @@ New features go through the orchestrator. Bugs go through the orchestrator. You 
 - [ ] Cross-file import resolution working via LSP `textDocument/definition`
 - [ ] `graph_query_callers` and `graph_query_dependencies` return correct cross-file results
 - [ ] `graph_query_coverage` populated after test coverage ingestion
-- [ ] Runtime edge enrichment path stubbed (implemented in 0.8 Sandbox milestone)
-- [ ] Full MCP server: all five tools operational (`graph_query_impact`, `graph_query_callers`, `graph_query_dependencies`, `graph_query_coverage`, `graph_search`)
+- [ ] Runtime edge enrichment path stubbed (implemented in Milestone 0.8)
+- [ ] Full MCP server: all five tools operational
 
 **Milestone 0.5 — callModel + Firewall**  
 - [ ] Unified `callModel` function implementation
