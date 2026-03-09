@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "description": "Mirror Box Orchestrator Engine",
   "main": "src/index.js",
-  "dependencies": {},
+  "dependencies": {
+    "better-sqlite3": "^12.6.2"
+  },
   "private": true
 }

@@ -116,7 +116,17 @@ Wait for the human. The human will provide a multiplier. You must calculate (Bas
 
 ---
 
-## Section 9 — Hard State Persistence Rule
+## Section 9 — Strict Mode (Code Output Constraints)
+
+When proposing or writing code, agents must operate in Strict Mode:
+
+1. Do not suggest stylistic, linting, or "cleanliness" changes unless they fix a functional bug or improve performance by >10%.
+2. If no functional logic needs changing, return "NO_CHANGE" instead of rewriting.
+3. Never remove variable data from error strings (e.g., do not replace `${body}` with `'Unknown error'` unless the original caused a functional bug).
+
+---
+
+## Section 10 — Hard State Persistence Rule
 
 Once the human confirms your final math calculation, that final number becomes your **Hard State Anchor**.
 

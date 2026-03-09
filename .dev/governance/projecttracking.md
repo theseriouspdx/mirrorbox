@@ -1,17 +1,41 @@
 # projecttracking.md
 ## Mirror Box Orchestrator — Build Tracking
 
-**Current Milestone:** PRE-0.1 — Spec Correction
-**Next Action:** PRE-0.1-01 (see below)
+**Current Milestone:** 0.3 — State + Event Foundation [IN AUDIT — FAIL]
+**Next Action:** 0.3-BF-01 — Rotate leaked OpenRouter key, then fix BUG-023
 
 ---
 
 ## NEXT ACTION
 
-**PRE-0.1-01** — Correct BUG-001 and BUG-002 in SPEC.md (milestone reordering in Appendix A)
-- Prereqs: SPEC.md exists at .dev/spec/SPEC.md ✅
-- Produces: Corrected Appendix A milestone sequence
-- Blocks: Nothing until all PRE-0.1 tasks done
+**0.3-BF-01** — Rotate leaked OpenRouter key (operational — do this first)
+- Prereqs: None — do immediately
+- Reason: Live OpenRouter key confirmed in `data/mirrorbox.db` Event 2 (BUG-023)
+- Blocks: Nothing, but must precede DB rebuild
+
+**0.3-BF-02** — Fix BUG-023: Redactor callback offset/group1 confusion
+- Prereqs: None (code fix independent of key rotation)
+- Produces: Corrected `src/state/redactor.js`; all secret patterns redact correctly in object payloads
+
+**0.3-BF-03** — Fix BUG-024 + BUG-027: Chain-linked hash envelope + seq field
+- Prereqs: BUG-027 spec correction (add `seq` to Event interface in SPEC.md) must land first
+- Produces: `event-store.js` with Merkle-linked hashing; updated `verify-chain.js` + `verify-chain.py`
+
+**0.3-BF-04** — Fix BUG-025: Move id/timestamp/seq assignment inside transaction
+- Prereqs: BUG-024 fix (seq field must exist)
+- Produces: Deterministic, atomically-assigned chain metadata
+
+**0.3-BF-05** — Fix BUG-026: Add snapshot type guard to `recover()`
+- Prereqs: Schema change from BUG-025 (event_type or is_snapshot field)
+- Produces: `state-manager.js` recover() queries for snapshot events only
+
+**0.3-BF-06** — Rebuild mirrorbox.db clean
+- Prereqs: BUG-023 fix merged AND key rotation complete
+- Produces: Clean `data/mirrorbox.db` with no leaked credentials; audit copy DBs archived
+
+**0.3 Re-audit** — All four AUDIT_REPORT findings must pass
+- Prereqs: BF-01 through BF-06 complete
+- Produces: AUDIT_PASS sign-off → Milestone 0.3 closes
 
 ---
 
@@ -25,6 +49,7 @@ Derived from DID pre-build analysis. Replaces Appendix A ordering in spec.
 | 0.1 | Environment | Repo, Docker, Gate 0 checks |
 | 0.2 | Auth + Model Routing | CLI detection, OpenRouter, local models |
 | 0.3 | State + Event Foundation | SQLite schema, Event Store, mirrorbox.db |
+| PRE-0.4 | Spec Correction | Off-the-shelf audit diff + open decisions before 0.4 code |
 | 0.4 | Intelligence Graph | Tree-sitter + LSP, MCP server, graph queries |
 | 0.5 | callModel + Firewall | All model calls through one function, XML firewall |
 | 0.6 | Operator + Session | Classification, routing, context management — depends on 0.4 |
@@ -34,6 +59,37 @@ Derived from DID pre-build analysis. Replaces Appendix A ordering in spec.
 | 0.10 | Onboarding | Interview, prime directive, profile — pipeline must exist to consume it |
 | 0.11 | VS Code Extension | Same event protocol, different renderer |
 | 1.0 | Self-Referential | First task on own codebase. External invariant suite passes. |
+
+
+---
+
+## MILESTONE 0.3 — State + Event Foundation [IN AUDIT — FAIL]
+
+**Audit result:** FAIL (2026-03-08, Claude Code)
+**Audit report:** `.dev/audit/0.3_080326.2137_Claude-Code/AUDIT_REPORT.md`
+**Blocking:** BUG-023 (P0), BUG-024 (P0)
+**Required before close:** BUG-025 (P1), BUG-026 (P1)
+
+| ID | Task | Status |
+|----|------|--------|
+| 0.3-01 | SQLite schema + Event Store implementation | COMPLETED |
+| 0.3-02 | (remaining 0.3 implementation tasks) | COMPLETED |
+| 0.3-BF-01 | Rotate leaked OpenRouter key (operational) | OPEN |
+| 0.3-BF-02 | Fix BUG-023: Redactor callback offset/group1 confusion | OPEN |
+| 0.3-BF-03 | Fix BUG-024 + BUG-027: Chain-linked hash envelope + seq field | OPEN |
+| 0.3-BF-04 | Fix BUG-025: Move id/timestamp/seq inside transaction | OPEN |
+| 0.3-BF-05 | Fix BUG-026: Snapshot type guard on recover() | OPEN |
+| 0.3-BF-06 | Rebuild mirrorbox.db clean after redactor fix + key rotation | OPEN |
+| 0.3-RE-AUDIT | Re-audit: all four findings must pass | OPEN |
+
+---
+
+## PRE-0.4 — Spec Corrections (after 0.3 closes)
+
+| ID | Task | Status |
+|----|------|--------|
+| PRE-0.4-01 | Apply off-the-shelf audit diff to SPEC.md (0.4A/0.4B split, redaction hardening, callModel schema validation note) | OPEN |
+| PRE-0.4-02 | MCP server research spike: evaluate @modelcontextprotocol/sdk vs alternatives; document decision in SPEC.md Section 6 | OPEN |
 
 ---
 
@@ -58,8 +114,8 @@ Derived from DID pre-build analysis. Replaces Appendix A ordering in spec.
 | ID | Task | Status |
 |----|------|--------|
 | 0.1-01 | Initialize git repo with .gitignore | COMPLETED |
-| 0.1-02 | Write AGENTS.md for .dev/ development process (governs Phase 1 human builders) | COMPLETED |
-| 0.1-02a | Write AGENTS.md for src/ codebase (governs MBO's own agents at 1.0) | COMPLETED |
+| 0.1-02 | Write AGENTS.md for .dev/ development process | COMPLETED |
+| 0.1-02a | Write AGENTS.md for src/ codebase (governs MBO agents at 1.0) | COMPLETED |
 | 0.1-03 | Docker container builds and runs | COMPLETED |
 | 0.1-04 | Gate 0 checks pass: Mac, Linux, WSL2 | COMPLETED |
 | 0.1-05 | Dummy task through development protocol end-to-end | COMPLETED |
@@ -75,21 +131,18 @@ Derived from DID pre-build analysis. Replaces Appendix A ordering in spec.
 | 0.2-03 | OpenRouter fallback operational | COMPLETED |
 | 0.2-04 | Model routing config loads and routes correctly | COMPLETED |
 | 0.2-05 | All providers complete a simple prompt round-trip | COMPLETED |
-
-
-**Note on 0.1-02 vs 0.1-02a:** Two separate AGENTS.md files, two purposes.
-- `.dev/governance/AGENTS.md` — governs Phase 1 human developers building MBO (exists now, will be refined at 0.1-02)
-- `AGENTS.md` at project root or `src/AGENTS.md` — governs MBO's own agents when it works on itself at Milestone 1.0 (written at 0.1-02a, used at 1.0)
-
-The session start protocol reads AGENTS.md first. That file must exist and be current before any session begins.
+| BUG-019 | Implement Section 10 firewall in callModel | COMPLETED |
+| BUG-020 | Add timeout handlers in HTTP providers | COMPLETED |
+| BUG-021 | Unify OpenRouter key sourcing | COMPLETED |
+| BUG-022 | Align role routing with Section 11 | COMPLETED |
 
 ---
 
-## COMPLETED
+## COMPLETED MILESTONES
 
-- **PRE-0.1-01** to **PRE-0.1-09**: Complete spec correction and validation. Milestone PRE-0.1 finished.
-- **0.1-01**: Initialize git repo with .gitignore.
-
+- **Milestone 0.2**: Auth + Model Routing (including BUG-019–022 audit fixes).
+- **Milestone 0.1**: Environment foundation.
+- **Milestone PRE-0.1**: Spec correction and validation.
 
 ---
 

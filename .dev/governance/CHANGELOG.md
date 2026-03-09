@@ -3,6 +3,43 @@
 
 ---
 
+### [0.3.0] — 2026-03-08
+#### Added
+- **0.3-01**: Implemented Radius One State and Event Foundation.
+  - Implemented `db-manager.js` for SQLite initialization, integrity checks, and schema migration logic.
+  - Implemented `event-store.js` with append-only deterministic chaining (seq-based ordering).
+  - Implemented `redactor.js` to enforce Invariant 8 (Secret Firewall).
+  - Implemented `state-manager.js` for snapshotting and session recovery.
+  - Created `verify-chain.js` and `verify-chain.py` audit utilities.
+#### Fixed (Radius One Audit Findings)
+- **BUG-023**: Fixed redactor offset confusion in `String.replace()` by adding explicit capture groups.
+- **BUG-024, BUG-026**: Upgraded chain hash to cover full `id, seq, stage, actor, timestamp, payload, parent_event_id` envelope. Added atomic `chain_anchors` mechanism.
+- **BUG-025, BUG-028**: Fixed non-deterministic chain ordering by introducing transaction-assigned `seq` primary key.
+- **BUG-027**: Fixed `recover()` silently corrupting state by restricting queries to `stage = 'STATE'` events.
+- **BUG-029**: Gated DB corruption rollover behavior behind `NODE_ENV` to prevent silent destruction in production.
+
+---
+
+### [0.2.2] — 2026-03-08
+#### Fixed
+- **BUG-019 (P0)**: Implemented Section 10 firewall in `callModel`.
+  - Added `context` parameter to `callModel`.
+  - Implemented `<PROJECT_DATA>` XML wrapping and system directive enforcement.
+- **BUG-020 (P1)**: Added explicit timeout handlers (`req.on('timeout')`) to `callLocalProvider` and `callOpenRouter` to prevent process hangs.
+- **BUG-021 (P1)**: Resolved OpenRouter key inconsistency.
+  - Exposed `key` from `detectOpenRouter`.
+  - Unified key usage in `callOpenRouter` via the resolved provider config.
+- **BUG-022 (P1)**: Re-aligned role routing with Section 11 vendor assignments.
+  - Removed `findProvider` helper to prevent collapsing roles to local.
+  - Enforced Claude-first for planners and Gemini-first for reviewer.
+  - Implemented frontier-first logic for onboarding and tiebreaker roles.
+- **Robustness**: Added binary existence guard to `callCliProvider` to prevent `spawnSync` crashes.
+
+### [0.2.1] — 2026-03-08
+#### Governance
+- Added Section 9 (Strict Mode) to `.dev/governance/AGENTS.md`. Constrains agents from stylistic/linting changes without functional justification. Hard State rule renumbered to Section 10.
+- Logged BUG-019 through BUG-022 from dual-audit (Claude DID + third-party audit) of Milestone 0.2 implementation. No code written this session — audit findings queued for next session with `go`.
+
 ### [0.2.0] — 2026-03-08
 #### Added
 - **0.2-05**: Unified `callModel` function with multi-provider round-trips.
