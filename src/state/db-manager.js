@@ -87,9 +87,49 @@ class DBManager {
 
       CREATE INDEX IF NOT EXISTS idx_nodes_path ON nodes(path);
       CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type);
-      CREATE INDEX IF NOT EXISTS idx_nodes_coords ON nodes(path, nameStartLine, nameStartColumn);
       CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
     `);
+
+    // Legacy migration: older nodes table lacks virtual coordinate columns.
+    const nodesInfo = this.db.prepare('PRAGMA table_xinfo(nodes)').all();
+    const hasNodesTable = nodesInfo.length > 0;
+    const hasNameStartLine = nodesInfo.some(col => col.name === 'nameStartLine');
+    const hasNameStartColumn = nodesInfo.some(col => col.name === 'nameStartColumn');
+
+    if (hasNodesTable && (!hasNameStartLine || !hasNameStartColumn)) {
+      this.db.exec(`
+        PRAGMA foreign_keys=off;
+        BEGIN TRANSACTION;
+        DROP TABLE IF EXISTS nodes_new;
+        CREATE TABLE nodes_new (
+          id       TEXT PRIMARY KEY,
+          type     TEXT NOT NULL,
+          name     TEXT NOT NULL,
+          path     TEXT NOT NULL,
+          metadata TEXT,
+          nameStartLine INTEGER GENERATED ALWAYS AS (json_extract(metadata, '$.nameStartLine')) VIRTUAL,
+          nameStartColumn INTEGER GENERATED ALWAYS AS (json_extract(metadata, '$.nameStartColumn')) VIRTUAL
+        );
+        INSERT INTO nodes_new (id, type, name, path, metadata)
+          SELECT id, type, name, path, metadata FROM nodes;
+        DROP TABLE nodes;
+        ALTER TABLE nodes_new RENAME TO nodes;
+        COMMIT;
+        PRAGMA foreign_keys=on;
+      `);
+
+      this.db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_nodes_path ON nodes(path);
+        CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type);
+      `);
+    }
+
+    const nodesInfoAfter = this.db.prepare('PRAGMA table_xinfo(nodes)').all();
+    const hasCoordsAfter = nodesInfoAfter.some(col => col.name === 'nameStartLine')
+      && nodesInfoAfter.some(col => col.name === 'nameStartColumn');
+    if (hasCoordsAfter) {
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_nodes_coords ON nodes(path, nameStartLine, nameStartColumn)');
+    }
 
     const tableInfo = this.db.prepare('PRAGMA table_info(events)').all();
     const hasEventsTable = tableInfo.length > 0;

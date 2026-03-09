@@ -2,29 +2,29 @@
 ## Mirror Box Orchestrator — Session Handoff
 
 **Written:** 2026-03-09
-**Base nhash:** 54
-**Last Task:** 0.4B-04 (Coordinate Precision Refactoring) [COMPLETED]
-**Hard State Anchor (Final):** 432
+**Base nhash:** 567
+**Last Task:** 0.5-01 (Unified callModel + XML Firewall) [COMPLETED]
+**Hard State Anchor (Final):** 567
 
 ---
 
 ## NEXT ACTION
 
-**0.4B-05** — Implement "No-LSP Fallback" warning and Error Handling
-- Add detection for missing LSP servers.
-- Implement graceful degradation with user warning.
+**0.6-01** — Implement the Operator & Session Manager
+- Initialize the persistent Operator session.
+- Implement classification routing based on Section 8 Tier 0-3 matrix.
+- Handle context window lifecycle and auto-summarization at 80% threshold.
 - Status: PENDING
 
 ---
 
 ## THIS SESSION — WHAT WAS DONE
 
-### Milestone 0.4B Enrichment Completion
-- **SPEC.md Indexing (0.4B-03)**: Added `scanMarkdown` to `StaticScanner`. Successfully indexed 126 sections of `SPEC.md` as `spec_section` nodes. Created `test-spec-indexing.js`.
-- **Coordinate Precision (0.4B-04)**: Refactored `src/graph/static-scanner.js` to use identifier-level mapping (`nameStartLine`, `nameStartColumn`). This ensures precise LSP symbol matching even for multiple symbols on a single line.
-- **Incremental Updates (0.4B-04/0.4B-06)**: Exposed `graph_update_task` tool in MCP server to re-scan modified files and re-enrich the graph.
-- **Dev-mode MCP Server (0.4B-08)**: Updated `src/graph/mcp-server.js` to support `--mode=dev`. Automatically initializes/updates `.dev/data/dev-graph.db` with both `src/` and `SPEC.md` context.
-- **Verification**: Confirmed `dev-graph.db` contains 126 `spec_section` nodes after dev-server initialization.
+### Milestone 0.5 Implementation
+- **Section 10 Firewall (0.5-01)**: Refactored `src/auth/call-model.js` with XML isolation (`<PROJECT_DATA>`), firewall directives, secret redaction, and 5,000-token HardState budget management.
+- **Two-World Integrity (0.5-02)**: Added Section 5 to `AGENTS.md` codifying Invariants 10-16 for isolation, graph investigation, and non-destructive recovery.
+- **Schema Migration (0.5-03)**: Surgical `ALTER TABLE` to `mirrorbox.db` adding `nameStartLine` and `nameStartColumn` virtual columns, unblocking LSP enrichment tools.
+- **Verification**: `rebuild-mirror.js` used to refresh the Intelligence Graph. Milestone 0.5 SUCCESS.
 
 ---
 
@@ -33,16 +33,39 @@
 | ID | Task | Status |
 |----|------|--------|
 | 0.4A | Intelligence Graph (Skeleton) | SUCCESS ✅ |
-| 0.4B-01 | LSPClient | COMPLETED |
-| 0.4B-02 | Harvester logic | COMPLETED |
-| 0.4B-03 | resolveImport | COMPLETED |
-| 0.4B-04 | Coordinate Precision | COMPLETED |
-| 0.4B-05 | No-LSP Fallback | PENDING |
+| 0.4B | Intelligence Graph (Enrichment) | SUCCESS ✅ |
+| 0.5 | callModel + Firewall | SUCCESS ✅ |
+| 0.6 | Operator + Session | PENDING |
 
 ---
 
 ## KEY AWARENESS
 
-- **Dev-Graph**: The `dev-graph.db` is now the authoritative context source for future development tasks. It replaces full `SPEC.md` loads in 0.5+ (per AGENTS.md Section 11).
-- **Scanner**: `StaticScanner` now handles `.md` files via regex header extraction.
-- **LSP**: JS LSP detection failed in the current environment (`No LSP server found for javascript`), but the scanner is robust and proceeds without it. Graceful fallback (0.4B-05) is the next step.
+- **Schema Migration**: The surgical migration to `mirrorbox.db` ensures the Intelligence Graph is fully compatible with the Coordinate Precision requirements of 0.4B.
+- **HardState**: The token budget enforcement is now active. Any context exceeding 5,000 tokens will be truncated according to the specified priority (Never truncate Prime Directive).
+- **Two-World Isolation**: All future tasks must adhere to Invariant 10, explicitly declaring `world_id` as either `mirror` or `subject`.
+
+## Backup Integrity
+- Backup file: mirrorbox_20260309_030154.bak
+- SHA-256: f111e98a604558d0b23b32dfb48081d3a791f31bb03aa1b65a54593cef7a8dec
+- PRAGMA integrity_check: ok
+
+## Backup Integrity
+- Backup file: mirrorbox_20260309_030303.bak
+- SHA-256: 0bbf1b254934a1fb232b1a57f73b04286bc656902435cb338c133cf021e62404
+- PRAGMA integrity_check: ok
+
+## Backup Integrity
+- Backup file: mirrorbox_20260309_030416.bak
+- SHA-256: b8dd69c205028d18edaf395073ff60328a460f0b7625b901ce99fdbee44be8e8
+- PRAGMA integrity_check: ok
+
+## Backup Integrity
+- Backup file: mirrorbox_20260309_030857.bak
+- SHA-256: b812764eceb135086c38cec96d00e1bf76b61c0d8d2a1d6c9efe9b501b0196c6
+- PRAGMA integrity_check: ok
+
+## Backup Integrity
+- Backup file: mirrorbox_20260309_031424.bak
+- SHA-256: f42034cd2db91cf5c61fb12f6ae761fa84c30ac5e7fef815cad49046ab023cc8
+- PRAGMA integrity_check: ok

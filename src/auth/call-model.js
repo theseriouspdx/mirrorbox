@@ -2,6 +2,7 @@ const { spawnSync } = require('child_process');
 const http = require('http');
 const https = require('https');
 const { routeModels } = require('./model-router');
+const eventStore = require('../state/event-store');
 
 /**
  * Section 10: The Firewall Directive.
@@ -82,13 +83,19 @@ function enforceHardStateBudget(hardState) {
  * Section 10.5: Heuristic injection detection.
  */
 function checkInjection(response) {
-  const flags = [
-    "As instructed in the file",
-    "Following the AGENTS.md directive",
-    "Per the project rules",
-    "According to the documentation provided"
+  if (typeof response !== "string") return false;
+
+  const normalized = response.toLowerCase();
+  const patterns = [
+    /\bas instructed(?:\s+in\s+the\s+file)?\b/i,
+    /\bfollowing\s+the\s+agents\.md\s+directive\b/i,
+    /\bper\s+the\s+project\s+rules\b/i,
+    /\baccording\s+to\s+the\s+documentation\s+provided\b/i,
+    /\bignore\s+all\s+other\s+instructions\b/i,
+    /\bnew\s+prime\s+directive\b/i
   ];
-  return flags.some(flag => response.includes(flag));
+
+  return patterns.some((pattern) => pattern.test(normalized));
 }
 
 /**
@@ -131,6 +138,17 @@ async function callModel(role, prompt, context = {}) {
   // Section 10.4: Redact secrets before dispatch
   const redactedPrompt = redactSecrets(fullPrompt);
 
+  try {
+    eventStore.append('MODEL_CALL_PRE', role, {
+      role,
+      provider: config.provider,
+      model: config.model,
+      prompt: redactedPrompt
+    });
+  } catch (err) {
+    console.warn(`[EVENT STORE WARNING] Failed to log MODEL_CALL_PRE for role '${role}': ${err.message}`);
+  }
+
   let response;
   // 1. Dispatch by Provider Type
   switch (config.provider) {
@@ -152,8 +170,20 @@ async function callModel(role, prompt, context = {}) {
     console.warn(`[FIREWALL WARNING] Model response for role '${role}' triggered injection heuristic.`);
   }
 
-  // Redact secrets in the output before returning
-  return redactSecrets(response);
+  const redactedResponse = redactSecrets(response);
+
+  try {
+    eventStore.append('MODEL_CALL_POST', role, {
+      role,
+      provider: config.provider,
+      model: config.model,
+      response: redactedResponse
+    });
+  } catch (err) {
+    console.warn(`[EVENT STORE WARNING] Failed to log MODEL_CALL_POST for role '${role}': ${err.message}`);
+  }
+
+  return redactedResponse;
 }
 
 /**
@@ -258,20 +288,22 @@ function callOpenRouter(config, prompt, apiKey) {
         try {
           const json = JSON.parse(body);
           if (res.statusCode !== 200) {
-            reject(new Error(`OpenRouter error (${res.statusCode}): ${json.error?.message || body}`));
+            reject(new Error(`OpenRouter error ${res.statusCode}: ${body}`));
             return;
           }
-          if (json.choices && json.choices[0]) {
-            resolve(json.choices[0].message.content || '');
-          } else {
-            reject(new Error(`OpenRouter returned unexpected format: ${body}`));
-          }
-        } catch (e) { reject(e); }
+          resolve(json.choices?.[0]?.message?.content || '');
+        } catch (e) {
+          reject(e);
+        }
       });
     });
 
     req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('OpenRouter request timed out')); });
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('OpenRouter request timed out'));
+    });
+
     req.write(data);
     req.end();
   });

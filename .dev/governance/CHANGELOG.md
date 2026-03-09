@@ -167,3 +167,13 @@
 ---
 
 *Last updated: 2026-03-09*
+
+## [0.6.0-prep] - 2026-03-09
+### Added
+- Pre-0.6 Adversarial Audit PASS.
+- mirrorbox.db schema migration and LSP coordinate verification.
+- src/auth/call-model.js: event store logging for prompt/response.
+- scripts/mbo-session-close.sh: atomic backup and integrity check.
+### Fixed
+- src/auth/model-router.js: repaired syntax error in routing logic.
+- src/auth/call-model.js: strengthened injection heuristic check.

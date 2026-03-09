@@ -18,64 +18,67 @@ async function routeModels() {
     reviewer: null,
     tiebreaker: null,
     patchGenerator: null,
-    // 1. Classifier - Local > CLI > OpenRouter (Speed/Cost)
-    if (local.ollama.detected) {
-      routingMap.classifier = { provider: 'local', model: 'ollama', url: local.ollama.url };
-    } else if (cli.gemini.authenticated) {
-      routingMap.classifier = { provider: 'cli', model: 'gemini', binary: cli.gemini.binary };
-    } else if (or.detected) {
-      routingMap.classifier = { provider: 'openrouter', model: 'google/gemini-pro-1.5' };
-    }
+    onboarding: null
+  };
 
-    // 2. Planners - Claude-first per Section 11 (Vendor diversity is structural)
-    if (cli.claude.authenticated) {
-      routingMap.architecturePlanner = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
-      routingMap.componentPlanner = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
-    } else if (or.detected) {
-      routingMap.architecturePlanner = { provider: 'openrouter', model: 'anthropic/claude-3.7-sonnet' };
-      routingMap.componentPlanner = { provider: 'openrouter', model: 'anthropic/claude-3.5-sonnet' };
-    } else if (local.ollama.detected) {
-      routingMap.architecturePlanner = { provider: 'local', model: 'ollama', url: local.ollama.url };
-      routingMap.componentPlanner = { provider: 'local', model: 'ollama', url: local.ollama.url };
-    }
+  // 1. Classifier - Local > CLI > OpenRouter (Speed/Cost)
+  if (local.ollama.detected) {
+    routingMap.classifier = { provider: 'local', model: 'ollama', url: local.ollama.url };
+  } else if (cli.gemini.authenticated) {
+    routingMap.classifier = { provider: 'cli', model: 'gemini', binary: cli.gemini.binary };
+  } else if (or.detected) {
+    routingMap.classifier = { provider: 'openrouter', model: 'google/gemini-pro-1.5' };
+  }
 
-    // 3. Reviewer - Gemini-first per Section 11 (Adversarial vendor required)
-    if (cli.gemini.authenticated) {
-      routingMap.reviewer = { provider: 'cli', model: 'gemini', binary: cli.gemini.binary };
-    } else if (or.detected) {
-      routingMap.reviewer = { provider: 'openrouter', model: 'google/gemini-pro-1.5' };
-    } else if (local.ollama.detected) {
-      routingMap.reviewer = { provider: 'local', model: 'ollama', url: local.ollama.url };
-    }
+  // 2. Planners - Claude-first per Section 11 (Vendor diversity is structural)
+  if (cli.claude.authenticated) {
+    routingMap.architecturePlanner = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
+    routingMap.componentPlanner = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
+  } else if (or.detected) {
+    routingMap.architecturePlanner = { provider: 'openrouter', model: 'anthropic/claude-3.7-sonnet' };
+    routingMap.componentPlanner = { provider: 'openrouter', model: 'anthropic/claude-3.5-sonnet' };
+  } else if (local.ollama.detected) {
+    routingMap.architecturePlanner = { provider: 'local', model: 'ollama', url: local.ollama.url };
+    routingMap.componentPlanner = { provider: 'local', model: 'ollama', url: local.ollama.url };
+  }
 
-    // 4. Tiebreaker - Best available frontier (OpenRouter > CLI > Local)
-    if (or.detected) {
-      routingMap.tiebreaker = { provider: 'openrouter', model: 'anthropic/claude-3.7-sonnet' };
-    } else if (cli.claude.authenticated) {
-      routingMap.tiebreaker = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
-    } else if (local.ollama.detected) {
-      routingMap.tiebreaker = { provider: 'local', model: 'ollama', url: local.ollama.url };
-    }
+  // 3. Reviewer - Gemini-first per Section 11 (Adversarial vendor required)
+  if (cli.gemini.authenticated) {
+    routingMap.reviewer = { provider: 'cli', model: 'gemini', binary: cli.gemini.binary };
+  } else if (or.detected) {
+    routingMap.reviewer = { provider: 'openrouter', model: 'google/gemini-pro-1.5' };
+  } else if (local.ollama.detected) {
+    routingMap.reviewer = { provider: 'local', model: 'ollama', url: local.ollama.url };
+  }
 
-    // 5. Patch Generator - Local/Specialized (Speed/Code-specialized)
-    if (local.ollama.detected) {
-      routingMap.patchGenerator = { provider: 'local', model: 'ollama', url: local.ollama.url };
-    } else if (cli.claude.authenticated) {
-      routingMap.patchGenerator = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
-    } else if (or.detected) {
-      routingMap.patchGenerator = { provider: 'openrouter', model: 'anthropic/claude-3.5-haiku' };
-    }
+  // 4. Tiebreaker - Best available frontier (OpenRouter > CLI > Local)
+  if (or.detected) {
+    routingMap.tiebreaker = { provider: 'openrouter', model: 'anthropic/claude-3.7-sonnet' };
+  } else if (cli.claude.authenticated) {
+    routingMap.tiebreaker = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
+  } else if (local.ollama.detected) {
+    routingMap.tiebreaker = { provider: 'local', model: 'ollama', url: local.ollama.url };
+  }
 
-    // 6. Onboarding - Best available frontier (Judgment/Finesse)
-    if (or.detected) {
-      routingMap.onboarding = { provider: 'openrouter', model: 'anthropic/claude-3.7-sonnet' };
-    } else if (cli.claude.authenticated) {
-      routingMap.onboarding = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
-    } else if (local.ollama.detected) {
-      routingMap.onboarding = { provider: 'local', model: 'ollama', url: local.ollama.url };
-    }
+  // 5. Patch Generator - Local/Specialized (Speed/Code-specialized)
+  if (local.ollama.detected) {
+    routingMap.patchGenerator = { provider: 'local', model: 'ollama', url: local.ollama.url };
+  } else if (cli.claude.authenticated) {
+    routingMap.patchGenerator = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
+  } else if (or.detected) {
+    routingMap.patchGenerator = { provider: 'openrouter', model: 'anthropic/claude-3.5-haiku' };
+  }
 
-    return { routingMap, providers: { cli, local, or } };
-    }
+  // 6. Onboarding - Best available frontier (Judgment/Finesse)
+  if (or.detected) {
+    routingMap.onboarding = { provider: 'openrouter', model: 'anthropic/claude-3.7-sonnet' };
+  } else if (cli.claude.authenticated) {
+    routingMap.onboarding = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
+  } else if (local.ollama.detected) {
+    routingMap.onboarding = { provider: 'local', model: 'ollama', url: local.ollama.url };
+  }
 
-    module.exports = { routeModels };
+  return { routingMap, providers: { cli, local, or } };
+}
+
+module.exports = { routeModels };

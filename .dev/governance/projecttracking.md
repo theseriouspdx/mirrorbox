@@ -8,48 +8,48 @@
 
 ## NEXT ACTION
 
-**0.5-01** — Unified callModel implementation + XML Firewall
-- Implement Section 10 firewall in callModel.
-- XML-based <PROJECT_DATA> tagging system.
-- System directive enforcement.
-- Prompt injection heuristic detection.
+**0.6-01** — Implement the Operator & Session Manager
+- Initialize the persistent Operator session.
+- Implement classification routing based on Section 8 Tier 0-3 matrix.
+- Handle context window lifecycle and auto-summarization at 80% threshold.
 - Status: OPEN
 
 ---
 
 ## CORRECTED MILESTONE SEQUENCE
 
-| Milestone | Name | Key dependency |
-|-----------|------|----------------|
-| PRE-0.1 | Spec Correction | All P0/P1 bugs fixed before code |
-| 0.1 | Environment | Repo, Docker, Gate 0 checks |
-| 0.2 | Auth + Model Routing | CLI detection, OpenRouter, local models |
-| 0.3 | State + Event Foundation | SQLite schema, Event Store, mirrorbox.db |
-| PRE-0.4 | Spec Correction | Off-the-shelf audit diff + open decisions before 0.4 code |
-| 0.4A | Intelligence Graph (Skeleton) | Tree-sitter integration, static nodes/edges |
-| 0.4B | Intelligence Graph (Enrichment) | LSP integration, cross-file calls, MCP tools |
-| 0.5 | callModel + Firewall | COMPLETED |
-| 0.6 | Operator + Session | Classification, routing, context management |
-| 0.7 | DID Pipeline (no execution) | Stages 1–5, all gates, tiebreaker, human approval |
-| 0.8 | Sandbox | Docker-in-Docker, runtime observation, pre-flight dry run |
-| 0.9 | Execution + Git | Patch generation, merge, verification |
-| 0.10 | Onboarding | Interview, prime directive, profile |
-| 0.11 | VS Code Extension | Same event protocol, different renderer |
-| 1.0 | Self-Referential | First task on own codebase. External invariant suite passes. |
+| Milestone | Name | Key dependency | Status |
+|-----------|------|----------------|--------|
+| PRE-0.1 | Spec Correction | All P0/P1 bugs fixed before code | SUCCESS |
+| 0.1 | Environment | Repo, Docker, Gate 0 checks | SUCCESS |
+| 0.2 | Auth + Model Routing | CLI detection, OpenRouter, local models | SUCCESS |
+| 0.3 | State + Event Foundation | SQLite schema, Event Store, mirrorbox.db | SUCCESS |
+| PRE-0.4 | Spec Correction | Audit diff + open decisions | SUCCESS |
+| 0.4A | Intelligence Graph (Skeleton) | Tree-sitter integration | SUCCESS |
+| 0.4B | Intelligence Graph (Enrichment) | LSP integration, MCP tools | SUCCESS |
+| 0.5 | callModel + Firewall | Unified callModel, XML firewall | SUCCESS |
+| 0.6 | Operator + Session | Classification, routing, context management | IN PROGRESS |
+| 0.7 | DID Pipeline (no execution) | Stages 1–5, tiebreaker | OPEN |
+| 0.8 | Sandbox | Docker-in-Docker, runtime observation | OPEN |
+| 0.9 | Execution + Git | Patch generation, merge, verification | OPEN |
+| 0.10 | Onboarding | Interview, prime directive, profile | OPEN |
+| 0.11 | VS Code Extension | Wire protocol events | OPEN |
+| 1.0 | Self-Referential | First task on own codebase | OPEN |
+
+---
+
+## MILESTONE 0.6 — Operator + Session [IN PROGRESS]
+
+| ID | Task | Status |
+|----|------|--------|
+| 0.6-01 | Implement the Operator & Session Manager | OPEN |
+| 0.6-02 | Classification routing based on Section 8 Tier 0-3 | OPEN |
+| 0.6-03 | Context window lifecycle (auto-summarization) | OPEN |
+| 0.6-04 | Session handoff persistence (NEXT_SESSION.md) | OPEN |
 
 ---
 
 ## MILESTONE 0.5 — callModel + Firewall ✅ SUCCESS
-
-| ID | Task | Status |
-|----|------|--------|
-| 0.5-01 | Unified callModel implementation + XML Firewall | COMPLETED |
-| 0.5-02 | Governance & Integrity Reset (AGENTS.md Section 5) | COMPLETED |
-| 0.5-03 | Schema Migration (nodes table virtual columns) | COMPLETED |
-
----
-
-## MILESTONE 0.4B — Intelligence Graph: LSP Enrichment ✅ SUCCESS
 
 
 | ID | Task | Status |
