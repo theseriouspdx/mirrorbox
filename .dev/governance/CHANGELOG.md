@@ -3,6 +3,15 @@
 
 ---
 
+### [0.5.1] — 2026-03-09
+#### Added
+- **Invariant 11 Enforcement**: Updated `src/auth/call-model.js` with a hard blockade against proprietary search tools (`grep`, `codebase_investigator`).
+- **Tool Agnosticism**: Mandated the use of MBO MCP tools for all codebase discovery operations.
+#### Fixed
+- **Milestone 0.6.0 Investigation**: Confirmed "Operator" is currently unimplemented and mapped the integration path in `src/auth/call-model.js`.
+
+---
+
 ### [0.4.3] — 2026-03-09
 #### Added
 - **0.4B-02**: Implemented Intelligence Graph MCP Server.

@@ -35,4 +35,14 @@ All changes must pass through the 11-stage pipeline. No code touches the reposit
 
 ---
 
-*Last updated: 2026-03-08*
+## Section 5 — Session Management & Two-World Integrity
+1. **Invariant 10 (Two-World Isolation):** Every operation must declare `world_id` as `mirror` or `subject`. Reads may span worlds; writes must target exactly one world. Missing or invalid `world_id` is a hard failure and must stop execution.
+2. **Invariant 11 (Graph Investigation):** All investigations shall follow the mandatory 4-step retrieval loop: (1) Intent, (2) Expansion, (3) Evidence, (4) Deepen. Retrieval must use `graph_search` and `graph_query_impact`. Full SPEC injection or large file-dump context injection is prohibited by default unless explicitly approved by the architect.
+3. **Invariant 12 (HardState Budget):** HardState must not exceed 5,000 tokens. Allocation shall be enforced as: 600 tokens for invariants/objective, 1,800 tokens for evidence, 1,200 tokens for prior decisions, 900 tokens for reasoning, and 500 tokens for reserve/safety. Governance invariants are non-evictable.
+4. **Invariant 13 (Pre-Mutation Checkpoints):** Before any mutation in either world, the system must create an immutable checkpoint. Each checkpoint shall include a cryptographic hash and parent reference sufficient for deterministic replay.
+5. **Invariant 15 (Non-Destructive Recovery):** `rm -f` and delete/recreate patterns for schema recovery are prohibited. Recovery must use forward migrations, compatibility adapters, event replay, or checkpoint rollback.
+6. **Invariant 16 (Atomic Session-End Backup):** On session close, the system must atomically persist event flush, graph delta/index update, handoff record, checkpoint IDs, and integrity hashes. `PRAGMA integrity_check` must run as backup validation. Session status must be marked `closed_clean` or `closed_with_incident`.
+
+---
+
+*Last updated: 2026-03-09*

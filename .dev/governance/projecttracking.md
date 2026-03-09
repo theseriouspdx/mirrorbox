@@ -42,7 +42,7 @@
 
 | ID | Task | Status |
 |----|------|--------|
-| 0.6-01 | Implement the Operator & Session Manager | OPEN |
+| 0.6-01 | Implement the Operator & Session Manager | IN PROGRESS |
 | 0.6-02 | Classification routing based on Section 8 Tier 0-3 | OPEN |
 | 0.6-03 | Context window lifecycle (auto-summarization) | OPEN |
 | 0.6-04 | Session handoff persistence (NEXT_SESSION.md) | OPEN |
