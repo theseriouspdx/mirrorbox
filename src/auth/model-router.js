@@ -19,11 +19,13 @@ async function routeModels() {
     onboarding: null
   };
 
-  // 1. Classifier - Local is best for speed and cost
+  // 1. Classifier - Gemini (CLI) as fallback for classifier if local is empty
   if (local.ollama.detected) {
     routingMap.classifier = { provider: 'local', model: 'ollama', url: local.ollama.url };
   } else if (cli.gemini.authenticated) {
     routingMap.classifier = { provider: 'cli', model: 'gemini', binary: cli.gemini.binary };
+  } else if (or.detected) {
+    routingMap.classifier = { provider: 'openrouter', model: 'google/gemini-pro-1.5' };
   }
 
   // 2. Planners - Claude CLI is top priority
@@ -31,8 +33,8 @@ async function routeModels() {
     routingMap.architecturePlanner = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
     routingMap.componentPlanner = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
   } else if (or.detected) {
-    routingMap.architecturePlanner = { provider: 'openrouter', model: 'anthropic/claude-3-opus' };
-    routingMap.componentPlanner = { provider: 'openrouter', model: 'anthropic/claude-3-sonnet' };
+    routingMap.architecturePlanner = { provider: 'openrouter', model: 'anthropic/claude-3.7-sonnet' };
+    routingMap.componentPlanner = { provider: 'openrouter', model: 'anthropic/claude-3.5-sonnet' };
   }
 
   // 3. Reviewer - Gemini CLI (Diverse Vendor from Planner)
@@ -47,14 +49,17 @@ async function routeModels() {
     routingMap.patchGenerator = { provider: 'local', model: 'ollama', url: local.ollama.url };
   } else if (cli.claude.authenticated) {
     routingMap.patchGenerator = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
+  } else if (or.detected) {
+    routingMap.patchGenerator = { provider: 'openrouter', model: 'anthropic/claude-3.5-haiku' };
   }
 
   // 5. Onboarding - Highest Capability
   if (or.detected) {
-    routingMap.onboarding = { provider: 'openrouter', model: 'anthropic/claude-3-opus' };
+    routingMap.onboarding = { provider: 'openrouter', model: 'anthropic/claude-3.7-sonnet' };
   } else if (cli.claude.authenticated) {
     routingMap.onboarding = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
   }
+
 
   return { routingMap, providers: { cli, local, or } };
 }

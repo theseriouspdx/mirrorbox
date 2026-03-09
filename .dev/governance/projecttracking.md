@@ -74,7 +74,7 @@ Derived from DID pre-build analysis. Replaces Appendix A ordering in spec.
 | 0.2-02 | Local model detection (Ollama, LM Studio) | COMPLETED |
 | 0.2-03 | OpenRouter fallback operational | COMPLETED |
 | 0.2-04 | Model routing config loads and routes correctly | COMPLETED |
-| 0.2-05 | All providers complete a simple prompt round-trip | NOT STARTED |
+| 0.2-05 | All providers complete a simple prompt round-trip | COMPLETED |
 
 
 **Note on 0.1-02 vs 0.1-02a:** Two separate AGENTS.md files, two purposes.

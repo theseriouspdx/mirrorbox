@@ -12,9 +12,10 @@ function checkServer(url) {
       res.on('data', (chunk) => data += chunk);
       res.on('end', () => {
         try {
-          // Both Ollama and LM Studio return JSON with a 'models' key.
           const json = JSON.parse(data);
-          resolve(Array.isArray(json.models) || Array.isArray(json.data));
+          // Verify that models or data exist and are not empty
+          const models = json.models || json.data;
+          resolve(Array.isArray(models) && models.length > 0);
         } catch (e) {
           resolve(false);
         }

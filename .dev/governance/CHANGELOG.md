@@ -5,6 +5,10 @@
 
 ### [0.2.0] — 2026-03-08
 #### Added
+- **0.2-05**: Unified `callModel` function with multi-provider round-trips.
+  - Implemented `src/auth/call-model.js` supporting CLI (Claude, Gemini, OpenAI), Local (Ollama), and OpenRouter.
+  - Verified round-trips with Gemini CLI and OpenRouter.
+  - Added `.dev/governance/TECHNICAL_DEBT.md` for OpenAI/Ollama pending verification.
 - **0.2-04**: Model routing logic implementation.
   - Implemented `src/auth/model-router.js` with priority-based role mapping.
   - Priority established: Local > CLI Session > OpenRouter.
