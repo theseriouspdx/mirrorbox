@@ -8,9 +8,10 @@
 
 ## NEXT ACTION
 
-**0.6-02** — Classification routing based on Section 8 Tier 0-3
-- Wire classifier callModel to actual provider (currently returns placeholder).
-- Full routing matrix validation with graph query integration.
+**0.6-03** — Context window lifecycle (auto-summarization)
+- Implement context window threshold detection in operator.js.
+- Integrate real summarization prompt.
+- Verify HardState preservation during summarization.
 - Status: OPEN
 
 ---
@@ -43,8 +44,9 @@
 |----|------|--------|
 | 0.6-00 | Universal MCP session start (mbo-start.sh + AGENTS.md 1.5) | COMPLETED |
 | 0.6-01 | Implement the Operator & Session Manager | COMPLETED |
-| 0.6-02 | Classification routing based on Section 8 Tier 0-3 | OPEN |
+| 0.6-02 | Classification routing based on Section 8 Tier 0-3 | COMPLETED |
 | 0.6-03 | Context window lifecycle (auto-summarization) | OPEN |
+
 | 0.6-04 | Session handoff persistence (NEXT_SESSION.md) | OPEN |
 
 ---
