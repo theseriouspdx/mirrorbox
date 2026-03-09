@@ -1,0 +1,17 @@
+# Dependency directories
+node_modules/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Project state and logs
+data/
+logs/
+*.log
+mirrorbox.db*
+
+# Environment and Secrets
+.env
+.env.*
+!.env.sandbox
