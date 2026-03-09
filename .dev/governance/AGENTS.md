@@ -16,6 +16,44 @@ Every development session begins in this order. No exceptions.
 
 No code is written before this sequence completes.
 
+### Section 1.5 — Pre-Session MCP Requirement
+
+Before any session work begins, the dev-mode MCP server must be reachable.
+`scripts/mbo-start.sh` is the **source of truth** for MCP server lifecycle — not any vendor-specific config file.
+It MUST be started as a background process with `--agent` set to the calling agent identity.
+
+**Mandatory session start (all agents, all vendors):**
+```bash
+bash scripts/mbo-start.sh --mode=dev --agent=<claude|gemini> &
+```
+The script writes its PID to `.dev/run/{agent}.pid`. Wait 2 seconds then verify the process
+is alive: `kill -0 $(cat .dev/run/{agent}.pid)`. If this fails, stop. Do not proceed until resolved.
+
+**Agent identity values:**
+
+| Calling agent | `--agent` value |
+|---------------|-----------------|
+| Claude Code | `claude` |
+| Gemini CLI | `gemini` |
+| Runtime Operator (internal) | `operator` — managed by `operator.js` directly, no PID file |
+
+**MCP client configuration:**
+
+| Client | Config | Command |
+|--------|--------|---------|
+| Claude Code | `.mcp.json` | `bash scripts/mbo-start.sh --mode=dev --agent=claude` |
+| Gemini CLI | per Gemini MCP spec | `bash scripts/mbo-start.sh --mode=dev --agent=gemini` |
+| Python orchestrator | `subprocess.run(...)` | `bash scripts/mbo-start.sh --mode=dev --agent=operator` |
+
+**If MCP server is unavailable at Gate 0:**
+Fall back to full SPEC.md load (Section 11) and state:
+`"Dev graph unavailable — MCP not reachable. Loaded full SPEC.md."`
+
+**Stale session recovery:**
+`mbo-start.sh` runs `PRAGMA integrity_check` + `PRAGMA wal_checkpoint(TRUNCATE)` before launch.
+Do not delete `.db-wal` / `.db-shm` files manually — this discards unflushed data.
+WAL checkpoint is the correct recovery path.
+
 ---
 
 ## Section 2 — Development Protocol (DID) & Routing Tiers
@@ -127,8 +165,15 @@ If the human confirms "wrap task", you must:
 ### 6C. Session End Protocol (Terminal Close)
 If the human confirms "end session", perform all steps in 6B, PLUS:
 1. Write `.dev/sessions/NEXT_SESSION.md` (last task, status, suggested next task).
-2. Output the END SESSION CHECKLIST.
-3. State: "Handoff complete. It is now safe to clear context."
+2. Terminate the session-specific background MCP process:
+   ```bash
+   bash scripts/mbo-session-close.sh --terminate-mcp --agent=<claude|gemini>
+   ```
+   This sends SIGTERM to the PID in `.dev/run/{agent}.pid`, waits up to 5 seconds for
+   clean shutdown (WAL operations in-flight), then SIGKILL if still running.
+   Removes `.dev/run/{agent}.pid` on completion.
+3. Output the END SESSION CHECKLIST.
+4. State: "Handoff complete. It is now safe to clear context."
 
 ---
 

@@ -1,17 +1,16 @@
 # projecttracking.md
 ## Mirror Box Orchestrator — Build Tracking
 
-**Current Milestone:** 0.4B — Intelligence Graph (Enrichment) [IN PROGRESS]
-**Next Action:** 0.4B-01 — LSP integration: cross-file call resolution, import edges
+**Current Milestone:** 0.6 — Operator + Session [IN PROGRESS]
+**Next Action:** 0.6-02 — Classification routing based on Section 8 Tier 0-3
 
 ---
 
 ## NEXT ACTION
 
-**0.6-01** — Implement the Operator & Session Manager
-- Initialize the persistent Operator session.
-- Implement classification routing based on Section 8 Tier 0-3 matrix.
-- Handle context window lifecycle and auto-summarization at 80% threshold.
+**0.6-02** — Classification routing based on Section 8 Tier 0-3
+- Wire classifier callModel to actual provider (currently returns placeholder).
+- Full routing matrix validation with graph query integration.
 - Status: OPEN
 
 ---
@@ -42,7 +41,8 @@
 
 | ID | Task | Status |
 |----|------|--------|
-| 0.6-01 | Implement the Operator & Session Manager | IN PROGRESS |
+| 0.6-00 | Universal MCP session start (mbo-start.sh + AGENTS.md 1.5) | COMPLETED |
+| 0.6-01 | Implement the Operator & Session Manager | COMPLETED |
 | 0.6-02 | Classification routing based on Section 8 Tier 0-3 | OPEN |
 | 0.6-03 | Context window lifecycle (auto-summarization) | OPEN |
 | 0.6-04 | Session handoff persistence (NEXT_SESSION.md) | OPEN |
@@ -155,4 +155,4 @@
 
 ---
 
-*Last updated: 2026-03-09*
+*Last updated: 2026-03-09 (session 2)*

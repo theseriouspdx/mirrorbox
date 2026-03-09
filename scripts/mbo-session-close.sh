@@ -1,6 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# --terminate-mcp --agent=<name>: graceful MCP process shutdown via PID file
+if [[ "${1:-}" == "--terminate-mcp" ]]; then
+    AGENT=""
+    for arg in "$@"; do
+        if [[ $arg == --agent=* ]]; then AGENT="${arg#--agent=}"; fi
+    done
+    if [[ -z "$AGENT" ]]; then
+        echo "ERROR: --agent required with --terminate-mcp" >&2; exit 1
+    fi
+    ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+    PID_FILE="$ROOT_DIR/.dev/run/${AGENT}.pid"
+    if [[ ! -f "$PID_FILE" ]]; then
+        echo "[MBO] No PID file for agent '${AGENT}'. Server may not be running." >&2
+        exit 0
+    fi
+    MCP_PID="$(cat "$PID_FILE")"
+    if ! kill -0 "$MCP_PID" 2>/dev/null; then
+        echo "[MBO] PID ${MCP_PID} is stale (process not found). Cleaning up." >&2
+        rm -f "$PID_FILE"; exit 0
+    fi
+    echo "[MBO] Sending SIGTERM to PID ${MCP_PID} (agent: ${AGENT})..." >&2
+    kill -TERM "$MCP_PID"
+    for i in $(seq 1 5); do
+        sleep 1
+        if ! kill -0 "$MCP_PID" 2>/dev/null; then
+            echo "[MBO] Process ${MCP_PID} exited cleanly." >&2
+            rm -f "$PID_FILE"; exit 0
+        fi
+    done
+    echo "[MBO] Grace period elapsed. Sending SIGKILL to ${MCP_PID}." >&2
+    kill -KILL "$MCP_PID" 2>/dev/null || true
+    rm -f "$PID_FILE"
+    exit 0
+fi
+
+# --- existing backup logic below ---
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DB_PATH="$ROOT_DIR/data/mirrorbox.db"
 BACKUP_DIR="$ROOT_DIR/data/backups"

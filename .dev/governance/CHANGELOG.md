@@ -3,6 +3,38 @@
 
 ---
 
+### [0.6.2] — 2026-03-09
+#### Added
+- **Tier 3 DID (Claude wins reconciliation)**: Background MCP process isolation via PID files.
+  - `scripts/mbo-start.sh`: Added `--agent=<claude|gemini>` flag; writes `$$` to `.dev/run/{agent}.pid` before `exec` so PID file targets the node process exactly.
+  - `scripts/mbo-session-close.sh`: Added `--terminate-mcp --agent=<name>` branch; SIGTERM → 5s grace → SIGKILL; stale PID detection and cleanup.
+  - `AGENTS.md §1.5`: Mandates background start with `--agent`; PID verification step; agent identity table; updated client config table.
+  - `AGENTS.md §6C`: Added step 2 — terminate MCP via `mbo-session-close.sh --terminate-mcp`; renumbered steps.
+  - `BUGS.md`: Filed BUG-036 (P2) — `mcp-server.js` `shutdown()` missing WAL checkpoint before `process.exit(0)`.
+
+### [0.6.1] — 2026-03-09
+#### Added
+- **0.6-01**: Operator & Session Manager implemented (`src/auth/operator.js`).
+  - Fixed `sendMCPRequest` timeout leak (`clearTimeout` on resolve and reject).
+  - Added `getSafelist()` + `_fileExists()` for Tier 0 gate enforcement (safelist membership + physical file existence).
+  - Added `confidence < 0.6` clarifying question gate in `classifyRequest`.
+  - `summarizeSession` live via `callModel`; placeholder guard; replaces session history; logs `[CONTEXT RESET]`.
+  - `getGraphCompleteness()` queries `edges WHERE source = 'runtime'` — no longer hardcodes `'skeleton'` for runtime.
+  - `processMessage` logs classification + routing to event store before state snapshot.
+- **`src/index.js`**: Operator initialized, MCP started, stdin REPL loop, clean shutdown on close.
+
+### [0.6.0] — 2026-03-09
+#### Added
+- **0.6-00**: Universal MCP Session Start (DID-validated, Claude + Gemini reconciled).
+  - Created `scripts/mbo-start.sh`: vendor-agnostic MCP loader for Claude CLI, Gemini CLI, Python orchestrators.
+  - All status output routed to stderr; stdout reserved strictly for JSON-RPC.
+  - Dynamic `DB_PATH` resolution via `--mode=dev` / `--mode=runtime` flags.
+  - `PRAGMA integrity_check` + `PRAGMA wal_checkpoint(TRUNCATE)` on every launch for integrity and stale WAL recovery.
+  - Added `--check` passthrough (early-exit for check-only mode is P2 follow-on).
+- **AGENTS.md Section 1.5**: Mandates `mbo-start.sh` as source of truth for MCP lifecycle for all future agents and vendors.
+
+---
+
 ### [0.5.1] — 2026-03-09
 #### Added
 - **Invariant 11 Enforcement**: Updated `src/auth/call-model.js` with a hard blockade against proprietary search tools (`grep`, `codebase_investigator`).

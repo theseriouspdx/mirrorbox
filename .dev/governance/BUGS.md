@@ -37,6 +37,11 @@
 
 ## Section 4 — P2: Deferred
 
+### BUG-036: `mcp-server.js` shutdown() does not WAL-checkpoint before exit | Milestone: 0.6 | OPEN
+- **Location:** `src/graph/mcp-server.js` — `shutdown()` calls `server.close()` + `process.exit(0)` without running `PRAGMA wal_checkpoint(TRUNCATE)`.
+- **Impact:** On SIGTERM/SIGKILL, any unflushed WAL data is not checkpointed. Next session start checkpoints on launch (existing behaviour), so data is not lost — only the shutdown is not fully clean.
+- **Mitigation until fixed:** 5-second SIGTERM grace period in `mbo-session-close.sh --terminate-mcp` allows in-flight ops to complete before the checkpoint-on-startup fallback.
+
 ### BUG-009: Graph staleness detection not specified | Milestone: 0.4 | OPEN
 ### BUG-010: Tiebreaker reviewer block loop undefined | Milestone: 0.7 | OPEN
 ### BUG-011: HardState truncation priority undefined | Milestone: 0.6 | OPEN
