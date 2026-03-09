@@ -5,6 +5,9 @@
 
 ### [0.2.0] — 2026-03-08
 #### Added
+- **0.2-02**: Local model detection (Ollama, LM Studio).
+  - Implemented `src/auth/local-detector.js` using HTTP health checks.
+  - Verified detection of `Ollama` in Darwin environment.
 - **0.2-01**: CLI session detection for Claude, Gemini, and OpenAI.
   - Implemented `src/auth/session-detector.js`.
   - Verified detection of `Claude Code` and `Gemini CLI` sessions in Darwin environment.

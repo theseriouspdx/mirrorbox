@@ -127,4 +127,18 @@ If at any point you cannot recall the Hard State Anchor, or if your context wind
 
 ---
 
+---
+
+## Section 10 — Current Milestone Progress (0.2)
+
+This checklist is updated at every task wrap to provide a real-time status of the active milestone.
+
+- [x] **0.2-01** — CLI session detection (Claude, Gemini, OpenAI)
+- [x] **0.2-02** — Local model detection (Ollama, LM Studio)
+- [ ] **0.2-03** — OpenRouter fallback operational
+- [ ] **0.2-04** — Model routing config loads and routes correctly
+- [ ] **0.2-05** — All providers complete a simple prompt round-trip
+
+---
+
 *Last updated: 2026-03-08*

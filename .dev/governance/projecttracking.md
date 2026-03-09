@@ -71,7 +71,7 @@ Derived from DID pre-build analysis. Replaces Appendix A ordering in spec.
 | ID | Task | Status |
 |----|------|--------|
 | 0.2-01 | CLI session detection (Claude, Gemini, OpenAI) | COMPLETED |
-| 0.2-02 | Local model detection (Ollama, LM Studio) | NOT STARTED |
+| 0.2-02 | Local model detection (Ollama, LM Studio) | COMPLETED |
 | 0.2-03 | OpenRouter fallback operational | NOT STARTED |
 | 0.2-04 | Model routing config loads and routes correctly | NOT STARTED |
 | 0.2-05 | All providers complete a simple prompt round-trip | NOT STARTED |
