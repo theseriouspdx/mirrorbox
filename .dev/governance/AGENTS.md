@@ -210,38 +210,12 @@ If at any point you cannot recall the Hard State Anchor, or if your context wind
 
 `data/mirrorbox.db` is the product. Never query it for development context. Never write dev graph data into it.
 
-### MCP setup (first-time on a new machine)
+### MCP setup
 
-MCP configs are machine-local and gitignored. Create the appropriate file once after cloning.
-
-**Claude Code** — create `.mcp.json` in the repo root:
-```json
-{
-  "mcpServers": {
-    "mbo-graph": {
-      "command": "bash",
-      "args": ["scripts/mbo-start.sh", "--mode=dev", "--agent=claude"],
-      "cwd": "<absolute path to repo root>",
-      "trust": true
-    }
-  }
-}
+Run as a background task before starting a session:
+```bash
+bash scripts/mbo-start.sh --mode=dev --agent=<claude|gemini> &
 ```
-
-**Gemini CLI** — create `.gemini/settings.json` in the repo root:
-```json
-{
-  "mcpServers": {
-    "mbo-graph": {
-      "command": "bash",
-      "args": ["scripts/mbo-start.sh", "--mode=dev", "--agent=gemini"],
-      "cwd": "<absolute path to repo root>"
-    }
-  }
-}
-```
-
-Both configs run `mbo-start.sh`, which is vendor-agnostic and self-locating. Only `cwd` is machine-specific. Once created, the server auto-starts on session open.
 
 The MCP server exposes these tools (use these exact names — do not guess or invent tool names):
 
