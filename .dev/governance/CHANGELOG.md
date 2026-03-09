@@ -3,6 +3,18 @@
 
 ---
 
+### [0.4.3] — 2026-03-09
+#### Added
+- **0.4B-02**: Implemented Intelligence Graph MCP Server.
+  - Exposed 5 tools via `StdioServerTransport`: `graph_query_impact`, `graph_query_callers`, `graph_query_dependencies`, `graph_query_coverage`, `graph_search`.
+  - Integrated `@modelcontextprotocol/sdk` (Node.js).
+  - Created `scripts/test-mcp-server.js` for tool verification.
+#### Changed
+- **GraphStore**: Added dedicated `getCoverage(nodeId)` method for tool consistency.
+- **Dependencies**: Added `@modelcontextprotocol/sdk` to `package.json`.
+
+---
+
 ### [0.4.2] — 2026-03-09
 #### Added
 - **0.4B-01**: Implemented LSP enrichment for cross-file call resolution and import edges.

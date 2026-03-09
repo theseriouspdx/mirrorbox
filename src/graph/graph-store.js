@@ -102,6 +102,13 @@ class GraphStore {
     `, [nodeId]);
   }
 
+  getCoverage(nodeId) {
+    return this.db.query(`
+      SELECT source_id FROM edges 
+      WHERE target_id = ? AND relation = 'COVERS'
+    `, [nodeId]).map(r => r.source_id);
+  }
+
   /**
    * Section 13: Formal Input Contract for GraphQueryResult
    */
@@ -112,6 +119,7 @@ class GraphStore {
     const impact = this.getImpact(nodeId);
     const callers = this.getCallers(nodeId);
     const dependencies = this.getDependencies(nodeId);
+    const coveringTests = this.getCoverage(nodeId);
 
     // Simple subsystem heuristic: first directory under src/ or root
     const extractSubsystem = (p) => {
@@ -133,10 +141,7 @@ class GraphStore {
       affectedFiles,
       callers: callers.map(c => c.id),
       callees: dependencies.filter(d => d.relation === 'CALLS').map(d => d.id),
-      coveringTests: this.db.query(`
-        SELECT source_id FROM edges 
-        WHERE target_id = ? AND relation = 'COVERS'
-      `, [nodeId]).map(r => r.source_id),
+      coveringTests,
       dependencyChain: dependencies.map(d => d.id),
       runtimeEdges: [] // To be populated in Milestone 0.8
     };

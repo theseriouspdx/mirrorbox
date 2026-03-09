@@ -58,7 +58,7 @@
 |----|------|--------|
 | 0.4B-00 | Define dev-graph instance config and separate db path (blocks all MCP work) | COMPLETED |
 | 0.4B-01 | LSP integration: cross-file call resolution, import edges | COMPLETED |
-| 0.4B-02 | MCP server: expose five tools from Section 6 (graph_query_impact, graph_query_callers, graph_query_dependencies, graph_query_coverage, graph_search) | OPEN |
+| 0.4B-02 | MCP server: expose five tools from Section 6 (graph_query_impact, graph_query_callers, graph_query_dependencies, graph_query_coverage, graph_search) | COMPLETED |
 | 0.4B-03 | Index SPEC.md sections as graph nodes (enables section-level queries during dev workflow) | OPEN |
 | 0.4B-04 | Graph updates after successful task (Stage 11 hook) | OPEN |
 | 0.4B-05 | Dev-mode graph server: indexes src/ + .dev/spec/SPEC.md sections, separate from runtime db | OPEN |

@@ -456,6 +456,12 @@ Initial construction during onboarding Phase 2:
 
 **Spec Note (BUG-009):** Graph staleness detection must be implemented using a global `last_modified` timestamp. If any file hash diverges from its graph metadata, the affected nodes must be flagged as `STALE` until re-scanned.
 
+**Spec Note (0.4B — Import Placeholder Position):** During Phase 1 (Tree-sitter), placeholder nodes created for unresolved imports (`type: 'placeholder'`) must store the import statement's source position in their `metadata` JSON as `startLine` and `startColumn` (0-indexed, Tree-sitter row/column values). These values are consumed by the Phase 2 LSP enricher to call `textDocument/definition` at the correct cursor position within the containing source file. Without this, cross-file definition queries return null. The containing file is recovered at enrichment time via the `IMPORTS` edge's `source_id`.
+
+**Spec Note (0.4B — resolveImport Spec Extension):** `GraphStore` exposes a `resolveImport(sourceId, placeholderId, realTargetId)` method for atomic placeholder rewriting: `UPDATE edges SET target_id = realTargetId WHERE source_id = sourceId AND target_id = placeholderId AND relation = 'IMPORTS'`. This is an internal enrichment primitive, not a query interface. It is not exposed via MCP.
+
+**Spec Note (BUG-033 — LSP Task Isolation):** `LSPClient` instances are ephemeral per enrichment pass. A new instance is spawned at the start of each task's enrichment phase and shut down before task completion. This is a task-boundary state-isolation requirement: a shared mutable server instance could allow index state from one task's Phase 1 scan to bleed into a subsequent task's query results. This is not a DID blindness requirement — LSP servers carry no LLM reasoning state.
+
 Total time on a typical codebase: seconds, not minutes.
 
 ### Incremental Updates
@@ -493,6 +499,8 @@ The orchestrator must be able to answer: *"If X changes, what breaks?"* — for 
 ### Graph Updates
 
 After successful task completion (Stage 11), the graph is updated with new and modified nodes from the patch. Runtime traces from sandbox execution (Section 16) add `source: 'runtime'` edges that static analysis cannot discover. The graph reflects the state of the last successful merge and improves with every task.
+
+**Runtime Edge Contract:** The `edges` table `source` column accepts `'runtime'` as a valid value alongside `'static'`. Runtime edges are populated exclusively by the sandbox probe (Milestone 0.8A — see Milestone 0.8). No component before Milestone 0.8 may write `source: 'runtime'` edges. The value is reserved. The enrichment pass (`source: 'static'`) must not produce it.
 
 ---
 
@@ -1650,12 +1658,13 @@ New features go through the orchestrator. Bugs go through the orchestrator. You 
 - [ ] Tiebreaker fires correctly after 3 blocks
 - [ ] Human approval gate displays correctly and requires `go`
 
-**Milestone 0.8 — Sandbox**  
+**Milestone 0.8 — Sandbox**
 - [ ] Docker-in-Docker sandbox spawns and tears down
 - [ ] Runtime instrumentation collects traces
 - [ ] Pre/post patch comparison runs
 - [ ] Regression detection halts pipeline and returns signals to planner
 - [ ] Runtime edges update Intelligence Graph
+- [ ] **0.8A — Runtime Probe:** Zero-config instrumentation layer runs inside the sandbox container (never on the host). Node.js: CommonJS `Module._resolveFilename` override + `async_hooks` for call tracing (note: Node `--loader` hooks target ESM only and do not intercept `require()`). Python: `sys.settrace`. Scope-filtered to project files — `node_modules` and `site-packages` excluded unless explicitly requested. Populates `CALLS` and `MODIFIES` edges with `source: 'runtime'`. Sampling strategy: trace only nodes flagged as impacted by the Stage 2 Architecture Query to bound overhead within Section 18 timeouts.
 
 **Milestone 0.9 — Execution + Git**  
 - [ ] Patch generator writes files within approved scope only
