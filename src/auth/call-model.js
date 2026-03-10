@@ -73,8 +73,27 @@ function wrapContext(context) {
   if (!context || typeof context !== 'object' || Object.keys(context).length === 0) return '';
   return Object.entries(context).map(([key, value]) => {
     const content = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-    return `<PROJECT_DATA type="context" path="${key}">\n${content}\n</PROJECT_DATA>`;
+    return `<PROJECT_DATA type="document" path="${key}">\n${content}\n</PROJECT_DATA>`;
   }).join('\n\n');
+}
+
+/**
+ * Section 10: Ensures models that MUST return JSON do so.
+ */
+function validateOutputSchema(role, response) {
+  const mustBeJson = new Set(['classifier', 'reviewer', 'architecturePlanner', 'componentPlanner', 'tiebreaker']);
+  if (!mustBeJson.has(role)) return;
+  
+  const jsonMatch = response && response.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error(`[MALFORMED_OUTPUT] ${role} returned non-JSON output.`);
+  }
+  
+  try {
+    JSON.parse(jsonMatch[0]);
+  } catch (e) {
+    throw new Error(`[MALFORMED_OUTPUT] ${role} produced invalid JSON: ${e.message}`);
+  }
 }
 
 function wrapHardState(hardState) {
@@ -270,6 +289,9 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
   // Section 7: Log redacted output after dispatch
   const redactedOutput = redact({ role, response });
   eventStore.append('MODEL_OUTPUT', role, redactedOutput);
+
+  // Section 10: Structural validation
+  validateOutputSchema(role, response);
 
   // Section 10: Injection heuristic check
   if (checkInjectionHeuristic(response)) {

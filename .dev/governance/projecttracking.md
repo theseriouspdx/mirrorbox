@@ -1,17 +1,16 @@
 # projecttracking.md
 ## Mirror Box Orchestrator — Build Tracking
 
-**Current Milestone:** 0.7 — DID Pipeline (no execution) [IN PROGRESS]
-**Next Action:** 0.7-03 — operator.js: Implement Stage 4 code derivation and consensus gate
+**Current Milestone:** 0.8 — Sandbox [IN PROGRESS]
+**Next Action:** 0.8-01 — Define Docker-in-Docker (DinD) isolation contract for World: Subject
 
 ---
 
 ## NEXT ACTION
 
-**0.7-03** — operator.js: Implement Stage 4 code derivation and consensus gate
-- Define `ReviewerOutput` schema for Stage 4.
-- Implement `runStage4()` to orchestrate Planner and Reviewer (blind).
-- Implement qualitative code consensus logic.
+**0.8-01** — Define Docker-in-Docker (DinD) isolation contract for World: Subject
+- Implement the "Subject" container definition.
+- Define volume mounts and networking constraints (Section 5 Isolation).
 - Status: OPEN
 
 ---
@@ -29,9 +28,8 @@
 | 0.4B | Intelligence Graph (Enrichment) | LSP integration, MCP tools | SUCCESS |
 | 0.5 | callModel + Firewall | Unified callModel, XML firewall | SUCCESS |
 | 0.6 | Operator + Session | Classification, routing, context management | SUCCESS |
-| 0.7 | DID Pipeline (no execution) | Stages 1–5, tiebreaker | IN PROGRESS |
-| 0.7.x | MCP Watchdog | BUG-044 fix — liveness probe + multi-agent PID check | OPEN |
-| 0.8 | Sandbox | Docker-in-Docker, runtime observation | OPEN |
+| 0.7 | DID Pipeline (no execution) | Stages 1–5, tiebreaker | SUCCESS |
+| 0.8 | Sandbox | Docker-in-Docker, runtime observation | IN PROGRESS |
 | 0.9 | Execution + Git | Patch generation, merge, verification | OPEN |
 | 0.10 | Onboarding | Interview, prime directive, profile | OPEN |
 | 0.11 | VS Code Extension | Wire protocol events | OPEN |
@@ -39,15 +37,29 @@
 
 ---
 
-## MILESTONE 0.7 — DID Pipeline (no execution) [IN PROGRESS]
+## MILESTONE 0.8 — Sandbox [IN PROGRESS]
+
+| ID | Task | Status |
+|----|------|--------|
+| 0.8-01 | Define Docker-in-Docker (DinD) isolation contract | OPEN |
+| 0.8-02 | Implement World: Subject creation and cleanup | OPEN |
+| 0.8-03 | Implement BUG-040 (world_id enforcement) | OPEN |
+| 0.8-04 | Implement BUG-041 (pre-mutation checkpoint mechanism) | OPEN |
+
+---
+
+## MILESTONE 0.7 — DID Pipeline (no execution) ✅ SUCCESS
 
 | ID | Task | Status |
 |----|------|--------|
 | 0.7-01 | SPEC.md Update: Redefine consensus as Qualitative Intent | COMPLETED |
 | 0.7-02 | operator.js: Implement Stage 1.5 and Stage 3 qualitative consensus | COMPLETED |
-| 0.7-03 | operator.js: Implement Stage 4 code derivation and consensus gate | OPEN |
-| 0.7-04 | callModel: Implement Invariant 7 (Blind Isolation) hash scanning | OPEN |
-| 0.7-05 | Implement Stage 3D/4D Tiebreaker logic | OPEN |
+| 0.7-03 | operator.js: Implement Stage 4 code derivation and consensus gate | COMPLETED |
+| 0.7-04 | callModel: Implement Invariant 7 (Blind Isolation) hash scanning | COMPLETED |
+| 0.7-05 | Implement Stage 3D/4D Tiebreaker logic | COMPLETED |
+| 0.7-AUD | 4-Pass Audit: Systems, Graph, Consensus, Watchdog | SUCCESS |
+
+*Note: 4-Pass Audit complete. All findings from audit-report.md reconciled via Patch-Ready Commit Set (Commits 1-4). Section 18 Resilience Watchdog (Section 18) implemented and aligned with timeout-first policy.*
 
 ---
 

@@ -19,7 +19,7 @@ const mockCallModel = async (role, prompt, context, hardState, protectedHashes) 
   }
 
   // Stage 1: Classification
-  if (role === 'classifier' && prompt.includes('Classify this user request')) {
+  if (role === 'classifier' && /classify this user request/i.test(prompt)) {
     return JSON.stringify({
       route: 'standard',
       risk: 'low',
@@ -31,31 +31,28 @@ const mockCallModel = async (role, prompt, context, hardState, protectedHashes) 
   }
 
   // Stage 3: Planning Consensus
-  if (role === 'architecturePlanner' && prompt.includes('Derive an ExecutionPlan')) {
-    return JSON.stringify({ intent: "Plan A", stateTransitions: ["T1"], filesToChange: ["src/index.js"], invariantsPreserved: ["I1"] });
+  if ((role === 'architecturePlanner' || role === 'componentPlanner') && /derive an executionplan/i.test(prompt)) {
+    return JSON.stringify({ intent: "Plan Consensus", stateTransitions: ["T1"], filesToChange: ["src/index.js"], invariantsPreserved: ["I1"] });
   }
-  if (role === 'componentPlanner' && prompt.includes('Derive an ExecutionPlan')) {
-    return JSON.stringify({ intent: "Plan B", stateTransitions: ["T1"], filesToChange: ["src/index.js"], invariantsPreserved: ["I1"] });
-  }
-  if (role === 'classifier' && prompt.includes('Audit these independent plans')) {
+  if (role === 'classifier' && /audit these independent plans/i.test(prompt)) {
     return JSON.stringify({ verdict: "convergent", consensusIntent: "Unified Plan" });
   }
 
   // Stage 4: Code Consensus
-  if (role === 'architecturePlanner' && prompt.includes('Write the implementation code')) {
+  if (role === 'architecturePlanner' && /write the implementation code/i.test(prompt)) {
     return "const x = 1;";
   }
-  if (role === 'reviewer' && prompt.includes('Independent Code Derivation')) {
+  if (role === 'reviewer' && /independent code derivation/i.test(prompt)) {
     return JSON.stringify({ 
         independentPlan: { intent: "Reviewer Plan" }, 
         independentCode: "const x = 1;", 
         concerns: [] 
     });
   }
-  if (role === 'reviewer' && prompt.includes('Final Audit of Tiebreaker Code')) {
+  if (role === 'reviewer' && /final audit of tiebreaker code/i.test(prompt)) {
     return JSON.stringify({ verdict: "pass" });
   }
-  if (role === 'classifier' && prompt.includes('Audit the Planner\'s code')) {
+  if (role === 'classifier' && /audit the planner's code/i.test(prompt)) {
     // Return block for the first iteration, pass for the second
     if (iterationCount === 0) {
         iterationCount++;

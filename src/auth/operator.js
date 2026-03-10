@@ -147,6 +147,17 @@ class Operator {
     return result;
   }
 
+  _safeParseJSON(text, fallback = null) {
+    if (!text) return fallback;
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      return JSON.parse(jsonMatch ? jsonMatch[0] : text);
+    } catch (e) {
+      console.error(`[Operator] JSON Parse Failure: ${e.message}. Raw text: ${text.slice(0, 200)}...`);
+      return fallback;
+    }
+  }
+
   /**
    * Section 8: Classification
    * Parses user message into a Classification object.
@@ -179,14 +190,13 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
       const response = await callModel('classifier', prompt, input, hardState);
 
       console.error(`[DEBUG] Classifier response: ${response}`);
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      const classification = JSON.parse(jsonMatch ? jsonMatch[0] : response);
+      const classification = this._safeParseJSON(response);
       
-      if (classification.confidence < 0.6) {
+      if (!classification || classification.confidence < 0.6) {
         return {
           needsClarification: true,
-          rationale: classification.rationale,
-          confidence: classification.confidence
+          rationale: classification ? classification.rationale : "Low confidence or parse failure.",
+          confidence: classification ? classification.confidence : 0
         };
       }
       return classification;
@@ -471,7 +481,8 @@ The output will be used as the new system context.`;
     const prompt = `Arbitrate the following plan conflict and produce a single convergent ExecutionPlan.\nConflict: ${conflict}\nTask: ${classification.rationale}\n\nReturn ONLY JSON per SPEC Section 13 (ExecutionPlan).`;
     
     const response = await callModel('tiebreaker', prompt, { classification, routing }, hardState);
-    const plan = JSON.parse(response);
+    const plan = this._safeParseJSON(response);
+    if (!plan) throw new Error("[Operator] Tiebreaker plan parse failure.");
     eventStore.append('TIEBREAKER_PLAN', 'operator', { plan }, 'mirror');
     return plan;
   }
@@ -518,16 +529,23 @@ Return ONLY JSON per SPEC Section 13:
 }`;
 
     // Stage 3A & 3B: Independent derivation (Blind Isolation)
-    const [planA, planB] = await Promise.all([
+    const [planARaw, planBRaw] = await Promise.all([
       callModel('architecturePlanner', planPrompt, { classification, routing }, hardState),
       callModel('componentPlanner', planPrompt, { classification, routing }, hardState)
     ]);
 
+    const planA = this._safeParseJSON(planARaw);
+    const planB = this._safeParseJSON(planBRaw);
+
+    if (!planA || !planB) {
+      throw new Error("[Operator] Planning failed: malformed plan output.");
+    }
+
     const consensus = await this.evaluateSpecAdherence(planA, planB, hardState);
     
     eventStore.append('PLAN_CONSENSUS', 'operator', { 
-      planA: JSON.parse(planA), 
-      planB: JSON.parse(planB), 
+      planA, 
+      planB, 
       consensus 
     }, 'mirror');
 
@@ -540,7 +558,7 @@ Return ONLY JSON per SPEC Section 13:
       };
     }
 
-    return { status: 'plan_agreed', plan: JSON.parse(planA), consensusIntent: consensus.consensusIntent };
+    return { status: 'plan_agreed', plan: planA, consensusIntent: consensus.consensusIntent };
   }
 
   /**
@@ -565,7 +583,12 @@ Return ONLY JSON per SPEC Section 13:
       // Stage 4B: Adversarial Reviewer (blind)
       const reviewerPrompt = `Independent Code Derivation (Blind). Derive your own ExecutionPlan and write the code independently.\nTask: ${classification.rationale}\nReturn ReviewerOutput JSON.`;
       const reviewerOutputRaw = await callModel('reviewer', reviewerPrompt, { classification }, hardState, allProtectedHashes);
-      const reviewerOutput = JSON.parse(reviewerOutputRaw);
+      const reviewerOutput = this._safeParseJSON(reviewerOutputRaw);
+
+      if (!reviewerOutput || !reviewerOutput.independentCode) {
+        console.error("[Operator] Reviewer produced malformed output. Retrying iteration.");
+        continue;
+      }
 
       // Stage 4C: Gate 2 — Code Consensus
       const consensus = await this.evaluateCodeConsensus(codeA, plan, reviewerOutput, hardState);
@@ -581,8 +604,10 @@ Return ONLY JSON per SPEC Section 13:
         return { status: 'code_agreed', code: codeA, consensusIntent: consensus.consensusIntent };
       }
 
-      this.stateSummary.blockCounter++;
-      console.error(`[Operator] Code Blocked (${this.stateSummary.blockCounter}/3): ${consensus.reason}`);
+      if (consensus.verdict === 'block') {
+        this.stateSummary.blockCounter++;
+        console.error(`[Operator] Code Blocked (${this.stateSummary.blockCounter}/3): ${consensus.reason}`);
+      }
     }
 
     // Stage 4D: Tiebreaker (Code)
@@ -591,9 +616,9 @@ Return ONLY JSON per SPEC Section 13:
 
   async evaluateCodeConsensus(codeA, plan, reviewerOutput, hardState) {
     const auditPrompt = `Audit the Planner's code against the agreed plan and Reviewer's independent derivation.\nPlan: ${JSON.stringify(plan)}\nPlanner Code: ${codeA}\nReviewer Code: ${reviewerOutput.independentCode}\nReviewer Concerns: ${JSON.stringify(reviewerOutput.concerns)}\n\nDoes the code correctly implement state transitions? Return JSON with verdict, reason, citation, and consensusIntent.`;
-    const result = await callModel('classifier', auditPrompt, {}, hardState);
-    console.error(`[DEBUG] evaluateSpecAdherence response: ${result}`);
-    return JSON.parse(result);
+    const result = await callModel('reviewer', auditPrompt, {}, hardState);
+    console.error(`[DEBUG] evaluateCodeConsensus response: ${result}`);
+    return this._safeParseJSON(result, { verdict: 'block', reason: 'JSON Parse Failure' });
   }
 
   /**
@@ -610,14 +635,15 @@ Return ONLY JSON per SPEC Section 13:
     // Spec Note (BUG-010): One final audit for Tiebreaker code.
     const reviewerPrompt = `Final Audit of Tiebreaker Code.\nTask: ${classification.rationale}\nCode: ${codeTied}\n\nReturn ONLY JSON verdict per SPEC Section 11.`;
     const finalAuditRaw = await callModel('reviewer', reviewerPrompt, { classification }, hardState);
-    const finalAudit = JSON.parse(finalAuditRaw);
+    const finalAudit = this._safeParseJSON(finalAuditRaw);
 
-    if (finalAudit.verdict === 'block') {
-      throw new Error(`[BUG-010] Tiebreaker code blocked by reviewer. Escalating to human.`);
+    if (finalAudit && finalAudit.verdict === 'block') {
+      throw new Error(`[BUG-010] Tiebreaker code blocked by reviewer. Escalating to human: ${finalAudit.reason}`);
     }
 
     return { status: 'code_agreed', code: codeTied, source: 'tiebreaker' };
   }
+
 
   /**
    * Section 15: Stage 4.5 — Virtual Dry Run
@@ -644,8 +670,8 @@ Return ONLY JSON per SPEC Section 13:
   async evaluateSpecAdherence(planA, planB, hardState) {
     const auditPrompt = `Audit these independent plans against the Prime Directive.
 Prime Directive: ${hardState.primeDirective}
-Plan A: ${planA}
-Plan B: ${planB}
+Plan A: ${JSON.stringify(planA)}
+Plan B: ${JSON.stringify(planB)}
 
 Do both plans fulfill the same qualitative intent without violating project invariants?
 Return JSON:
@@ -656,7 +682,7 @@ Return JSON:
 }`;
     const result = await callModel('classifier', auditPrompt, {}, hardState);
     console.error(`[DEBUG] evaluateSpecAdherence response: ${result}`);
-    return JSON.parse(result);
+    return this._safeParseJSON(result, { verdict: 'divergent', conflict: 'JSON Parse Failure' });
   }
 
   /**

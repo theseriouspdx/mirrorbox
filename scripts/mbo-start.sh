@@ -46,6 +46,13 @@ else
     echo "[WARN] Database not found at $DB_PATH — server will create on first use."
 fi
 
-echo "[MBO] Environment Verified. Launching MCP..."
+echo "[MBO] Environment Verified. Launching Watchdog and MCP..."
+bash "$ROOT/scripts/mbo-watchdog.sh" "$AGENT" &
+WATCHDOG_PID=$!
+echo $WATCHDOG_PID > "$ROOT/.dev/run/watchdog-${AGENT}.pid"
+
+# Cleanup trap for both the shell and the watchdog
+trap 'rm -f "$PID_FILE"; rm -f "$ROOT/.dev/run/watchdog-${AGENT}.pid"; kill $WATCHDOG_PID 2>/dev/null; echo "[MBO] Cleanup complete."' EXIT TERM INT
+
 exec 1>&3
-exec node "$ROOT/src/graph/mcp-server.js" "$@"
+node "$ROOT/src/graph/mcp-server.js" "$@"

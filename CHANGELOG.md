@@ -1,3 +1,22 @@
+## [0.7.1] — 2026-03-09
+### Fixed
+- **Audit:** Reconciled 4-Pass Audit findings from `audit-report.md`.
+- **Security:** Aligned `PROJECT_DATA` type to `document` and added JSON output schema guards in `callModel`.
+- **Operator:** Fixed Stage 4 consensus semantics to use `reviewer` role and only block on explicit verdicts.
+- **Graph:** Implemented `markNodeStale` contract for BUG-009 and aligned placeholder metadata with `startLine`/`startColumn`.
+- **Resilience:** Realigned `scripts/mbo-watchdog.sh` with Section 18 timeout-first termination policy.
+
+## [0.7.0] — 2026-03-09
+### Added
+- **Audit:** Conducted 4-Pass Audit (Vault, Graph, Gavel, Watchdog) of MBO v2.0.
+- **Audit:** Verified Invariant 3 (Go Gate), Invariant 6 (callModel), Invariant 7 (Blind Isolation), and Section 10 (Firewall).
+- **Audit:** Verified Section 6 (Tree-sitter Graph) and BUG-009 (Staleness detection).
+- **Audit:** Verified Section 14 (Blind Reviewer) and Section 15 (3-Block Tiebreaker).
+- **Resilience:** Implemented Section 18 MCP Watchdog (`scripts/mbo-watchdog.sh`) to monitor for CPU pegging and hung processes.
+- **Resilience:** Updated `scripts/mbo-start.sh` to launch and manage the watchdog lifecycle.
+- **Operator:** Completed behavioral verification of DID pipeline (Stages 1-5).
+- **Verification:** `audit-m0.7.js` results integrated into the final audit report.
+
 ## [0.6.6] — 2026-03-09
 ### Added
 - **Safety:** Implemented `world_id` enforcement in `event-store.js` and `state-manager.js` (Invariant 10).

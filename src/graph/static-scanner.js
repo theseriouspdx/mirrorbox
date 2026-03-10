@@ -39,6 +39,17 @@ class StaticScanner {
     return parser;
   }
 
+  markNodeStale(node) {
+    const metadata = { ...(node.metadata || {}), stale: true, staleAt: Date.now() };
+    this.graphStore.upsertNode({
+      id: node.id,
+      type: node.type,
+      name: node.name,
+      path: node.path,
+      metadata
+    });
+  }
+
   async scanFile(filePath, projectRoot) {
     const ext = path.extname(filePath);
     
@@ -57,6 +68,11 @@ class StaticScanner {
     // BUG-009: Staleness logic
     const contentHash = crypto.createHash('sha256').update(content).digest('hex');
     const existingNode = this.graphStore.getNode(fileId);
+    
+    if (existingNode && existingNode.metadata?.content_hash && existingNode.metadata.content_hash !== contentHash) {
+      this.markNodeStale(existingNode);
+    }
+
     if (existingNode && existingNode.metadata?.content_hash === contentHash) {
       return; // Skip re-scanning unchanged file
     }
@@ -236,6 +252,8 @@ class StaticScanner {
       name: importPath,
       path: importPath,
       metadata: {
+        startLine: position ? position.row : 0,
+        startColumn: position ? position.column : 0,
         nameStartLine: position ? position.row : 0,
         nameStartColumn: position ? position.column : 0
       }
