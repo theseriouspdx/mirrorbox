@@ -55,4 +55,4 @@ echo $WATCHDOG_PID > "$ROOT/.dev/run/watchdog-${AGENT}.pid"
 trap 'rm -f "$PID_FILE"; rm -f "$ROOT/.dev/run/watchdog-${AGENT}.pid"; kill $WATCHDOG_PID 2>/dev/null; echo "[MBO] Cleanup complete."' EXIT TERM INT
 
 exec 1>&3
-node "$ROOT/src/graph/mcp-server.js" "$@"
+exec node "$ROOT/src/graph/mcp-server.js" "$@"
