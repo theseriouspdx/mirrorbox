@@ -38,5 +38,5 @@
 | Task ID | Task Description | Status |
 |---------|------------------|--------|
 | 1.0-01 | Global Integrity & Bug-Fix Patch (BUG-009, BUG-037) | COMPLETED |
-| 1.0-02 | Initialize Subject World (Target Codebase) logic | OPEN |
+| 1.0-02 | Initialize Subject World (Target Codebase) logic | COMPLETED |
 | 1.0-03 | Implement Cross-World Event Streaming | OPEN |
