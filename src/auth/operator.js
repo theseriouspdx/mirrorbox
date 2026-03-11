@@ -31,6 +31,7 @@ class Operator {
     this.mode = mode;
     this.sessionHistory = [];
     this.stateSummary = {
+      worldId: 'mirror',
       currentTask: null,
       currentStage: 'classification',
       activeModel: 'operator',
@@ -186,6 +187,7 @@ class Operator {
     const prompt = `Classify this user request into a JSON object following this schema:
 {
   "route": "inline" | "analysis" | "standard" | "complex",
+  "worldId": "mirror" | "subject",
   "risk": "low" | "medium" | "high",
   "complexity": 1 | 2 | 3,
   "files": string[],
@@ -233,6 +235,7 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
     
     return {
       route,
+      worldId: 'mirror',
       risk,
       complexity,
       files,
@@ -249,6 +252,7 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
   async determineRouting(classification) {
     let tier = 1;
     let blastRadius = [];
+    const worldId = classification.worldId || 'mirror';
 
     // Check Graph Completeness (Milestone 0.4A invariant)
     const graphCompleteness = this.getGraphCompleteness();
@@ -259,8 +263,7 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
     if (classification.files && classification.files.length > 0) {
       for (const file of classification.files) {
         try {
-          const nodeId = `file://${path.resolve(process.cwd(), file)}`;
-          const impactResult = await this.callMCPTool('graph_query_impact', { nodeId });
+          const impactResult = await this._graphQueryImpact(file, worldId);
           
           if (impactResult && impactResult.content && impactResult.content[0]) {
             const impact = JSON.parse(impactResult.content[0].text);
@@ -296,6 +299,30 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
     }
 
     return { tier, blastRadius: uniqueBlast };
+  }
+
+  /**
+   * §11 / 1.0-07: Route graph query to correct DB by world_id.
+   * mirror → dev MCP (graph_query_impact via HTTP).
+   * subject → direct DBManager query on subjectRoot/data/mirrorbox.db.
+   */
+  async _graphQueryImpact(file, worldId) {
+    if (worldId === 'subject') {
+      const profileRow = db.get('SELECT profile_data FROM onboarding_profiles ORDER BY version DESC LIMIT 1');
+      if (!profileRow) return null;
+      const { subjectRoot } = JSON.parse(profileRow.profile_data);
+      if (!subjectRoot) return null;
+      const subjectDbPath = path.join(subjectRoot, 'data/mirrorbox.db');
+      const { DBManager } = require('../state/db-manager');
+      const subjectDb = new DBManager(subjectDbPath);
+      const nodeId = `file://${path.resolve(subjectRoot, file)}`;
+      const rows = subjectDb.query(
+        `SELECT target_id FROM edges WHERE source_id = ? AND relation = 'calls'`, [nodeId]
+      );
+      return { content: [{ text: JSON.stringify({ affectedFiles: rows.map(r => r.target_id) }) }] };
+    }
+    const nodeId = `file://${path.resolve(process.cwd(), file)}`;
+    return this.callMCPTool('graph_query_impact', { nodeId });
   }
 
   getSafelist() {
@@ -510,6 +537,7 @@ The output will be used as the new system context.`;
 
     const routing = await this.determineRouting(classification);
     this.stateSummary.pendingDecision = { classification, routing };
+    this.stateSummary.worldId = classification.worldId || 'mirror';
 
     // Invariant 13: Checkpoint before state snapshot
     stateManager.checkpoint('mirror');

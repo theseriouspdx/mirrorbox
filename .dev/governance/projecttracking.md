@@ -44,7 +44,7 @@ Prerequisite: Author SPEC Section 24 (Cross-World Event Streaming) before implem
 | 1.0-04 | The Pile — Promotion engine (Mirror → Subject, Merkle-validated) | COMPLETED |
 | 1.0-05 | The Guard — Relay integrity gatekeeper (scope + chain validation) | COMPLETED |
 | 1.0-06 | Stage 6/7/8 wiring — handshake.py writes, validator.py, test runner | COMPLETED |
-| 1.0-07 | Subject World graph routing — Stage 2 routes by world_id to correct DB | OPEN |
+| 1.0-07 | Subject World graph routing — Stage 2 routes by world_id to correct DB | COMPLETED |
 | 1.0-08 | External Invariant Test Suite — black-box, all Section 22 invariants | OPEN |
 | 1.0-09 | Sovereign Loop — MBO patches itself end-to-end (1.0 close condition) | OPEN |
 | 1.0-MCP-01 | MCP Layer 1: Fix signal trap stderr redirect + close fd 3 (BUG-049) | COMPLETED |

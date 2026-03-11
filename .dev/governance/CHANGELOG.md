@@ -13,6 +13,7 @@
 - **1.0-04 The Pile:** Implemented the promotion engine in `src/relay/pile.js`. Supports rsync-based delta promotion from Mirror to Subject with Merkle-validated verification and checkpointing.
 - **1.0-05 The Guard:** Implemented the synchronous validation layer in `src/relay/guard.js`. Enforces seven integrity rules including task binding, sequence continuity, and path scope isolation.
 - **1.0-06 Stage 6/7/8:** Implemented `runStage6` (Implement), `runStage7` (Audit), and `runStage8` (Sync) in `operator.js`. Added `git diff` and `validator.py` generation to the Audit Gate.
+- **1.0-07 Subject World graph routing:** Implemented Stage 2 graph routing in `operator.js`. Added `_graphQueryImpact` to direct queries based on `world_id`.
 - **1.0-planning:** Architecture SPEC for Relay, Guard, and Pile integrated into `SPEC.md`.
 #### Findings
 - **Graph query tooling root cause identified:** `mcp_http_query.js` invocation bug — tool name was being passed as search term. Tools confirmed working correctly.
