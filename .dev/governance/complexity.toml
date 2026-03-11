@@ -1,0 +1,4 @@
+[limits]
+max_loc = 250
+max_cc = 10
+max_nesting = 4

@@ -39,17 +39,15 @@
 - **Status:** COMPLETED — Implemented `handleApproval` state machine and `APPROVAL` event logging in `operator.js`.
 - **Impact:** Section 2 / Invariant 3 requires explicit `go` at Stage 5; verified enforcement for Tier 1+ routing.
 
-### BUG-040: No `world_id` enforcement for operations (Inv. 10) | Milestone: 0.8 | OPEN
+### BUG-040: No `world_id` enforcement for operations (Inv. 10) | Milestone: 0.8 | COMPLETED
 - **Location:** `src/state/event-store.js`, `src/state/state-manager.js`
-- **Severity:** High (Deferred to 0.8)
-- **Impact:** Violates Two-World isolation.
-- **Note:** Must be enforced before cross-world operations begin in Milestone 0.8.
+- **Severity:** High
+- **Status:** COMPLETED — world_id (mirror/subject) enforced in EventStore and StateManager. Verified in audit.
 
-### BUG-041: No pre-mutation checkpoint mechanism (Inv. 13) | Milestone: 0.8 | OPEN
-- **Location:** `src/state/state-manager.js`, `src/state/event-store.js`
-- **Severity:** High (Deferred to 0.8)
-- **Impact:** Violates deterministic rollback/replay guarantees.
-- **Note:** Needs SPEC clarification on whether log writes themselves require checkpoints.
+### BUG-041: No pre-mutation checkpoint mechanism (Inv. 13) | Milestone: 0.8 | COMPLETED
+- **Location:** `src/state/state-manager.js`, `src/state/db-manager.js`
+- **Severity:** High
+- **Status:** COMPLETED — Snapshot-based checkpointing and rollback implemented in StateManager.
 
 ### BUG-013: CLI sandbox interaction undefined for terminal context | Milestone: 0.8 | OPEN
 - **Location:** `src/index.js`, `src/auth/operator.js`
@@ -57,11 +55,10 @@
 - **Impact:** User cannot interact with dry-run applications in terminal.
 - **Note:** Requires ctrl+f focus mechanism and port forwarding/URL display.
 
-### BUG-045: No token usage logging per callModel invocation | Milestone: 0.8 | OPEN
+### BUG-045: No token usage logging per callModel invocation | Milestone: 0.8 | COMPLETED
 - **Location:** `src/auth/call-model.js`, `src/state/db-manager.js`
 - **Severity:** Medium
-- **Impact:** No per-session or per-task token visibility for cost tracking or billing comparison.
-- **Fix:** Capture `usage.input_tokens` + `usage.output_tokens` from API response after each callModel call. Write to new `token_log` table in mirrorbox.db (non-blocking — log failure must not abort the model call). Expose cumulative usage via new MCP tool `get_token_usage`.
+- **Status:** COMPLETED — token_log table, usage capture, and get_token_usage MCP tool implemented.
 
 ---
 
@@ -112,6 +109,23 @@
 - **BUG-025:** Fixed deterministic ordering via transaction-assigned `seq`.
 - **BUG-026:** Added snapshot type guard to `recover()`.
 
+### BUG-046: stdio transport incompatible with launchd — infinite restart loop | Milestone: 0.8 | FIXED
+- **Location:** `src/graph/mcp-server.js`, `.mcp.json`, `.gemini/settings.json`, `scripts/mbo-start.sh`
+- **Severity:** P0 (blocked all MCP sessions from persisting)
+- **Status:** FIXED — Migrated from `StdioServerTransport` to `StreamableHTTPServerTransport` on port 3737. Each AI client now connects via URL (`http://127.0.0.1:3737/mcp`). Server is persistent under launchd; watchdog spawn removed from `mbo-start.sh`.
+- **Root cause:** `StdioServerTransport` is per-connection — the MCP process exited when the client disconnected, triggering launchd respawn. Every new agent session spawned a fresh process, ran a full graph scan+enrich, and then died. The loop was structural, not a crash.
+- **Fix details:** `GraphService` singleton owns all graph state. Per-session `Server` + `StreamableHTTPServerTransport` pairs are created on each client's `initialize` handshake and stored in a `sessions` Map. `enqueueWrite()` Promise chain serializes concurrent graph mutations. `isScanning` mutex with `finally` prevents overlapping rescans. `mbo-start.sh` adds port pre-flight kill (SIGTERM → SIGKILL) before starting.
+
+### BUG-047: Session start logging lacks timestamps | Milestone: 0.8 | FIXED
+- **Location:** `scripts/mbo-start.sh`, `src/graph/mcp-server.js`
+- **Severity:** P2
+- **Status:** FIXED — All `echo` lines in `mbo-start.sh` and all `console.error` diagnostics in `mcp-server.js` now include ISO 8601 UTC timestamps via `$(date -u +"%Y-%m-%dT%H:%M:%SZ")` (bash) and `new Date().toISOString()` (Node.js).
+
+### BUG-048: NEXT_SESSION.md generation uses LAST_TASK_NAME in graph_search instead of NEXT_TASK_DESC | Milestone: 0.8 | FIXED
+- **Location:** `scripts/mbo-session-close.sh` line ~110
+- **Severity:** P1 (caused context drift — next session's Gate 0 search used the completed task name, e.g. "0.6-04", returning empty results)
+- **Status:** FIXED — Changed `graph_search("${LAST_TASK_NAME}")` to `graph_search("${NEXT_TASK_DESC}")`. `NEXT_TASK_DESC` is already parsed from `projecttracking.md` earlier in the script and contains a meaningful description like "Implement Runtime Edge enrichment for Intelligence Graph", producing actionable graph query results at session start.
+
 ---
 
-*Last updated: 2026-03-09*
+*Last updated: 2026-03-10*

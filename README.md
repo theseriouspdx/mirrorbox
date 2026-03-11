@@ -1,5 +1,10 @@
 # Mirror Box Orchestrator
 
+### Sovereign Factory Protocol (Fortress 2.0)
+This codebase is a **Stateless Capability-Based System**. `bin/handshake.py` is the only valid entry point for write operations. 
+All modifications are governed by the **Entropy Tax**:
+* LOC ≤ 250 | Cyclomatic Complexity ≤ 10 | Nesting Levels ≤ 4
+
 A transparent, auditable AI software engineering system. Coordinates multiple AI models to safely plan, review, and execute code changes on any software repository.
 
 No code is written without a human typing `go`.

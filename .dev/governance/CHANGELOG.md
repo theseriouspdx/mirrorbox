@@ -3,6 +3,29 @@
 
 ---
 
+### [0.8.1] — 2026-03-10
+#### Fixed (BUG-046, BUG-047, BUG-048)
+- **BUG-046 — MCP restart loop (P0):** Migrated `src/graph/mcp-server.js` from `StdioServerTransport` to `StreamableHTTPServerTransport` on port 3737. Root cause was structural: stdio transport is per-connection, so every agent session spawned a fresh process, completed a full scan+enrich, then exited — causing launchd to respawn indefinitely. Fix: `GraphService` singleton owns all graph state; per-session `Server` + `StreamableHTTPServerTransport` pairs delegate to it. `enqueueWrite()` Promise chain serializes concurrent mutations; `isScanning` mutex with `finally` prevents overlapping rescans.
+- **BUG-047 — Missing timestamps (P2):** All `echo` lines in `scripts/mbo-start.sh` and all `console.error` diagnostics in `mcp-server.js` now carry ISO 8601 UTC timestamps.
+- **BUG-048 — NEXT_SESSION.md context drift (P1):** `scripts/mbo-session-close.sh` was writing `graph_search("${LAST_TASK_NAME}")` (the completed task) instead of `graph_search("${NEXT_TASK_DESC}")`. Fixed. Next session Gate 0 now searches by the upcoming task description.
+#### Added
+- **0.8-07 — Runtime Edge Ingestion (COMPLETED):** `ingestRuntimeTrace()` added to `StaticScanner`. Reads probe output (`data/runtime-trace.json`), upserts `DEPENDS_ON` edges with `source: 'runtime'` for each `type: 'dependency'` entry. New MCP tool `graph_ingest_runtime_trace` exposed. `runStage11()` added to `Operator` and wired after Stage 4.5 — non-fatal, catches and logs errors without blocking task completion.
+- **`graph_rescan` tool:** New MCP tool for triggering a full `src/` rescan on demand. Queued through the write chain; safe to call concurrently.
+#### Changed
+- **`.mcp.json` / `.gemini/settings.json`:** Switched from `command/args` stdio auto-start to `url: "http://127.0.0.1:3737/mcp"`. launchd owns the server lifecycle; clients connect to the persistent HTTP endpoint.
+- **`scripts/mbo-start.sh`:** Added nvm self-bootstrap (sources `$NVM_DIR/nvm.sh` when launched by launchd without user shell). Added port pre-flight kill (SIGTERM → SIGKILL on port 3737 before starting). Watchdog spawn removed — launchd handles respawn.
+- **`src/graph/lsp-client.js` — `detectServer()`:** Now checks `node_modules/.bin/` via `__dirname`-relative path before falling back to `$PATH`. Works under launchd without any PATH configuration dependency.
+- **`com.johnserious.mbo-mcp.plist`** (new file in repo root): Updated to add `MBO_PORT=3737`, `ExitTimeout: 5`, `HOME` and `NVM_DIR` env vars. Install with: `cp ~/MBO/com.johnserious.mbo-mcp.plist ~/Library/LaunchAgents/ && launchctl unload ... && launchctl load -w ...`
+
+### [0.8.0] — 2026-03-11
+#### Added
+- **World: Subject (Sandbox):** Implemented `SandboxManager` for ephemeral Docker containers (Task 0.8-01, 0.8-02).
+- **Isolation:** Enforced zero-network and read-only source mounts per Section 16 isolation contract.
+- **Runtime Probe:** Developed the 0.8A instrumentation layer for Node.js tracing (Task 0.8-06).
+- **Dry Run:** Orchestrated Stage 4.5 Virtual Dry Run with automatic teardown (Task 0.8-05).
+- **Token Observability:** Added `token_log` persistent storage and `get_token_usage` MCP tool (BUG-045).
+- **State Integrity:** Implemented persistent checkpoints and `world_id` chain-verification (BUG-040, BUG-041).
+
 ### [0.7.2] — 2026-03-10
 #### Added
 - **Context Budgeting (Milestone 0.7):** Implemented 3-layer token enforcement policy (Ingestion, Database, Assembly).

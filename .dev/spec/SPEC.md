@@ -1607,6 +1607,14 @@ interface StatusBarState {
 
 **Invariant 9:** Local models stay local. No local model output is transmitted to external services.
 
+**Invariant 10 (Entropy Tax):** Every cell in `/src` must pass the `bin/validator.py` check. 
+* Max LOC: 250 (non-blank, non-comment)
+* Max Cyclomatic Complexity: 10
+* Max Nesting Depth: 4
+
+**Invariant 11 (Cell Bootstrapping):** All new `logic.spec` files MUST include the Entropy Tax section verbatim. 
+The `bin/validator.py` is the final gate for all PRs and commits.
+
 ---
 
 ## Section 23 — Failure Modes

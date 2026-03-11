@@ -265,3 +265,33 @@ Stop. Wait for the human. Do not proceed with any task until MCP is confirmed re
 ---
 
 *Last updated: 2026-03-08*
+
+### 2.1 The Ambiguity Gate (Anti-Assumption Protocol)
+* **The Rule:** You must never resolve architectural or implementation ambiguity through silent assumption.
+* **The Trigger:** If a user prompt, a `SPEC.md` requirement, or the retrieved `Graph Context` lacks specific constraints (e.g., missing error fallback logic, undefined token limits, or contradictory file paths), you MUST pause execution.
+* **The Action:** You must output a `<CLARIFICATION_REQUIRED>` block detailing the specific missing information or ambiguity. You must ask numbered questions.
+* **The Gate:** You may only proceed to planning or writing code *after* the user (the Architect) has explicitly answered the questions and resolved the ambiguity.
+
+### 2.2 Context Verification before Action
+* Before modifying any core system files (e.g., `mcp-server.js`, `schema.sql`), you must verify you have the latest state of that file via MCP read tools. Do not rely on your training data or previous session memory for current file state.
+
+---
+
+## Section 12 — MBO Operational Workflow (Sovereign Loop)
+
+Every development session MUST follow this checklist. Failure to complete any step is a breach of the Sovereign Factory protocol.
+
+1. **Identify Task**: Identify the Active Milestone and Task ID from \`projecttracking.md\`.
+2. **Permission Check**: Run \`python3 bin/handshake.py <cell_name>\` for temporary write access (644).
+3. **Derive & Propose**: Derive the solution from graph context. Propose a diff-only implementation.
+4. **Human Approval**: Obtain explicit "go" from the human Architect.
+5. **Implement & Validate**: Apply changes. Run \`python3 bin/validator.py --all\` to ensure \`ENTROPY TAX: PAID\`.
+6. **Sync State**: Update \`projecttracking.md\`, \`CHANGELOG.md\`, and \`BUGS.md\`.
+7. **Lock & Journal**: Run \`python3 bin/handshake.py --revoke\` to return \`/src\` to read-only (444).
+8. **Baseline**: Run \`python3 bin/init_state.py\` to freeze the codebase and update \`.journal/audit.log\`.
+
+**STATUS: SOVEREIGN FACTORY ACTIVE.**
+
+---
+
+*Last updated: 2026-03-10*
