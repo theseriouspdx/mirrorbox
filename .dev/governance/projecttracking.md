@@ -40,9 +40,9 @@ Prerequisite: Author SPEC Section 24 (Cross-World Event Streaming) before implem
 |---------|------------------|--------|
 | 1.0-01 | Global Integrity & Bug-Fix Patch (BUG-009, BUG-037) | COMPLETED |
 | 1.0-02 | Initialize Subject World (Target Codebase) logic | COMPLETED |
-| 1.0-03 | The Relay — UDS cross-world telemetry (Subject → Mirror EventStore) | OPEN |
-| 1.0-04 | The Pile — Promotion engine (Mirror → Subject, Merkle-validated) | OPEN |
-| 1.0-05 | The Guard — Relay integrity gatekeeper (scope + chain validation) | OPEN |
+| 1.0-03 | The Relay — UDS cross-world telemetry (Subject → Mirror EventStore) | COMPLETED |
+| 1.0-04 | The Pile — Promotion engine (Mirror → Subject, Merkle-validated) | COMPLETED |
+| 1.0-05 | The Guard — Relay integrity gatekeeper (scope + chain validation) | COMPLETED |
 | 1.0-06 | Stage 6/7/8 wiring — handshake.py writes, validator.py, test runner | COMPLETED |
 | 1.0-07 | Subject World graph routing — Stage 2 routes by world_id to correct DB | OPEN |
 | 1.0-08 | External Invariant Test Suite — black-box, all Section 22 invariants | OPEN |

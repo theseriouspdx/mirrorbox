@@ -9,6 +9,9 @@
 - **Self-referential loop confirmed:** MBO develops MBO_Alpha. MBO_Alpha graduates to become the new MBO at 1.0.
 - **3-agent DID reconciliation complete** (Claude session 1, Gemini CLI, Claude session 2). Plan saved to `.dev/sessions/milestone_1.0_plan.md`.
 #### Completed
+- **1.0-03 The Relay:** Implemented the Mirror-side UDS listener in `src/relay/relay-listener.js`. Configured to bind at `.dev/run/relay.sock` and ingest NDJSON packets into the Mirror EventStore with `world_id = 'subject'`.
+- **1.0-04 The Pile:** Implemented the promotion engine in `src/relay/pile.js`. Supports rsync-based delta promotion from Mirror to Subject with Merkle-validated verification and checkpointing.
+- **1.0-05 The Guard:** Implemented the synchronous validation layer in `src/relay/guard.js`. Enforces seven integrity rules including task binding, sequence continuity, and path scope isolation.
 - **1.0-06 Stage 6/7/8:** Implemented `runStage6` (Implement), `runStage7` (Audit), and `runStage8` (Sync) in `operator.js`. Added `git diff` and `validator.py` generation to the Audit Gate.
 - **1.0-planning:** Architecture SPEC for Relay, Guard, and Pile integrated into `SPEC.md`.
 #### Findings
