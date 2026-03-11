@@ -119,14 +119,16 @@
 - **Description:** `runStage6` logs `validatorPassed: false` but does not halt the pipeline. Execution continues to the audit gate regardless of validator result.
 - **Fix:** When `validatorPassed === false`, halt before Stage 7, inject validator output into `executorLogs`, re-enter Stage 3A (same path as sandbox regression failure).
 
-### BUG-051: DBManager DB path hardcoded to MBO source directory | Milestone: 1.1 | OPEN
+### BUG-051: DBManager DB path hardcoded to MBO source directory | Milestone: 1.1 | FIXED
+- **Fixed:** 2026-03-11 — `path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db')`
 - **Location:** `src/state/db-manager.js` line 6
 - **Severity:** P1
 - **Status:** OPEN
 - **Description:** `DEFAULT_DB_PATH = path.join(__dirname, '../../data/mirrorbox.db')` resolves relative to MBO's own source tree. This is wrong for any project MBO is run against — the DB should live in the project's `.mbo/` directory.
 - **Fix:** Resolve from `MBO_PROJECT_ROOT` env var with `process.cwd()` fallback: `path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db')`.
 
-### BUG-052: No global `mbo` entrypoint — tool not installable as a CLI | Milestone: 1.1 | OPEN
+### BUG-052: No global `mbo` entrypoint — tool not installable as a CLI | Milestone: 1.1 | FIXED
+- **Fixed:** 2026-03-11 — `bin/mbo.js` created, `package.json` bin entries added, `private` removed.
 - **Location:** `package.json`, `bin/` (missing)
 - **Severity:** P1
 - **Status:** OPEN

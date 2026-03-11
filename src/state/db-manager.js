@@ -2,7 +2,7 @@ const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_DB_PATH = path.join(__dirname, '../../data/mirrorbox.db');
+const DEFAULT_DB_PATH = path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db');
 
 class DBManager {
   constructor(dbPath = null) {

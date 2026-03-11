@@ -2,13 +2,57 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Tokenizer [IN PROGRESS]
-**Next Action:** 1.1-01 — Fix BUG-051: DBManager DB path resolution
+**Next Action:** 1.1-03 — Implement mbo setup wizard
 
 ---
 
 ## NEXT ACTION
 
-**Task 1.1-01 — Fix BUG-051: DBManager DB path hardcoded to MBO source directory**
+**Task 1.1-03 — Implement `mbo setup` wizard**
+
+Goal: When `mbo` is run and `~/.mbo/config.json` does not exist, run the setup wizard inline before proceeding. Also callable standalone as `mbo setup`.
+
+What it does:
+1. Scans system for available CLI tools (claude, gemini, codex) via `which`
+2. Queries Ollama at `localhost:11434/api/tags` for local models (2s timeout, non-fatal)
+3. Reads `OPENROUTER_API_KEY` and `ANTHROPIC_API_KEY` from `process.env`
+4. If keys missing, prompts user to enter them (skip with Enter)
+5. If keys provided, appends `export KEY="value"` to `~/.zshrc` or `~/.bashrc` (skip if already present, non-fatal if write fails)
+6. Builds recommended config using priority rules (see Section 28.2 and orchestrator/src/config.ts for reference)
+7. Presents recommended config, asks Y/n to accept
+8. If Y: saves to `~/.mbo/config.json`, done
+9. If N: steps through each role (operator, planner, reviewer, tiebreaker, executor) with numbered option list
+10. Saves final config to `~/.mbo/config.json`
+11. Optionally collects dev server command (e.g. `npm run dev`)
+
+Files to create:
+- `src/cli/setup.js` — wizard logic (MUST stay under 250 LOC, CC ≤ 10, nesting ≤ 4)
+- Split into sub-modules if needed: `src/cli/detect-providers.js`, `src/cli/shell-profile.js`
+
+Files to modify:
+- `src/index.js` — add check at top of `main()`: if `~/.mbo/config.json` missing, import and run setup before operator starts
+- `bin/mbo.js` — add `mbo setup` subcommand detection: if `process.argv[2] === 'setup'`, run setup directly and exit
+
+Reference implementation (working wizard in TypeScript):
+`/Users/johnserious/orchestrator/src/config.ts` — full provider detection, wizard UI, shell profile writer. Port the logic to CJS JavaScript.
+
+Non-TTY guard: if `process.stdout.isTTY === false`, skip wizard and exit with error listing missing config. Never block in CI/Docker.
+
+Config schema (save to `~/.mbo/config.json`):
+```json
+{
+  "operator":   { "provider": "google",     "model": "gemini-2.5-flash" },
+  "planner":    { "provider": "claude-cli", "model": "claude-sonnet-4-6" },
+  "reviewer":   { "provider": "claude-cli", "model": "claude-sonnet-4-6" },
+  "tiebreaker": { "provider": "claude-cli", "model": "claude-opus-4-6" },
+  "executor":   { "cli": "claude" },
+  "devServer":  "",
+  "createdAt":  "<ISO timestamp>",
+  "updatedAt":  "<ISO timestamp>"
+}
+```
+
+Show plan before writing any code.
 
 ---
 
@@ -63,8 +107,8 @@
 ## MILESTONE 1.1 — Portability & Tokenizer [IN PROGRESS]
 | Task ID | Task Description | Status |
 |---------|------------------|--------|
-| 1.1-01 | Fix BUG-051: DBManager DB path resolution (Section 28.8) | OPEN |
-| 1.1-02 | Fix BUG-052: Create bin/mbo.js launcher + package.json bin entries (Section 28.1) | OPEN |
+| 1.1-01 | Fix BUG-051: DBManager DB path resolution (Section 28.8) | COMPLETED |
+| 1.1-02 | Fix BUG-052: Create bin/mbo.js launcher + package.json bin entries (Section 28.1) | COMPLETED |
 | 1.1-03 | Implement mbo setup wizard — ~/.mbo/config.json, provider detection (Section 28.6) | OPEN |
 | 1.1-04 | Implement .mbo/ project init — directory walk, .gitignore guard (Section 28.3) | OPEN |
 | 1.1-05 | Implement launch sequence — version check, re-onboard trigger (Section 28.5) | OPEN |
