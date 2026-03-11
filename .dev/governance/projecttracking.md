@@ -8,10 +8,11 @@
 
 ## NEXT ACTION
 
-**0.8-01** — Define Docker-in-Docker (DinD) isolation contract for World: Subject
-- Implement the "Subject" container definition.
-- Define volume mounts and networking constraints (Section 5 Isolation).
-- Status: OPEN
+**0.8-01** — Define Docker-in-Docker (DinD) isolation contract for World: Subject (Section 16)
+- Implement the "Subject" container definition with volume mounts and networking constraints.
+- Define the 0.8A Runtime Probe instrumentation layer (Node/Python) for dynamic tracing.
+- Ensure Invariant 10 (Two-World Isolation) is structurally enforced for sandbox execution.
+- Status: COMPLETED (Spec only)
 
 ---
 
@@ -45,6 +46,13 @@
 | 0.8-02 | Implement World: Subject creation and cleanup | OPEN |
 | 0.8-03 | Implement BUG-040 (world_id enforcement) | OPEN |
 | 0.8-04 | Implement BUG-041 (pre-mutation checkpoint mechanism) | OPEN |
+| 0.8-05 | Implement Stage 4.5 Virtual Dry Run & Pre-flight Sandbox | OPEN |
+| 0.8-06 | Implement 0.8A Runtime Probe: instrumentation (Node/Python) | OPEN |
+| 0.8-07 | Implement Runtime Edge enrichment for Intelligence Graph | OPEN |
+| 0.8-08 | Implement BUG-013: CLI sandbox interaction (focus ctrl+f) | OPEN |
+| 0.8-09 | Implement Sandbox failure signals and replan loop | OPEN |
+| 0.8-10 | Implement pre/post runtime comparison report & invariant checks | OPEN |
+| 0.8-11 | Implement token usage logging (token_log table + MCP tool get_token_usage) | OPEN |
 
 ---
 

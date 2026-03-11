@@ -557,6 +557,37 @@ After successful task completion (Stage 11), the graph is updated with new and m
 
 **Runtime Edge Contract:** The `edges` table `source` column accepts `'runtime'` as a valid value alongside `'static'`. Runtime edges are populated exclusively by the sandbox probe (Milestone 0.8A — see Milestone 0.8). No component before Milestone 0.8 may write `source: 'runtime'` edges. The value is reserved. The enrichment pass (`source: 'static'`) must not produce it.
 
+### SECTION 7: CONTEXT BUDGETING AND TOKEN ENFORCEMENT
+
+#### 7.1 Objective
+To guarantee that the Mirror Box Orchestrator (MBO) never exceeds a predefined token budget during the Context Assembly phase. The system must enforce strict payload limits at the database ingestion level, the retrieval level, and the API payload assembly level to ensure predictable cost ($0.006 avg. per load) and prevent "lost-in-the-middle" LLM hallucination.
+
+#### 7.2 The Token Ceiling
+The global system token ceiling for a standard Tier 2/Tier 3 task is defined as **3,000 Tokens** (approx. 12,000 characters). This budget is strictly allocated as follows:
+* **HardState / Prime Directive:** Max 500 tokens.
+* **Task Instructions (The Prompt):** Max 500 tokens.
+* **Graph Context (The XML Payload):** Max 2,000 tokens.
+
+#### 7.3 Three-Layer Enforcement Architecture
+
+##### 7.3.1 Layer 1: The Ingestion Gate (Application Level)
+* **Rule 1.1 (Tokenizer):** The ingestion script must utilize a fast heuristic tokenizer (e.g., `length / 4`) to weigh the `content` string of every extracted node.
+* **Rule 1.2 (Node Truncation):** If a single AST node exceeds **800 tokens**, the system must NOT ingest the full body.
+* **Rule 1.3 (Signature Preservation):** Upon truncation, the system must extract and preserve the function signature, the docstring, and append a standardized metadata tag: `[TRUNCATED: Exceeds 800 token node limit. Implementation hidden.]` before database insertion.
+
+##### 7.3.2 Layer 2: The Database Failsafe (SQLite Level)
+* **Rule 2.1 (Check Constraints):** The `nodes` table must implement a `CHECK` constraint on the `content` column.
+    * *Implementation:* `CONSTRAINT token_cap CHECK (LENGTH(content) <= 4000)` *(Assuming ~4 chars per token, capping at ~1,000 tokens per individual node).*
+* **Rule 2.2 (Error Handling):** Constraint violations during `INSERT` operations must be caught by the ingestion logger, skipped, and recorded in the `.mbo/logs/ingestion.log`.
+
+##### 7.3.3 Layer 3: The Assembly Cap (Retrieval Level)
+* **Rule 3.1 (Prioritized Retrieval):** The query planner must retrieve nodes in order of structural relevance.
+* **Rule 3.2 (The Assembly Loop):** The assembler must iterate through the retrieved nodes, converting them to XML elements (`<node id="...">...</node>`).
+* **Rule 3.3 (The Hard Stop):** On every iteration, the total string length of the accumulating XML payload must be measured.
+    * *Condition:* `IF current_token_count + next_node_token_count > 2000`
+    * *Action:* The loop MUST immediately `break`. The `next_node` and all subsequent nodes are discarded.
+* **Rule 3.4 (Truncation Notification):** If the loop breaks early, append `<system_note>Context truncated at 2000 tokens. Some distant dependencies omitted.</system_note>`.
+
 ---
 
 ## Section 7 — Event Store
@@ -807,6 +838,7 @@ All model calls go through a single function: `callModel(role, prompt, context)`
 3. Validates that no `<PROJECT_DATA>` content appears outside the designated context section
 4. Scans the assembled prompt and all context payloads for secret signatures (API keys, tokens, passwords, private keys, connection strings) before any content is logged to the Event Store. Detected secrets are replaced with `[REDACTED:{type}]` tokens. This step runs before the model call is dispatched — not after.
 5. Validates that the model response conforms to the expected output schema for the given role (e.g., `Classification`, `ExecutionPlan`, `ReviewerOutput`). A response that does not parse against the expected schema is treated as malformed output per Section 19 retry policy and is never passed downstream as valid output.
+6. Records token usage from every model response. The `usage` object returned by the provider API (`input_tokens`, `output_tokens`) is written to the `token_log` table in `mirrorbox.db` immediately after each call. This is non-blocking — a logging failure does not abort the model call. Fields: `id`, `role`, `model`, `input_tokens`, `output_tokens`, `timestamp`, `run_id`.
 
 No model call may bypass `callModel`. Direct API calls are a code-level violation.
 
@@ -1380,7 +1412,7 @@ All runtime traces that survive sandbox execution update the Intelligence Graph 
 
 All persistent state stored in SQLite at `{projectRoot}/data/mirrorbox.db`. Created on first launch if absent.
 
-**Tables:** `tasks`, `pipeline_runs`, `stage_logs`, `transcripts`, `session_handoffs`, `onboarding_profiles`, `runtime_traces`
+**Tables:** `tasks`, `pipeline_runs`, `stage_logs`, `transcripts`, `session_handoffs`, `onboarding_profiles`, `runtime_traces`, `token_log`
 
 **Write safety:** All state writes use SQLite transactions. Write failure (disk full, permission error) pauses the pipeline and displays the error. Pipeline does not continue with stale state.
 

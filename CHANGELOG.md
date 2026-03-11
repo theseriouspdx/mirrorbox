@@ -1,3 +1,15 @@
+## [0.8.0-pre] — 2026-03-10
+### Added
+- **Sandbox:** Milestone 0.8 Expanded Task Set (0.8-01 through 0.8-11).
+- **Sandbox:** Section 16 Sandbox & Runtime Observation requirements integrated into project tracking.
+- **Sandbox:** 0.8A Runtime Probe instrumentation specification.
+- **Observability:** Token usage logging requirement (`token_log` table + `get_token_usage` MCP tool).
+
+### Changed
+- **Bugs:** Promoted BUG-013 (CLI sandbox interaction) to Milestone 0.8 P1.
+- **Tracking:** Updated `projecttracking.md` with Sandbox-specific sub-tasks.
+- **Spec:** Updated `SPEC.md` Section 10 & 17 for token observability and callModel usage recording.
+
 ## [0.7.1] — 2026-03-09
 ### Fixed
 - **Audit:** Reconciled 4-Pass Audit findings from `audit-report.md`.

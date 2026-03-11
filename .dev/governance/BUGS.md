@@ -51,6 +51,18 @@
 - **Impact:** Violates deterministic rollback/replay guarantees.
 - **Note:** Needs SPEC clarification on whether log writes themselves require checkpoints.
 
+### BUG-013: CLI sandbox interaction undefined for terminal context | Milestone: 0.8 | OPEN
+- **Location:** `src/index.js`, `src/auth/operator.js`
+- **Severity:** Medium
+- **Impact:** User cannot interact with dry-run applications in terminal.
+- **Note:** Requires ctrl+f focus mechanism and port forwarding/URL display.
+
+### BUG-045: No token usage logging per callModel invocation | Milestone: 0.8 | OPEN
+- **Location:** `src/auth/call-model.js`, `src/state/db-manager.js`
+- **Severity:** Medium
+- **Impact:** No per-session or per-task token visibility for cost tracking or billing comparison.
+- **Fix:** Capture `usage.input_tokens` + `usage.output_tokens` from API response after each callModel call. Write to new `token_log` table in mirrorbox.db (non-blocking — log failure must not abort the model call). Expose cumulative usage via new MCP tool `get_token_usage`.
+
 ---
 
 ## Section 4 — P2: Deferred
@@ -69,7 +81,6 @@
 ### BUG-010: Tiebreaker reviewer block loop undefined | Milestone: 0.7 | OPEN
 ### BUG-011: HardState truncation priority undefined | Milestone: 0.6 | OPEN
 ### BUG-012: Smoke test failure loop has no maximum retry count | Milestone: 0.7 | OPEN
-### BUG-013: CLI sandbox interaction undefined for terminal context | Milestone: 0.8 | OPEN
 
 ### BUG-038: graph_query_impact returns empty callers/callees — cross-file edges not built | Milestone: 0.6 | COMPLETED
 - **Location:** `src/graph/static-scanner.js`

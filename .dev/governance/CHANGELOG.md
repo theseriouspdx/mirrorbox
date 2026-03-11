@@ -3,6 +3,14 @@
 
 ---
 
+### [0.7.2] — 2026-03-10
+#### Added
+- **Context Budgeting (Milestone 0.7):** Implemented 3-layer token enforcement policy (Ingestion, Database, Assembly).
+- **Ingestion Truncation:** Added heuristic token counting and automatic node truncation (800 token limit) in `StaticScanner.js` with signature and docstring preservation.
+- **SQLite token_cap:** Enforced `nodes.content` length constraint (4000 chars) via `CHECK` constraint and non-destructive migration.
+- **Assembly Cap:** Implemented 2000-token graph-context cap in `wrapContext` (`call-model.js`) with truncation notification.
+- **Audit Refinement:** Updated `.dev/audit/audit-m0.7.js` with comprehensive mocking to ensure deterministic pipeline verification.
+
 ### [0.7.1] — 2026-03-09
 #### Added
 - **DID Qualitative Consensus (0.7-01):** Formally updated `SPEC.md` to redefine consensus from "Checksum Parity" to "Qualitative Intent."

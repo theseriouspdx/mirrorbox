@@ -2,8 +2,8 @@
 ## Mirror Box Orchestrator — Session Handoff
 
 **Session ended:** 2026-03-10
-**Last task:** Milestone 0.7 Context Budgeting and Token Enforcement + watchdog exec fix
-**Status:** Milestone 0.7 COMPLETE. Audit passed in-session. No rerun required.
+**Last task:** Milestone 0.8 Expansion (Sandbox + Runtime + Tokens)
+**Status:** 0.8 expansion COMPLETED. All governance and spec files updated.
 
 > **NOTE:** The 0.7 audit has already been run and passed. Do NOT run it again at session start.
 > The audit-rerun step below has been removed. Proceed directly to Milestone 0.8.
@@ -12,7 +12,8 @@
 
 ## Section 1 — Next Action
 
-**Task 0.8 — Sandbox + Runtime Verification**
+**Task 0.8-01 — Define Docker-in-Docker (DinD) isolation contract**
+
 
 **Before any coding — Gate 0 graph queries (run if MCP is reachable, skip gracefully if not):**
 ```
