@@ -1497,6 +1497,25 @@ On `exit`, `end session`, or Ctrl+C: all `running` processes receive `SIGTERM`. 
 
 Subprocesses spawned via `child_process.spawn` — never `exec` or `execSync`. All arguments passed as array elements, never interpolated into shell strings. Prompts written to child stdin via handle.
 
+### MCP Server Resilience (1.0-MCP)
+
+The MCP graph server (`src/graph/mcp-server.js`) must remain stable across all launch contexts — launchd, background shell jobs, and direct invocation. Five layers enforce this:
+
+**Layer 1 — Signal trap + fd leak fix (`scripts/mbo-start.sh`)**
+The EXIT trap must redirect its output to stderr (`>&2`) to prevent plain-text output from corrupting the MCP stdout pipe. File descriptor 3 must be explicitly closed (`exec 3>&-`) before `exec node` to prevent fd leakage into the node process. `exec node` must be retained (not replaced with bare `node`) to maintain PID consistency for the watchdog.
+
+**Layer 2 — EPIPE guard (`src/graph/mcp-server.js`)**
+Explicit `process.stdout` and `process.stderr` error handlers at process start. `EPIPE` errors are silently ignored. All other stream errors trigger `process.exit(1)`. Prevents the `uncaughtException` handler from firing `shutdown()` on a broken pipe.
+
+**Layer 3 — Startup sentinel file (`src/graph/mcp-server.js`)**
+On successful `httpServer.listen`, write `.dev/run/mcp.ready` containing the ISO 8601 bind timestamp. Session start scripts must verify this file exists and is less than 30 seconds old before proceeding. If absent after 15 seconds, surface a hard failure to the operator. Eliminates "sleep and pray" port polling.
+
+**Layer 4 — launchd plist (macOS service)**
+The MCP server is registered as a `LaunchAgent` (`~/Library/LaunchAgents/com.mbo.mcp.plist`). launchd owns fd setup, respawn-on-crash, and PID lifecycle. `mbo-start.sh` operates as a pre-flight check only; launchd performs the actual process launch. `KeepAlive: true`. Stdout/stderr log to `.dev/logs/mcp.out` and `.dev/logs/mcp.err`.
+
+**Layer 5 — Transparent session recovery (`src/graph/mcp-server.js`)**
+If a POST arrives with an `mcp-session-id` header that is not in the sessions Map (stale ID after server restart), the server must not return 404. Instead: create a new session, log a `TRANSPARENT_RECOVERY` event to stderr with the old and new session IDs, and return the new session ID in the `mcp-session-id` response header. The client continues without interruption.
+
 ---
 
 ## Section 19 — Retry and Recovery

@@ -35,7 +35,7 @@ done
 mkdir -p "$ROOT/.dev/run"
 PID_FILE="$ROOT/.dev/run/${AGENT}.pid"
 echo $$ > "$PID_FILE"
-trap 'rm -f "$PID_FILE"; echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") PID file cleaned up on exit."' EXIT
+trap 'rm -f "$PID_FILE"; echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") PID file cleaned up on exit." >&2' EXIT
 
 # ── Port Pre-Flight ────────────────────────────────────────────────────────────
 # If a stale process is still bound to PORT, kill it before starting.
@@ -76,4 +76,5 @@ echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") Environment verified. Launching HTT
 
 # Restore stdout before exec (mcp-server.js uses stderr for diagnostics)
 exec 1>&3
+exec 3>&-
 exec node "$ROOT/src/graph/mcp-server.js" "$@"

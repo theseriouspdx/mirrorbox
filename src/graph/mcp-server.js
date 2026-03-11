@@ -1,5 +1,9 @@
 'use strict';
 
+// Layer 2 — EPIPE guard: prevent broken pipe from triggering shutdown()
+process.stdout.on('error', (err) => { if (err.code !== 'EPIPE') process.exit(1); });
+process.stderr.on('error', (err) => { if (err.code !== 'EPIPE') process.exit(1); });
+
 const http = require('http');
 const { randomUUID } = require('crypto');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
@@ -393,8 +397,10 @@ async function main() {
           // Route to existing session
           const transport = sessions.get(sessionId);
           if (!transport) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Session not found' } }));
+            // Layer 5 — Transparent session recovery: stale ID after server restart
+            console.error(`[MCP] ${new Date().toISOString()} TRANSPARENT_RECOVERY: stale session ${sessionId} — creating new session`);
+            const newTransport = await createSession(graphService, mode, sessions);
+            return await newTransport.handleRequest(req, res, parsedBody);
           }
           return await transport.handleRequest(req, res, parsedBody);
         }
@@ -436,6 +442,13 @@ async function main() {
 
   httpServer.listen(PORT, '127.0.0.1', () => {
     console.error(`[MCP] ${new Date().toISOString()} Graph MCP Server (${mode}) listening on http://127.0.0.1:${PORT}/mcp`);
+    // Layer 3 — Startup sentinel: write .dev/run/mcp.ready so session scripts can verify bind
+    try {
+      const sentinelPath = path.join(root, '.dev/run/mcp.ready');
+      fs.writeFileSync(sentinelPath, new Date().toISOString());
+    } catch (e) {
+      console.error(`[MCP] ${new Date().toISOString()} WARN: Could not write sentinel file: ${e.message}`);
+    }
 
     if (mode === 'dev') {
       try {
