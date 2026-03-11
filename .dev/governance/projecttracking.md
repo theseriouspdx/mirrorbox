@@ -40,8 +40,8 @@
 | 1.0-01 | Global Integrity & Bug-Fix Patch (BUG-009, BUG-037) | COMPLETED |
 | 1.0-02 | Initialize Subject World (Target Codebase) logic | COMPLETED |
 | 1.0-03 | Implement Cross-World Event Streaming | OPEN |
-| 1.0-MCP-01 | MCP Layer 1: Fix signal trap stderr redirect + close fd 3 (BUG-049) | OPEN |
-| 1.0-MCP-02 | MCP Layer 2: EPIPE guard in mcp-server.js | OPEN |
-| 1.0-MCP-03 | MCP Layer 3: Startup sentinel file (.dev/run/mcp.ready) | OPEN |
-| 1.0-MCP-04 | MCP Layer 4: launchd plist (com.mbo.mcp) | OPEN |
-| 1.0-MCP-05 | MCP Layer 5: Transparent session recovery on stale session-id | OPEN |
+| 1.0-MCP-01 | MCP Layer 1: Fix signal trap stderr redirect + close fd 3 (BUG-049) | COMPLETED |
+| 1.0-MCP-02 | MCP Layer 2: EPIPE guard in mcp-server.js | COMPLETED |
+| 1.0-MCP-03 | MCP Layer 3: Startup sentinel file (.dev/run/mcp.ready) | COMPLETED |
+| 1.0-MCP-04 | MCP Layer 4: launchd plist (com.mbo.mcp) | COMPLETED |
+| 1.0-MCP-05 | MCP Layer 5: Transparent session recovery on stale session-id | COMPLETED |
