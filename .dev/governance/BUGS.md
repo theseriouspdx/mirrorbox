@@ -106,15 +106,11 @@
 - **Severity:** P1 (caused context drift — next session's Gate 0 search used the completed task name, e.g. "0.6-04", returning empty results)
 - **Status:** FIXED — Changed `graph_search("${LAST_TASK_NAME}")` to `graph_search("${NEXT_TASK_DESC}")`. `NEXT_TASK_DESC` is already parsed from `projecttracking.md` earlier in the script and contains a meaningful description like "Implement Runtime Edge enrichment for Intelligence Graph", producing actionable graph query results at session start.
 
-### BUG-049: MCP server exits silently when launched via mbo-start.sh in non-launchd context | Milestone: 1.0 | OPEN
-- **Location:** `scripts/mbo-start.sh`, `src/graph/mcp-server.js`
-- **Severity:** P1 (blocks graph-dependent session starts; MCP unavailable until manually restarted)
-- **Status:** OPEN
-- **Symptoms:** `mbo-start.sh --mode=dev` background process exits silently after launch. Port 3737 shows DOWN a few seconds later. No `[MCP]` lines from node appear in output, suggesting node either never starts or its stderr is not reaching the log.
-- **Root cause:** `exec node` in the script is CORRECT and must stay. Previous session confirmed: without `exec`, bash spawns node as a child and the watchdog monitors bash's PID (from the PID file). Watchdog hits its timeout, kills bash, node dies with it. Removing `exec` is a known-bad fix — do not re-attempt.
-- **Suspected actual cause:** `exec 1>&3` on line 78 fails silently when fd 3 is not valid in the calling context (e.g. bash tool sandbox). With `set -uo pipefail`, this may cause a fatal exit before `exec node` is reached. No `[MCP]` output from node confirms exit happens before node starts.
-- **Workaround:** Launch directly: `node src/graph/mcp-server.js --mode=dev &`
-- **Next investigation:** Test whether removing the `exec 1>&3` / `exec 3>&1` fd dance (since mcp-server.js only uses stderr) resolves the silent exit without breaking watchdog PID tracking.
+### BUG-049: MCP server exits silently when launched via mbo-start.sh in non-launchd context | Milestone: 1.0 | FIXED
+- **Location:** `scripts/mbo-start.sh`
+- **Severity:** P1
+- **Status:** FIXED — Removed the `exec 3>&1` / `exec 1>&2` / `exec 1>&3` / `exec 3>&-` fd save-restore block. With `set -uo pipefail`, `exec 1>&3` caused a fatal exit when fd 3 was invalid in non-launchd contexts (e.g. bash tool sandbox). Since `mcp-server.js` uses stderr exclusively, stdout ownership is irrelevant and the fd dance was purely vestigial. `exec node` retained. launchd service enabled via `launchctl load -w` — MCP now auto-starts on login.
+- **Fixed:** 2026-03-11
 
 ---
 

@@ -2,10 +2,6 @@
 # MBO Universal MCP Loader — Vendor-Agnostic Session Initializer
 set -uo pipefail
 
-# Redirect all status to stderr to protect HTTP stdout
-exec 3>&1
-exec 1>&2
-
 echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") Initializing Session Start Protocol..."
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DB_PATH="$ROOT/data/mirrorbox.db"
@@ -74,7 +70,4 @@ fi
 
 echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") Environment verified. Launching HTTP MCP server on port $PORT..."
 
-# Restore stdout before exec (mcp-server.js uses stderr for diagnostics)
-exec 1>&3
-exec 3>&-
 exec node "$ROOT/src/graph/mcp-server.js" "$@"

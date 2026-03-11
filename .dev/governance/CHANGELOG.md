@@ -3,6 +3,16 @@
 
 ---
 
+### [1.0-MCP-fix] — 2026-03-11
+#### Fixed (BUG-049, MCP tooling)
+- **BUG-049 — fd3 dance removed (`scripts/mbo-start.sh`):** Removed vestigial `exec 3>&1` / `exec 1>&2` / `exec 1>&3` / `exec 3>&-` fd save-restore block. Caused silent fatal exit under `set -uo pipefail` in non-launchd contexts where fd 3 was invalid. `mcp-server.js` uses stderr exclusively; stdout ownership is irrelevant. BUG-049 CLOSED.
+- **MCP query tools — SSE parsing (`mcp_http_query.js`, `mcp_query.js`):** Both tools were calling `JSON.parse(data)` directly on SSE-wrapped responses (`event: message\ndata: {...}`). Fixed by splitting on `\n\n` event boundaries and extracting the `data:` payload before parsing.
+- **`mcp_query.js` — HTTP rewrite:** Replaced stdio `spawn` approach (incompatible with persistent HTTP server) with stateful HTTP client using session ID and SSE-aware parsing. Targets `http://127.0.0.1:3737/mcp`.
+- **launchd service enabled:** `com.johnserious.mbo-mcp` plist was installed but disabled. Loaded with `launchctl load -w` — service now auto-starts on login and self-heals on crash.
+#### Audit
+- All 5 MCP tools (`graph_search`, `graph_query_impact`, `graph_query_dependencies`, `graph_query_callers`, `graph_query_coverage`) respond correctly via HTTP.
+- `audit-m0.8.js`: 12/12 PASS. `validator.py --all`: ENTROPY TAX: PAID.
+
 ### [0.8.1] — 2026-03-10
 #### Fixed (BUG-046, BUG-047, BUG-048)
 - **BUG-046 — MCP restart loop (P0):** Migrated `src/graph/mcp-server.js` from `StdioServerTransport` to `StreamableHTTPServerTransport` on port 3737. Root cause was structural: stdio transport is per-connection, so every agent session spawned a fresh process, completed a full scan+enrich, then exited — causing launchd to respawn indefinitely. Fix: `GraphService` singleton owns all graph state; per-session `Server` + `StreamableHTTPServerTransport` pairs delegate to it. `enqueueWrite()` Promise chain serializes concurrent mutations; `isScanning` mutex with `finally` prevents overlapping rescans.
