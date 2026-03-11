@@ -112,6 +112,27 @@
 - **Status:** FIXED — Removed the `exec 3>&1` / `exec 1>&2` / `exec 1>&3` / `exec 3>&-` fd save-restore block. With `set -uo pipefail`, `exec 1>&3` caused a fatal exit when fd 3 was invalid in non-launchd contexts (e.g. bash tool sandbox). Since `mcp-server.js` uses stderr exclusively, stdout ownership is irrelevant and the fd dance was purely vestigial. `exec node` retained. launchd service enabled via `launchctl load -w` — MCP now auto-starts on login.
 - **Fixed:** 2026-03-11
 
+### BUG-050: Validator failure does not halt pipeline | Milestone: 1.1 | OPEN
+- **Location:** `src/auth/operator.js` — `runStage6`
+- **Severity:** P1
+- **Status:** OPEN
+- **Description:** `runStage6` logs `validatorPassed: false` but does not halt the pipeline. Execution continues to the audit gate regardless of validator result.
+- **Fix:** When `validatorPassed === false`, halt before Stage 7, inject validator output into `executorLogs`, re-enter Stage 3A (same path as sandbox regression failure).
+
+### BUG-051: DBManager DB path hardcoded to MBO source directory | Milestone: 1.1 | OPEN
+- **Location:** `src/state/db-manager.js` line 6
+- **Severity:** P1
+- **Status:** OPEN
+- **Description:** `DEFAULT_DB_PATH = path.join(__dirname, '../../data/mirrorbox.db')` resolves relative to MBO's own source tree. This is wrong for any project MBO is run against — the DB should live in the project's `.mbo/` directory.
+- **Fix:** Resolve from `MBO_PROJECT_ROOT` env var with `process.cwd()` fallback: `path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db')`.
+
+### BUG-052: No global `mbo` entrypoint — tool not installable as a CLI | Milestone: 1.1 | OPEN
+- **Location:** `package.json`, `bin/` (missing)
+- **Severity:** P1
+- **Status:** OPEN
+- **Description:** No `bin` field in `package.json`. No `bin/mbo.js` launcher exists. MBO cannot be installed globally via `npm install -g` and invoked as `mbo` from a project directory.
+- **Fix:** Create `bin/mbo.js` thin launcher (delegates to `src/index.js` via tsx). Add `"bin": { "mbo": "bin/mbo.js", "mboalpha": "bin/mbo.js" }` to `package.json`. See Section 28.
+
 ---
 
 *Last updated: 2026-03-11*

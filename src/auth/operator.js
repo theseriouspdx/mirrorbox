@@ -552,14 +552,22 @@ The output will be used as the new system context.`;
     stateManager.snapshot(this.stateSummary, 'mirror');
 
     // Section 8: Approval Gate (Stage 5)
-    // Tier 0 skips gate. Tier 1+ requires "go".
+    // Tier 0 skips gate. Tier 1+ enters Stage 1.5 Assumption Ledger.
     if (routing.tier > 0) {
-      return { 
-        needsApproval: true, 
-        classification: cleanClassification, 
-        routing,
-        prompt: "Classification complete. Routing set to Tier " + routing.tier + ". Type 'go' to proceed to planning."
-      };
+      const stage1_5 = await this.runStage1_5(cleanClassification, routing);
+      this.stateSummary.pendingDecision.ledger = stage1_5.assumptionLedger;
+      
+      // Section 27: Entropy-based decomposition recommendation
+      if (stage1_5.assumptionLedger.entropyScore > 10) {
+        stage1_5.prompt = `[HIGH ENTROPY] ${stage1_5.prompt}\nTask decomposition recommended before proceeding.`;
+      }
+      
+      // Section 27: Blocker enforcement
+      if (stage1_5.assumptionLedger.blockers.length > 0) {
+        stage1_5.prompt = `[BLOCKED] ${stage1_5.prompt}\nCannot proceed until blockers are resolved.`;
+      }
+
+      return stage1_5;
     }
 
     return { classification: cleanClassification, routing, status: 'ready_for_planning' };
@@ -569,6 +577,17 @@ The output will be used as the new system context.`;
    * Handles the Stage 5 Approval Gate and triggers the pipeline.
    */
   async handleApproval(decision) {
+    if (this.stateSummary.pendingDecision && this.stateSummary.pendingDecision.ledger) {
+      const blockers = this.stateSummary.pendingDecision.ledger.blockers;
+      if (blockers.length > 0 && decision.toLowerCase() === 'go') {
+        return { 
+          status: 'blocked', 
+          reason: `Task is BLOCKED: ${blockers.join(', ')}. Resolve blockers before typing 'go'.`,
+          ledger: this.stateSummary.pendingDecision.ledger
+        };
+      }
+    }
+
     const approval = await this.requestApproval(decision);
     if (!approval.approved) {
       delete this.stateSummary.pendingDecision;
@@ -651,23 +670,93 @@ The output will be used as the new system context.`;
   }
 
   /**
+   * Section 27: Pre-Execution Assumption Ledger
+   * Audit every assumption before planning begins.
+   */
+  async generateAssumptionLedger(classification, routing, context) {
+    const hardState = this.getHardState();
+    const prompt = `Audit every assumption for the following task. 
+  Task: ${classification.rationale}
+  Files: ${classification.files.join(', ')}
+  Routing Tier: ${routing.tier}
+
+  Return ONLY a JSON object following this schema:
+  {
+  "assumptions": [
+    {
+      "id": "A1",
+      "category": "Logic" | "Architecture" | "Data" | "UX" | "Security",
+      "statement": "One falsifiable sentence.",
+      "impact": "Critical" | "High" | "Low",
+      "autonomousDefault": "Specific decision if human types go."
+    }
+  ],
+  "blockers": ["Specific missing info preventing go"],
+  "entropyScore": number
+  }
+
+  Calculate entropyScore as: (Critical × 3) + (High × 1.5) + (Low × 0.5).`;
+
+    try {
+      const response = await callModel('classifier', prompt, { classification, routing, context }, hardState);
+      const ledger = this._safeParseJSON(response);
+
+      if (!ledger || !ledger.assumptions) {
+        throw new Error("[Operator] Ledger generation failed or malformed.");
+      }
+
+      // Ensure score is derived correctly if model missed it
+      ledger.entropyScore = this._calculateEntropy(ledger.assumptions);
+      return ledger;
+    } catch (e) {
+      console.error(`[Operator] Ledger generation error: ${e.message}`);
+      return { assumptions: [], blockers: ["Ledger generation failed"], entropyScore: 0 };
+    }
+  }
+
+  _calculateEntropy(assumptions) {
+    const weights = { 'Critical': 3, 'High': 1.5, 'Low': 0.5 };
+    return assumptions.reduce((sum, a) => sum + (weights[a.impact] || 0), 0);
+  }
+
+  /**
+   * Section 27: Sign-Off Block Formatting
+   */
+  _formatSignOffBlock(ledger) {
+    const critical = ledger.assumptions.filter(a => a.impact === 'Critical').map(a => a.id);
+    const defaults = ledger.assumptions.map(a => a.id);
+
+    return `
+  Entropy Score: ${ledger.entropyScore}
+  Blockers: ${ledger.blockers.length > 0 ? ledger.blockers.join(', ') : 'none'}
+  Critical assumptions requiring confirmation: ${critical.length > 0 ? critical.join(', ') : 'none'}
+  Autonomous defaults active if you type go: ${defaults.join(', ')}
+  `;
+  }
+
+  /**
    * Section 15: Stage 1.5 — Human Intervention Gate
-   * Projects relevant context and waits for human pinning/override.
+   * Section 27: Assumption Ledger
    */
   async runStage1_5(classification, routing) {
     this.stateSummary.currentStage = 'context_pinning';
-    
-    // Default search for classification files or SPEC.md
+
+    // 1. Default search for classification files or SPEC.md
     const context = await this.callMCPTool('graph_search', { pattern: classification.files[0] || 'SPEC.md' });
-    
+
+    // 2. Generate Section 27 Assumption Ledger
+    const ledger = await this.generateAssumptionLedger(classification, routing, context);
+    const signOff = this._formatSignOffBlock(ledger);
+
     return {
       needsApproval: true,
       stage: '1.5',
       projectedContext: context,
-      prompt: "Stage 1.5: Review the projected context. Type 'pin: [id]' to emphasize, 'exclude: [id]' to ignore, or 'go' to proceed to Planning."
+      assumptionLedger: ledger,
+      signOffBlock: signOff,
+      prompt: `Stage 1.5: Review context and Assumption Ledger.\n${signOff}\nType 'pin: [id]' to emphasize, 'exclude: [id]' to ignore, or 'go' to proceed to Planning.`
     };
   }
-
   /**
    * Section 15: Stage 3 — Independent Plan Derivation
    * Qualitative consensus based on Spec Adherence.

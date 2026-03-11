@@ -93,6 +93,11 @@ def handshake(cell_name):
         print("[GATE] Triggering HYDRATION MODE. Manual intervention required.", file=sys.stderr)
         sys.exit(1)
 
+    # Reject '.' — too broad, agents must name an explicit scope
+    if cell_name in (".", "/", ""):
+        print("[GATE] DENIED: Scope '.' is too broad. Use 'src', 'bin', or a named subdirectory.", file=sys.stderr)
+        sys.exit(1)
+
     # Special case: 'src' grants the entire src/ directory
     if cell_name == "src":
         cell_path = SRC_DIR

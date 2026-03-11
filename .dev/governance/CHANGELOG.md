@@ -3,6 +3,25 @@
 
 ---
 
+### [1.0-hardening] — 2026-03-11
+#### Security
+- **Agent self-authorization closed:** `bin/handshake.py` now requires `MBO_HUMAN_TOKEN` env var for all grant/revoke operations. Agents calling without it receive `[GATE] DENIED` and exit 1. Alias recommended: `alias mbo='MBO_HUMAN_TOKEN=1 python3 ~/MBO/bin/handshake.py'`.
+- **write.deny sentinel added:** `lock_src()` now writes `.dev/run/write.deny` with a timestamp. `impl_step.sh` checks this sentinel as the first (fastest) gate before any write attempt.
+- **`bin/impl_step.sh` created:** Atomic write gate enforcing write.deny + session.lock checks before any `src/` write. Records progress to `.dev/run/impl_progress.json`. All agent writes must route through this script.
+- **`--merkle-root` flag added to `handshake.py`:** Computes and prints Merkle root of any path (defaults to `src/`). Used by `pile.js` for Subject integrity verification.
+#### Fixed
+- **operator.js reverted to HEAD:** Gemini had added unauthorized `relay.start()` call inside `handleApproval()` with wrong signature, and invented `_getSubjectMerkleRoot()`. Reverted.
+- **Audit gate (1.0-06 diff):** Fixed to return `{ status: 'audit_pending' }` and stop. Previously was auto-rolling back instead of pausing for human review. Stage 11 removed from inline flow.
+#### Cleanup
+- **Hardcoded username removed from production code:** `bin/mbo_server.py`, `bin/pile_deploy.py`, `scripts/com.mbo.mcp.plist` (deleted), `com.johnserious.mbo-mcp.plist` (root, deleted).
+- **plist templatized:** `scripts/com.mbo.mcp.plist.template` added with `%%MBO_ROOT%%`/`%%HOME%%`/`%%NVM_NODE_BIN%%` placeholders. `scripts/mbo-launchd-install.sh` updated to generate plist at install time. Generated file added to `.gitignore`.
+- **`MBO_ALPHA_ROOT` env var:** Both `bin/mbo_server.py` and `bin/pile_deploy.py` now resolve Subject root via `os.environ.get("MBO_ALPHA_ROOT", ...)` with sensible default.
+#### Documentation
+- **`docs/auth.md`:** Handshake system, MBO_HUMAN_TOKEN guard, mbo alias, scope rules, write gate, session lifecycle.
+- **`docs/mcp.md`:** MCP server, all 7 tools, launchd service, config, troubleshooting.
+- **`docs/operator-guide.md`:** Gate 0, nhash, audit gate, §6B checklist, DID process, milestone tracking, common shell commands.
+- **`docs/agent-onboarding.md`:** Agent quick reference — rules, file writing, approval gate, tier rules, key files, MCP tools.
+
 ### [1.0-planning] — 2026-03-11
 #### Architecture
 - **Milestone 1.0 two-world model locked:** Mirror = `/Users/johnserious/MBO` (live orchestrator), Subject = `/Users/johnserious/MBO_Alpha` (clone MBO operates on), Docker = ephemeral per-task sandbox for Stage 4.5/8 only.

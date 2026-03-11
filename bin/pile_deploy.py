@@ -3,7 +3,7 @@ import os, sys, shutil, subprocess, stat
 from pathlib import Path
 
 MIRROR_ROOT = Path(__file__).parent.parent
-ALPHA_ROOT = Path("/Users/johnserious/MBO_Alpha")
+ALPHA_ROOT = Path(os.environ.get("MBO_ALPHA_ROOT", str(MIRROR_ROOT.parent / "MBO_Alpha")))
 
 def lock_files(path: Path):
     """Set all files in path to read-only (444)."""

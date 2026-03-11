@@ -27,7 +27,7 @@ async function testState() {
     apiKey: 'sk-or-v1-abcdefghijklmnopqrstuvwxyz1234567890', // Mock OpenRouter key
     gitToken: 'ghp_1234567890abcdefghijklmnopqrstuvwxyz'   // Mock GitHub token
   };
-  eventStore.append('PLANNING', 'ORCHESTRATOR', secretPayload);
+  eventStore.append('PLANNING', 'ORCHESTRATOR', secretPayload, 'mirror');
   console.log('Step 2: Secret payload appended.');
 
   // 2.5 Concurrent append test (Same Millisecond)
@@ -37,8 +37,8 @@ async function testState() {
   const fixedTime = DateNowOriginal();
   Date.now = () => fixedTime;
 
-  eventStore.append('CONCURRENT_1', 'ACTOR', { message: 'first' });
-  eventStore.append('CONCURRENT_2', 'ACTOR', { message: 'second' });
+  eventStore.append('CONCURRENT_1', 'ACTOR', { message: 'first' }, 'mirror');
+  eventStore.append('CONCURRENT_2', 'ACTOR', { message: 'second' }, 'mirror');
 
   Date.now = DateNowOriginal; // restore
 

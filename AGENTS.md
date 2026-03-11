@@ -46,12 +46,14 @@ All changes must pass through the 11-stage pipeline. No code touches the reposit
 ---
 
 ## Section 6 — Strict Edit Mode
+
 1. **Read-Only by Default:** Every task must begin in read-only mode.
 2. **No Mutation Without Approval:** No write operation is allowed without explicit human approval. This includes `writeFile`, `apply_patch`, in-place edits, generation scripts, migrations, and deletes.
 3. **Approval Token:** The required approval token is `go`.
 4. **Scope Lock:** After `go`, edits are limited to the explicitly approved file list. Any out-of-scope write is a hard failure and execution must stop.
 5. **One-Batch Approval:** A `go` applies to one edit batch only. Additional edits require a new `go`.
-6. **Protected Files:** Governance and audit files are read-only unless explicitly included in the approved scope.
+6. **All modifications proposed as unified diffs only** — no full-file replacements.
+7. **No stylistic or cleanup changes** unless they fix a functional bug or improve performance >10%. If nothing needs changing: output `NO_CHANGE`.
 
 ### Mandatory Pre-Edit Self-Check
 Before any write action, the agent must answer:
@@ -65,6 +67,33 @@ Decision rules:
 - If **Q3 = Yes**: STOP and ask clarifying question(s).
 - Only when **Q1 = Yes**, **Q2 = No**, and **Q3 = No** may the agent request `go` for edits.
 
----
+### Handshake Protocol — File Write Access
 
-*Last updated: 2026-03-10*
+Two categories of files with different rules:
+
+| Path | Locked? | What to do |
+|------|---------|------------|
+| `src/**` | Yes — 444/555 by Fortress | Ask human to run `mbo auth src`, wait for `go`, then use `impl_step.sh` |
+| `.dev/governance/**` | No — normal 600 files | Use `impl_step.sh` directly, no handshake needed |
+| `scripts/**`, `bin/**` | No | Use `impl_step.sh` directly, no handshake needed |
+
+**Agents cannot run `mbo auth`** — `MBO_HUMAN_TOKEN` is never available to agents. Do not attempt it.
+
+For `src/` changes: propose diff → state "please run `mbo auth src`" → wait for human `go` → run `impl_step.sh`.
+
+**Session TTL is 30 minutes.** Once the human runs `mbo auth src`, all subsequent `src/` writes in that session go through `impl_step.sh` without asking again. Do not re-request `mbo auth src` for every file — check `mbo status` first. If the session is still active, proceed directly.
+
+If `impl_step.sh` returns `BLOCKED`: stop, ask human to run `mbo auth src` again.
+
+Never use `mbo .` (permanently blocked), never use `chmod`, never write files directly outside `impl_step.sh`.
+
+### Hard Stop Conditions
+
+Halt immediately and state the specific condition if:
+- **Dev graph unreachable** → attempt MCP recovery; if still unreachable state "Dev graph unavailable. Awaiting human instruction." Do not load SPEC.md. Do not proceed.
+- **nhash lost mid-session** → state "CONTEXT LOST. REQUESTING NEW NHASH PROTOCOL." Do not proceed.
+- **Missing `world_id` on any proposed mutation** → hard stop; do not guess the scope.
+- **SPEC conflict with existing code** → file in `BUGS.md`; do not implement a workaround; do not proceed.
+- **Architectural ambiguity** → output a `<CLARIFICATION_REQUIRED>` block with numbered questions; wait for resolution.
+
+*Last updated: 2026-03-11*

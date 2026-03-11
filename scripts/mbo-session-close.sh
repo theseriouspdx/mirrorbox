@@ -51,7 +51,7 @@ fi
 
 mkdir -p "$BACKUP_DIR"
 
-# 1. PRAGMA integrity_check
+# 1. PRAGMA integrity_check + smart backup
 STAMP="$(date +"%Y%m%d_%H%M%S")"
 BACKUP_FILE="$BACKUP_DIR/mirrorbox_${STAMP}.bak"
 cp "$DB_PATH" "$BACKUP_FILE"
@@ -59,6 +59,14 @@ cp "$DB_PATH" "$BACKUP_FILE"
 INTEGRITY_RESULT="$(sqlite3 "$BACKUP_FILE" 'PRAGMA integrity_check;' | tr -d '\r')"
 SHA256="$(shasum -a 256 "$BACKUP_FILE" | awk '{print $1}')"
 BACKUP_BASENAME="$(basename "$BACKUP_FILE")"
+
+# Smart backup retention: keep 10 if DB is small (<100MB), else keep 3
+DB_SIZE_BYTES="$(stat -f%z "$DB_PATH" 2>/dev/null || stat -c%s "$DB_PATH" 2>/dev/null || echo 0)"
+if [[ "$DB_SIZE_BYTES" -lt 104857600 ]]; then
+  KEEP_BACKUPS=10
+else
+  KEEP_BACKUPS=3
+fi
 
 SESSION_STATUS="closed_clean"
 if [[ "$INTEGRITY_RESULT" != "ok" ]]; then
@@ -93,20 +101,51 @@ if [[ -f "$TRACKING_FILE" ]]; then
   fi
 fi
 
-# 2.6 Cold Storage Snapshot (Mirror World)
+# 2.6 Cold Storage Snapshot (Mirror World — source only, no data/)
 echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") Generating Cold Storage Snapshot..."
 SNAPSHOT_DIR="$ROOT_DIR/backups"
 SNAPSHOT_NAME="mirror_snapshot_$(date +"%Y%m%d_%H%M%S").zip"
 SNAPSHOT_PATH="$SNAPSHOT_DIR/$SNAPSHOT_NAME"
 
-# Create a zip of critical Mirror world components
-# Excludes data/, node_modules/, and large build artifacts
+# Zip source and governance only — never data/ (contains multi-GB DB and backups)
 (cd "$ROOT_DIR" && zip -r "$SNAPSHOT_PATH" \
-    src/ .journal/ bin/ scripts/ .dev/governance/ \
+    src/ bin/ scripts/ .dev/governance/ \
     package.json package-lock.json \
     -x "*/.DS_Store" "*/__pycache__/*" > /dev/null)
 
 SNAPSHOT_SHA="$(shasum -a 256 "$SNAPSHOT_PATH" | awk '{print $1}')"
+
+# Prune: smart retention for DB backups and snapshots
+ls -t "$BACKUP_DIR"/mirrorbox_*.bak 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1)) | xargs rm -f || true
+ls -t "$SNAPSHOT_DIR"/mirror_snapshot_*.zip 2>/dev/null | tail -n +4 | xargs rm -f || true
+
+# DB health check: compare DB size to src/ size and warn if out of whack
+SRC_SIZE_BYTES="$(du -sk "$ROOT_DIR/src" | awk '{print $1 * 1024}')"
+DB_SIZE_KB=$(( DB_SIZE_BYTES / 1024 ))
+SRC_SIZE_KB=$(( SRC_SIZE_BYTES / 1024 ))
+if [[ "$SRC_SIZE_KB" -gt 0 ]]; then
+  RATIO=$(( DB_SIZE_BYTES / SRC_SIZE_BYTES ))
+  if [[ "$RATIO" -gt 10 ]]; then
+    echo "----------------------------------------------------"
+    echo "⚠️  WARNING: DB BLOAT DETECTED"
+    echo "   mirrorbox.db : ${DB_SIZE_KB} KB"
+    echo "   src/         : ${SRC_SIZE_KB} KB"
+    echo "   Ratio        : ${RATIO}x (healthy = <10x)"
+    echo "   Cause        : likely a runaway event loop writing junk events."
+    echo "   Action       : DB will be rebuilt from source now."
+    echo "----------------------------------------------------"
+  else
+    echo "[MBO] DB health OK — ${DB_SIZE_KB}KB db / ${SRC_SIZE_KB}KB src (${RATIO}x ratio)"
+  fi
+fi
+
+# Rebuild DB: drop and regenerate from source scan (keeps DB tiny)
+echo "[MBO] Rebuilding mirrorbox.db from source..."
+if node "$ROOT_DIR/scripts/rebuild-mirror.js" 2>&1 | tail -2; then
+  echo "[MBO] DB rebuild complete."
+else
+  echo "[MBO] WARN: DB rebuild failed — backup preserved at $BACKUP_FILE" >&2
+fi
 
 # 3. Generate NEXT_SESSION.md Content
 cat > "$NEXT_DATA" <<EOF

@@ -19,3 +19,6 @@ mirrorbox.db*
 # Local MCP configs (machine-specific paths — see AGENTS.md Section 11 for setup)
 .mcp.json
 .gemini/
+
+# Generated plist (from scripts/com.mbo.mcp.plist.template via mbo-launchd-install.sh)
+scripts/com.mbo.mcp.plist

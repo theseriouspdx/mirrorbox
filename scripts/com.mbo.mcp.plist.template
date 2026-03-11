@@ -8,22 +8,22 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/johnserious/MBO/scripts/mbo-start.sh</string>
+        <string>%%MBO_ROOT%%/scripts/mbo-start.sh</string>
         <string>--mode=dev</string>
         <string>--agent=launchd</string>
     </array>
 
     <!-- Working directory must be repo root for relative path resolution -->
     <key>WorkingDirectory</key>
-    <string>/Users/johnserious/MBO</string>
+    <string>%%MBO_ROOT%%</string>
 
     <!-- nvm node must be on PATH — launchd does not source shell profiles -->
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/Users/johnserious/.nvm/versions/node/v24.11.1/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>%%NVM_NODE_BIN%%:/usr/local/bin:/usr/bin:/bin</string>
         <key>NVM_DIR</key>
-        <string>/Users/johnserious/.nvm</string>
+        <string>%%HOME%%/.nvm</string>
     </dict>
 
     <key>RunAtLoad</key>
@@ -33,10 +33,10 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/Users/johnserious/MBO/.dev/logs/mcp.out</string>
+    <string>%%MBO_ROOT%%/.dev/logs/mcp.out</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/johnserious/MBO/.dev/logs/mcp.err</string>
+    <string>%%MBO_ROOT%%/.dev/logs/mcp.err</string>
 
     <!-- Throttle respawn — prevents tight crash loop -->
     <key>ThrottleInterval</key>

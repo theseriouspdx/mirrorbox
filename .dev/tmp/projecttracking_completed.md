@@ -1,14 +1,14 @@
 # projecttracking.md
 ## Mirror Box Orchestrator — Build Tracking
 
-**Current Milestone:** 1.1 — Portability & Tokenizer [IN PROGRESS]
-**Next Action:** 1.1-01 — Fix BUG-051: DBManager DB path resolution
+**Current Milestone:** 1.0 — Production Alpha [IN PROGRESS]
+**Next Action:** 1.0-10 — Stage 1.5 Assumption Ledger
 
 ---
 
 ## NEXT ACTION
 
-**Task 1.1-01 — Fix BUG-051: DBManager DB path hardcoded to MBO source directory**
+**Task 1.0-10 — Stage 1.5 Assumption Ledger**
 
 ---
 
@@ -46,29 +46,9 @@
 | 1.0-07 | Subject World graph routing — Stage 2 routes by world_id to correct DB | COMPLETED |
 | 1.0-08 | External Invariant Test Suite — black-box, all Section 22 invariants | COMPLETED |
 | 1.0-09 | Sovereign Loop — MBO patches itself end-to-end (1.0 close condition) | COMPLETED |
-| 1.0-10 | Stage 1.5 Assumption Ledger — implement Section 27 protocol in operator.js pipeline | COMPLETED |
+| 1.0-10 | Stage 1.5 Assumption Ledger — implement Section 27 protocol in operator.js pipeline | OPEN |
 | 1.0-MCP-01 | MCP Layer 1: Fix signal trap stderr redirect + close fd 3 (BUG-049) | COMPLETED |
 | 1.0-MCP-02 | MCP Layer 2: EPIPE guard in mcp-server.js | COMPLETED |
 | 1.0-MCP-03 | MCP Layer 3: Startup sentinel file (.dev/run/mcp.ready) | COMPLETED |
 | 1.0-MCP-04 | MCP Layer 4: launchd plist (com.mbo.mcp) | COMPLETED |
 | 1.0-MCP-05 | MCP Layer 5: Transparent session recovery on stale session-id | COMPLETED |
-
----
-
-## MILESTONE 1.0 — Production Alpha [COMPLETED]
-*Closed: 2026-03-11. All tasks completed. Sovereign loop verified.*
-
----
-
-## MILESTONE 1.1 — Portability & Tokenizer [IN PROGRESS]
-| Task ID | Task Description | Status |
-|---------|------------------|--------|
-| 1.1-01 | Fix BUG-051: DBManager DB path resolution (Section 28.8) | OPEN |
-| 1.1-02 | Fix BUG-052: Create bin/mbo.js launcher + package.json bin entries (Section 28.1) | OPEN |
-| 1.1-03 | Implement mbo setup wizard — ~/.mbo/config.json, provider detection (Section 28.6) | OPEN |
-| 1.1-04 | Implement .mbo/ project init — directory walk, .gitignore guard (Section 28.3) | OPEN |
-| 1.1-05 | Implement launch sequence — version check, re-onboard trigger (Section 28.5) | OPEN |
-| 1.1-06 | Fix BUG-050: Validator failure halts pipeline, re-enters Stage 3A (Section 28) | OPEN |
-| 1.1-07 | Implement Tokenizer module — scan, onboard, track (Section 29) | OPEN |
-| 1.1-08 | Implement token accounting — event schema, live tally, session summary (Section 30) | OPEN |
-| 1.1-09 | Wire Tokenizer into MBO launch sequence as onboarding engine | OPEN |

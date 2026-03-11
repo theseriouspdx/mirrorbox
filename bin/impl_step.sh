@@ -16,13 +16,25 @@ if [ -f "$MBO_ROOT/.dev/run/write.deny" ]; then
   exit 1
 fi
 
-# 1. Check handshake is active
+# 1. Check handshake is active and scope covers target file
 STATUS=$(python3 "$MBO_ROOT/bin/handshake.py" --status 2>&1)
 if echo "$STATUS" | grep -q "None"; then
-  echo "[IMPL] BLOCKED: No active handshake session. Run: python3 bin/handshake.py <scope>" >&2
+  echo "[IMPL] BLOCKED: No active handshake session. Run: mbo auth <scope>" >&2
   exit 1
 fi
 echo "[IMPL] Handshake active: $STATUS"
+
+# Validate session scope covers the target file path
+# Governance files (.dev/governance/) are always writable — no handshake required
+SCOPE=$(echo "$STATUS" | grep -oP '(?<=Active: )[^ ]+' || true)
+if [[ "$FILE_PATH" != .dev/governance/* ]]; then
+  if [ -n "$SCOPE" ] && [ "$SCOPE" != "." ]; then
+    if ! echo "$FILE_PATH" | grep -q "^$SCOPE"; then
+      echo "[IMPL] BLOCKED: Session scope '$SCOPE' does not cover target '$FILE_PATH'. Run: mbo auth src" >&2
+      exit 1
+    fi
+  fi
+fi
 
 # 2. Write the file
 mkdir -p "$(dirname "$MBO_ROOT/$FILE_PATH")"

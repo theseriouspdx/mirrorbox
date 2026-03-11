@@ -2,8 +2,8 @@
 import os, sys, subprocess, signal, time, socket
 from pathlib import Path
 
-MIRROR_ROOT = Path("/Users/johnserious/MBO")
-ALPHA_ROOT = Path("/Users/johnserious/MBO_Alpha")
+MIRROR_ROOT = Path(__file__).parent.parent
+ALPHA_ROOT = Path(os.environ.get("MBO_ALPHA_ROOT", str(MIRROR_ROOT.parent / "MBO_Alpha")))
 PORT_MIRROR = int(os.environ.get("MBO_PORT", 3737))
 PORT_SUBJECT = int(os.environ.get("MBO_PORT_ALPHA", 3738))
 
