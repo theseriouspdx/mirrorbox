@@ -60,7 +60,7 @@ def log_audit(event):
 
 def check_integrity(silent=False):
     state = load_canonical_state()
-    current_root = compute_merkle_root(MBO_ROOT)
+    current_root = compute_merkle_root(SRC_DIR)
     
     # If a session is active, we expect changes in the specific cell_scope.
     # But for 1.0 Alpha, we enforce global integrity at handshake.

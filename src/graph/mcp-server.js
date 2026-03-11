@@ -172,6 +172,14 @@ class GraphService {
     // E1 EXPERIMENT LOGGER — stderr only, does not affect HTTP response stream
     console.error(`[TOOL CALL] ${new Date().toISOString()} ${name} args: ${JSON.stringify(args)}`);
 
+    // Safety: If the graph is still indexing in the background, inform the agent.
+    if (this.isScanning && name.startsWith('graph_query_')) {
+      return {
+        content: [{ type: 'text', text: 'INDEXING_IN_PROGRESS: The Intelligence Graph is currently being updated. Please wait 10-20 seconds and retry.' }],
+        isError: true,
+      };
+    }
+
     switch (name) {
       case 'graph_query_impact': {
         const result = this.graphStore.getGraphQueryResult(args.nodeId);
@@ -354,11 +362,6 @@ async function main() {
 
   const graphService = new GraphService(mode, root);
 
-  if (mode === 'dev') {
-    console.error(`[MCP] ${new Date().toISOString()} Dev mode: initializing graph at ${graphService.db.dbPath}`);
-    await graphService.initDev();
-  }
-
   // sessions: Map<sessionId, StreamableHTTPServerTransport>
   // Populated by onsessioninitialized, cleaned up by onsessionclosed.
   const sessions = new Map();
@@ -433,6 +436,30 @@ async function main() {
 
   httpServer.listen(PORT, '127.0.0.1', () => {
     console.error(`[MCP] ${new Date().toISOString()} Graph MCP Server (${mode}) listening on http://127.0.0.1:${PORT}/mcp`);
+
+    if (mode === 'dev') {
+      try {
+        const nodeCount = graphService.db.get('SELECT COUNT(*) as count FROM nodes').count;
+        if (nodeCount > 0) {
+          console.error(`[MCP] ${new Date().toISOString()} Dev mode: Graph already populated (${nodeCount} nodes). Skipping initial scan.`);
+        } else {
+          console.error(`[MCP] ${new Date().toISOString()} Dev mode: Starting background initialization...`);
+          graphService.isScanning = true;
+          graphService.initDev()
+            .then(() => {
+              console.error(`[MCP] ${new Date().toISOString()} Background initialization complete.`);
+            })
+            .catch(err => {
+              console.error(`[MCP] ${new Date().toISOString()} Background initialization failed:`, err);
+            })
+            .finally(() => {
+              graphService.isScanning = false;
+            });
+        }
+      } catch (e) {
+        console.error(`[MCP] ${new Date().toISOString()} Failed to check node count:`, e.message);
+      }
+    }
   });
 
   const shutdown = async () => {

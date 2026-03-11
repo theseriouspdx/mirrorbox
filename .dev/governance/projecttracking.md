@@ -1,18 +1,18 @@
 # projecttracking.md
 ## Mirror Box Orchestrator — Build Tracking
 
-**Current Milestone:** 0.8 — Sandbox [IN PROGRESS]
-**Next Action:** 0.8-08 — Implement BUG-013: CLI sandbox interaction (focus ctrl+f)
+**Current Milestone:** 1.0 — Production Alpha [IN PROGRESS]
+**Next Action:** 1.0-03 — Implement Cross-World Event Streaming
 
 ---
 
 ## NEXT ACTION
 
-**Task 0.8-08 — Implement BUG-013: CLI sandbox interaction (focus ctrl+f)**
+**Task 1.0-03 — Implement Cross-World Event Streaming**
 
 ---
 
-## MILESTONE 0.8 — Sandbox [IN PROGRESS]
+## MILESTONE 0.8 — Sandbox [COMPLETED]
 | Task ID | Task Description | Status |
 |---------|------------------|--------|
 | 0.8-01 | Create Docker-in-Docker sandbox container | COMPLETED |

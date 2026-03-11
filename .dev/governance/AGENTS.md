@@ -26,7 +26,8 @@ The first graph query in Section 11 confirms MCP is reachable. If it fails, fall
 
 **Immediate manual recovery (one command):**
 ```bash
-kill -9 $(ps aux | grep 'bin/gemini' | grep -v grep | awk '{print $2}')
+# Targeted recovery: Kill ONLY the process bound to the MCP port (default 3737)
+lsof -ti:3737 | xargs kill -9
 ```
 Regular `kill` (SIGTERM) is ignored by a hung Gemini process. Always use `kill -9`. Then open a fresh Gemini terminal — MCP will auto-start.
 

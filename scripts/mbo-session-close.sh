@@ -76,19 +76,37 @@ LAST_TASK_STATUS=$(echo "$LAST_TASK_INFO" | cut -d'|' -f3)
 COMPLETED_COUNT="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tasks WHERE status = 'COMPLETED';" || echo "0")"
 
 # 2.5 Find Next Action from projecttracking.md
-# Looks for the first 'OPEN' task in the 'Current Milestone' section
+# Identifies the Current Milestone section first to ensure correct task selection.
 NEXT_TASK_ID="TBD"
 NEXT_TASK_DESC="TBD"
 TRACKING_FILE="$GOVERNANCE_DIR/projecttracking.md"
 
 if [[ -f "$TRACKING_FILE" ]]; then
-  # Find the first row in a table that contains '| OPEN |'
-  NEXT_ROW=$(grep '| OPEN |' "$TRACKING_FILE" | head -n 1 || true)
+  # 1. Identify the Current Milestone section
+  MILESTONE_SECTION=$(grep -A 20 "Current Milestone" "$TRACKING_FILE" || true)
+  # 2. Find the first 'OPEN' task in that section
+  NEXT_ROW=$(echo "$MILESTONE_SECTION" | grep '| OPEN |' | head -n 1 || true)
+  
   if [[ -n "$NEXT_ROW" ]]; then
     NEXT_TASK_ID=$(echo "$NEXT_ROW" | awk -F'|' '{print $2}' | xargs)
     NEXT_TASK_DESC=$(echo "$NEXT_ROW" | awk -F'|' '{print $3}' | xargs)
   fi
 fi
+
+# 2.6 Cold Storage Snapshot (Mirror World)
+echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") Generating Cold Storage Snapshot..."
+SNAPSHOT_DIR="$ROOT_DIR/backups"
+SNAPSHOT_NAME="mirror_snapshot_$(date +"%Y%m%d_%H%M%S").zip"
+SNAPSHOT_PATH="$SNAPSHOT_DIR/$SNAPSHOT_NAME"
+
+# Create a zip of critical Mirror world components
+# Excludes data/, node_modules/, and large build artifacts
+(cd "$ROOT_DIR" && zip -r "$SNAPSHOT_PATH" \
+    src/ .journal/ bin/ scripts/ .dev/governance/ \
+    package.json package-lock.json \
+    -x "*/.DS_Store" "*/__pycache__/*" > /dev/null)
+
+SNAPSHOT_SHA="$(shasum -a 256 "$SNAPSHOT_PATH" | awk '{print $1}')"
 
 # 3. Generate NEXT_SESSION.md Content
 cat > "$NEXT_DATA" <<EOF
@@ -124,6 +142,7 @@ graph_search("${NEXT_TASK_DESC}")
 
 ## Session End Checklist
 - Status: ${SESSION_STATUS}
+- Cold Storage: ${SNAPSHOT_NAME} (SHA-256: ${SNAPSHOT_SHA})
 - Backup file: ${BACKUP_BASENAME}
 - SHA-256: ${SHA256}
 - PRAGMA integrity_check: ${INTEGRITY_RESULT}
