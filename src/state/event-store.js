@@ -1,10 +1,11 @@
 const db = require('./db-manager');
 const { redact } = require('./redactor');
 const crypto = require('crypto');
+const EventEmitter = require('events');
 
 const RUN_ID = crypto.randomUUID();
 
-class EventStore {
+class EventStore extends EventEmitter {
   /**
    * Section 7: Append-only Event Store
    * Invariant 4: Every operation is reproducible from the event store.
@@ -60,6 +61,11 @@ class EventStore {
         INSERT OR REPLACE INTO chain_anchors (run_id, seq, event_id, hash, created_at)
         VALUES (?, ?, ?, ?, ?)
       `, [RUN_ID, seq, id, hash, timestamp]);
+
+      // Section 21: Broadcast event for real-time streaming
+      const eventData = { id, seq, stage, actor, timestamp, world_id: targetWorld, payload: payloadStr, hash };
+      this.emit('event', eventData);
+      this.emit(`event:${targetWorld}`, eventData);
 
       return id;
     });
