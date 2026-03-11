@@ -192,7 +192,16 @@ function detectServer(language) {
     javascript: ['vtsls', 'typescript-language-server'],
     python: ['pyright-langserver', 'jedi-language-server']
   };
+  // Resolve node_modules/.bin relative to THIS file (src/graph/lsp-client.js → ../../node_modules/.bin)
+  // This works in launchd context where $PATH may not include the project's .bin directory.
+  const localBinDir = path.join(__dirname, '../../node_modules/.bin');
+
   for (const cmd of (candidates[language] || [])) {
+    // 1. Check project-local node_modules/.bin first — always works regardless of shell PATH
+    const localBin = path.join(localBinDir, cmd);
+    if (fs.existsSync(localBin)) return localBin;
+
+    // 2. Fall back to $PATH lookup (works in interactive shell sessions)
     try {
       const check = process.platform === 'win32' ? `where ${cmd}` : `command -v ${cmd}`;
       execSync(check, { stdio: 'ignore' });

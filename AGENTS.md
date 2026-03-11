@@ -45,4 +45,26 @@ All changes must pass through the 11-stage pipeline. No code touches the reposit
 
 ---
 
-*Last updated: 2026-03-09*
+## Section 6 — Strict Edit Mode
+1. **Read-Only by Default:** Every task must begin in read-only mode.
+2. **No Mutation Without Approval:** No write operation is allowed without explicit human approval. This includes `writeFile`, `apply_patch`, in-place edits, generation scripts, migrations, and deletes.
+3. **Approval Token:** The required approval token is `go`.
+4. **Scope Lock:** After `go`, edits are limited to the explicitly approved file list. Any out-of-scope write is a hard failure and execution must stop.
+5. **One-Batch Approval:** A `go` applies to one edit batch only. Additional edits require a new `go`.
+6. **Protected Files:** Governance and audit files are read-only unless explicitly included in the approved scope.
+
+### Mandatory Pre-Edit Self-Check
+Before any write action, the agent must answer:
+1. **Q1:** Do I have enough detail from spec/docs to proceed without assumptions?
+2. **Q2:** Am I choosing an approach that differs from spec or existing implementation?
+3. **Q3:** Am I making any assumption not explicitly confirmed by the human or documentation?
+
+Decision rules:
+- If **Q1 = No**: STOP and ask for clarification.
+- If **Q2 = Yes**: STOP and request explicit approval for the deviation.
+- If **Q3 = Yes**: STOP and ask clarifying question(s).
+- Only when **Q1 = Yes**, **Q2 = No**, and **Q3 = No** may the agent request `go` for edits.
+
+---
+
+*Last updated: 2026-03-10*

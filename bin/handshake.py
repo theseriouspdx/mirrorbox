@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import hashlib, json, os, stat, sys, time, uuid
+import hashlib, json, os, stat, sys, time, uuid, subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -8,7 +8,9 @@ SRC_DIR = MBO_ROOT / "src"
 JOURNAL_DIR = MBO_ROOT / ".journal"
 STATE_FILE = JOURNAL_DIR / "state.json"
 SESSION_LOCK = JOURNAL_DIR / "session.lock"
+AUDIT_LOG = JOURNAL_DIR / "audit.log"
 SESSION_TTL_SECONDS = 1800
+PULSE_INTERVAL = 300
 
 def _sha256_file(path: Path) -> str:
     h = hashlib.sha256()
@@ -17,11 +19,25 @@ def _sha256_file(path: Path) -> str:
 
 def compute_merkle_root(src_dir: Path) -> str:
     leaves = []
-    for filepath in sorted(src_dir.rglob("*.py")):
-        relative = str(filepath.relative_to(src_dir))
+    # BUG-009: Include all source types for 1.0 Alpha
+    patterns = ["*.py", "*.js", "*.json", "*.md", "*.spec"]
+    found_files = []
+    for p in patterns:
+        found_files.extend(src_dir.rglob(p))
+    
+    # Filter out ignored directories
+    ignored = {".git", "node_modules", ".dev", "data", "audit", "__pycache__"}
+    
+    for filepath in sorted(found_files):
+        if any(part in ignored for part in filepath.parts):
+            continue
+        if not filepath.is_file():
+            continue
+        relative = str(filepath.relative_to(MBO_ROOT))
         content_hash = _sha256_file(filepath)
         leaf = hashlib.sha256(f"{relative}:{content_hash}".encode()).hexdigest()
         leaves.append(leaf)
+    
     if not leaves: return hashlib.sha256(b"__mbo_empty_src__").hexdigest()
     layer = leaves
     while len(layer) > 1:
@@ -37,28 +53,83 @@ def load_canonical_state() -> dict:
     if not STATE_FILE.exists(): print("[GATE] DENIED: state.json not found. Run bin/init_state.py", file=sys.stderr); sys.exit(1)
     return json.loads(STATE_FILE.read_text())
 
+def log_audit(event):
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    with open(AUDIT_LOG, "a") as f:
+        f.write(f"[{timestamp}] {event}\n")
+
+def check_integrity(silent=False):
+    state = load_canonical_state()
+    current_root = compute_merkle_root(MBO_ROOT)
+    
+    # If a session is active, we expect changes in the specific cell_scope.
+    # But for 1.0 Alpha, we enforce global integrity at handshake.
+    if current_root != state["merkle_root"]:
+        log_audit("EXTERNAL_MUTATION_DETECTED")
+        if not silent:
+            print(f"[GATE] CRITICAL: Merkle mismatch detected.", file=sys.stderr)
+            print(f"Expected: {state['merkle_root']}", file=sys.stderr)
+            print(f"Actual:   {current_root}", file=sys.stderr)
+        return False
+    return True
+
 def lock_src():
     for item in SRC_DIR.rglob("*"):
         if item.is_file(): item.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
 
 def handshake(cell_name):
-    if SESSION_LOCK.exists(): print(f"[GATE] DENIED: Session active.", file=sys.stderr); sys.exit(1)
-    state = load_canonical_state()
-    if compute_merkle_root(SRC_DIR) != state["merkle_root"]: print("[GATE] DENIED: Merkle mismatch.", file=sys.stderr); sys.exit(1)
+    if SESSION_LOCK.exists():
+        lock_data = json.loads(SESSION_LOCK.read_text())
+        if time.time() < lock_data["expires_at"]:
+            print(f"[GATE] DENIED: Session active for {lock_data['cell_scope']}.", file=sys.stderr)
+            sys.exit(1)
+    
+    if not check_integrity():
+        print("[GATE] Triggering HYDRATION MODE. Manual intervention required.", file=sys.stderr)
+        sys.exit(1)
+
     cell_path = SRC_DIR / "cells" / cell_name
-    if not cell_path.exists(): print(f"[GATE] DENIED: Cell {cell_name} missing.", file=sys.stderr); sys.exit(1)
+    if not cell_path.exists():
+        # Allow non-cell src paths if they exist
+        cell_path = SRC_DIR / cell_name
+        if not cell_path.exists():
+            print(f"[GATE] DENIED: Path {cell_name} missing.", file=sys.stderr); sys.exit(1)
+            
     lock_src()
-    for item in cell_path.rglob("*"):
-        if item.is_file(): item.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+    # Grant write access to the specific cell/path
+    if cell_path.is_dir():
+        for item in cell_path.rglob("*"):
+            if item.is_file(): item.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+    else:
+        cell_path.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+
     token = {"token": str(uuid.uuid4()), "cell_scope": cell_name, "expires_at": time.time() + SESSION_TTL_SECONDS}
     SESSION_LOCK.write_text(json.dumps(token))
+    log_audit(f"HANDSHAKE_GRANTED: {cell_name}")
     print(f"[GATE] Handshake complete. Scope: {cell_name}")
 
 if __name__ == "__main__":
+    if not JOURNAL_DIR.exists(): JOURNAL_DIR.mkdir(parents=True)
     if len(sys.argv) < 2: sys.exit(1)
-    if sys.argv[1] == "--status":
-        if SESSION_LOCK.exists(): print(f"[SESSION] Active: {json.loads(SESSION_LOCK.read_text())['cell_scope']}")
+    
+    arg = sys.argv[1]
+    if arg == "--status":
+        if SESSION_LOCK.exists():
+            data = json.loads(SESSION_LOCK.read_text())
+            print(f"[SESSION] Active: {data['cell_scope']} (Expires in {int(data['expires_at'] - time.time())}s)")
         else: print("[SESSION] None")
-    elif sys.argv[1] == "--revoke":
-        lock_src(); SESSION_LOCK.unlink(missing_ok=True); print("[GATE] Session revoked.")
-    else: handshake(sys.argv[1])
+    elif arg == "--revoke":
+        lock_src()
+        SESSION_LOCK.unlink(missing_ok=True)
+        log_audit("SESSION_REVOKED")
+        print("[GATE] Session revoked. Generating handoff...")
+        # Trigger session close script
+        subprocess.run(["bash", str(MBO_ROOT / "scripts" / "mbo-session-close.sh")])
+    elif arg == "--pulse":
+        if check_integrity(silent=True):
+            print("[PULSE] OK")
+        else:
+            print("[PULSE] FAIL: EXTERNAL_MUTATION_DETECTED")
+            sys.exit(1)
+    else:
+        handshake(arg)

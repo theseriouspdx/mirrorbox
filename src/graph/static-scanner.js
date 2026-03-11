@@ -39,13 +39,103 @@ class StaticScanner {
     return parser;
   }
 
+  heuristicTokenCount(str) {
+    return Math.ceil(String(str || '').length / 4);
+  }
+
+  logIngestionError(nodeId, name, sourcePath, tokens, reason) {
+    const logDir = path.join(process.cwd(), '.mbo/logs');
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+    const logFile = path.join(logDir, 'ingestion.log');
+    const entry = {
+      timestamp: new Date().toISOString(),
+      nodeId,
+      name,
+      sourcePath,
+      estimatedTokens: tokens,
+      reason
+    };
+    fs.appendFileSync(logFile, `${JSON.stringify(entry)}\n`);
+  }
+
+  extractDocstring(node, text) {
+    let leadingDoc = '';
+    let prev = node && node.previousNamedSibling;
+    while (prev && (prev.type === 'comment' || prev.type === 'line_comment' || prev.type === 'block_comment')) {
+      leadingDoc = `${prev.text}\n${leadingDoc}`;
+      prev = prev.previousNamedSibling;
+    }
+
+    const bodyNode = node && node.childForFieldName
+      ? (node.childForFieldName('body') || node.children.find(c => c.type === 'block' || c.type === 'compound_statement' || c.type === 'suite'))
+      : null;
+
+    if (!bodyNode || typeof node.startIndex !== 'number') {
+      return leadingDoc.trim();
+    }
+
+    const relStart = Math.max(0, bodyNode.startIndex - node.startIndex);
+    const relEnd = Math.max(0, bodyNode.endIndex - node.startIndex);
+    const bodyText = text.slice(relStart, relEnd);
+    const jsDoc = bodyText.match(/^\s*\/\*\*[\s\S]*?\*\//);
+    const pyDoc = bodyText.match(/^\s*(?:'''[\s\S]*?'''|"""[\s\S]*?""")/);
+    const inlineDoc = jsDoc ? jsDoc[0] : (pyDoc ? pyDoc[0] : '');
+
+    return [leadingDoc.trim(), inlineDoc.trim()].filter(Boolean).join('\n');
+  }
+
+  truncateNodeContent(node, text) {
+    const source = String(text || '');
+    if (this.heuristicTokenCount(source) <= 800) return source;
+
+    const bodyNode = node && node.childForFieldName
+      ? (node.childForFieldName('body') || node.children.find(c => c.type === 'block' || c.type === 'compound_statement' || c.type === 'suite'))
+      : null;
+
+    let signature = source.split('\n')[0] || '';
+    if (bodyNode && typeof node.startIndex === 'number' && typeof bodyNode.startIndex === 'number') {
+      signature = source.substring(0, Math.max(0, bodyNode.startIndex - node.startIndex)).trim();
+    }
+
+    const docstring = this.extractDocstring(node, source);
+    return [signature, docstring, '[TRUNCATED: Exceeds 800 token node limit. Implementation hidden.]']
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  safeUpsertNode(node) {
+    const { id, type, name, path: relPath, content, metadata } = node;
+    const metadataStr = metadata ? JSON.stringify(metadata) : null;
+    const tokens = this.heuristicTokenCount(content);
+
+    try {
+      this.graphStore.db.run(`
+        INSERT INTO nodes (id, type, name, path, content, metadata)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          type = excluded.type,
+          name = excluded.name,
+          path = excluded.path,
+          content = excluded.content,
+          metadata = excluded.metadata
+      `, [id, type, name, relPath, content ?? null, metadataStr]);
+    } catch (e) {
+      if (String(e.message || '').includes('token_cap')) {
+        this.logIngestionError(id, name, relPath, tokens, 'Rule 2.1: SQLite token_cap violation');
+        return;
+      }
+      throw e;
+    }
+  }
+
   markNodeStale(node) {
     const metadata = { ...(node.metadata || {}), stale: true, staleAt: Date.now() };
-    this.graphStore.upsertNode({
+    this.safeUpsertNode({
       id: node.id,
       type: node.type,
       name: node.name,
       path: node.path,
+      content: node.content || null,
       metadata
     });
   }
@@ -89,11 +179,12 @@ class StaticScanner {
 
     const tree = parser.parse(content);
 
-    this.graphStore.upsertNode({
+    this.safeUpsertNode({
       id: fileId,
       type: 'file',
       name: path.basename(filePath),
       path: relativePath,
+      content: this.truncateNodeContent({ startIndex: 0 }, content),
       metadata: { 
         size: content.length,
         content_hash: contentHash,
@@ -122,11 +213,12 @@ class StaticScanner {
       this.graphStore.db.run("DELETE FROM nodes WHERE path = ? AND type = 'spec_section'", [relativePath]);
     });
 
-    this.graphStore.upsertNode({
+    this.safeUpsertNode({
       id: fileId,
       type: 'file',
       name: path.basename(filePath),
       path: relativePath,
+      content: this.truncateNodeContent({ startIndex: 0 }, content),
       metadata: {
         size: content.length,
         content_hash: contentHash,
@@ -144,11 +236,12 @@ class StaticScanner {
         const title = match[2].trim();
         const sectionId = `${fileId}#${title.replace(/\s+/g, '-')}`;
 
-        this.graphStore.upsertNode({
+        this.safeUpsertNode({
           id: sectionId,
           type: 'spec_section',
           name: title,
           path: relativePath,
+          content: null,
           metadata: {
             level,
             startLine: i
@@ -178,11 +271,12 @@ class StaticScanner {
           // Finding #4: Identifier-level uniqueness for symbol IDs
           const symbolId = `${fileId}#${name}@${nameNode.startPosition.row}:${nameNode.startPosition.column}`;
 
-          this.graphStore.upsertNode({
+          this.safeUpsertNode({
             id: symbolId,
             type: node.type.includes('class') ? 'class' : 'function',
             name: name,
             path: relativePath,
+            content: this.truncateNodeContent(node, node.text),
             metadata: {
               // Store the identifier's specific coordinates for LSP matching
               nameStartLine: nameNode.startPosition.row,
@@ -246,11 +340,12 @@ class StaticScanner {
       ? `import://${fileId}:${importPath}` 
       : `import://${importPath}`;
 
-    this.graphStore.upsertNode({
+    this.safeUpsertNode({
       id: targetId,
       type: 'placeholder',
       name: importPath,
       path: importPath,
+      content: null,
       metadata: {
         startLine: position ? position.row : 0,
         startColumn: position ? position.column : 0,
@@ -431,6 +526,52 @@ class StaticScanner {
         this.graphStore.resolveImport(node.source_id, node.id, targetId);
       }
     }
+  }
+
+  /**
+   * Task 0.8-07: Runtime Edge Ingestion
+   *
+   * Reads a runtime-trace.json produced by src/sandbox/probe.js and upserts
+   * DEPENDS_ON edges into the Intelligence Graph with source: 'runtime'.
+   *
+   * Expected trace entry shape (from probe.js):
+   *   { type: 'dependency', source: 'relative/path', target: 'relative/path', timestamp: number }
+   *
+   * Only entries with type === 'dependency' are ingested. Unknown types are
+   * silently skipped so future probe output types don't break ingestion.
+   */
+  async ingestRuntimeTrace(traceFilePath, projectRoot) {
+    let traces;
+    try {
+      traces = JSON.parse(fs.readFileSync(traceFilePath, 'utf8'));
+    } catch (e) {
+      console.error(`[StaticScanner] ingestRuntimeTrace: failed to parse ${traceFilePath}: ${e.message}`);
+      return;
+    }
+
+    if (!Array.isArray(traces)) {
+      console.error(`[StaticScanner] ingestRuntimeTrace: expected array, got ${typeof traces}`);
+      return;
+    }
+
+    let ingested = 0;
+    for (const entry of traces) {
+      if (entry.type !== 'dependency') continue;
+      if (!entry.source || !entry.target) continue;
+
+      const sourceId = `file://${entry.source}`;
+      const targetId = `file://${entry.target}`;
+
+      this.graphStore.upsertEdge({
+        source_id: sourceId,
+        target_id: targetId,
+        relation: 'DEPENDS_ON',
+        source: 'runtime'
+      });
+      ingested++;
+    }
+
+    console.error(`[StaticScanner] ingestRuntimeTrace: ingested ${ingested} runtime edge(s) from ${path.basename(traceFilePath)}`);
   }
 
   resolveLocalPath(sourcePath, importPath, projectRoot) {

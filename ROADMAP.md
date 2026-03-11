@@ -51,6 +51,12 @@ Phase 1 is human-built. Claude Code and Gemini CLI operate under the DID protoco
 - [ ] Gate 2: Code Consensus comparison logic
 - [ ] Tiebreaker fires correctly after 3 block verdicts
 - [ ] Human approval gate displays correctly and requires `go`
+- [x] 3-layer enforcement shipped
+- [x] 3,000 total / 2,000 graph-context budget policy
+- [x] 800-token ingestion truncation
+- [x] SQLite token_cap constraint
+- [x] wrapContext hard-stop + truncation note
+- [x] acceptance criteria: no payload exceeds configured budget
 - [ ] Reviewer operates blind — `ReviewerInput` type enforced, no planner output leakage
 
 ### Milestone 0.8 — Sandbox

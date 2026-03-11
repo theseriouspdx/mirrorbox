@@ -2,14 +2,25 @@
 # MBO Universal MCP Loader — Vendor-Agnostic Session Initializer
 set -uo pipefail
 
-# Redirect all status to stderr to protect JSON-RPC stdout
+# Redirect all status to stderr to protect HTTP stdout
 exec 3>&1
 exec 1>&2
 
-echo "[MBO] Initializing Session Start Protocol..."
+echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") Initializing Session Start Protocol..."
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DB_PATH="$ROOT/data/mirrorbox.db"
 AGENT="operator"
+PORT="${MBO_PORT:-3737}"
+
+# ── nvm bootstrap ─────────────────────────────────────────────────────────────
+# When launched by launchd, the user's shell profile is not sourced, so nvm is
+# not on PATH. Source nvm directly so node is available regardless of PATH env.
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+    # shellcheck source=/dev/null
+    source "$NVM_DIR/nvm.sh" --no-use
+    nvm use default --silent 2>/dev/null || true
+fi
 
 # Mode and agent selection
 for arg in "$@"; do
@@ -24,11 +35,26 @@ done
 mkdir -p "$ROOT/.dev/run"
 PID_FILE="$ROOT/.dev/run/${AGENT}.pid"
 echo $$ > "$PID_FILE"
-trap 'rm -f "$PID_FILE"; echo "[MBO] PID file cleaned up on exit."' EXIT
+trap 'rm -f "$PID_FILE"; echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") PID file cleaned up on exit."' EXIT
 
-# Database Integrity & Lock Recovery (non-fatal — warn and continue)
+# ── Port Pre-Flight ────────────────────────────────────────────────────────────
+# If a stale process is still bound to PORT, kill it before starting.
+# launchd handles respawn; the watchdog is no longer needed.
+STUCK_PID="$(lsof -ti:"$PORT" 2>/dev/null || true)"
+if [ -n "$STUCK_PID" ]; then
+    echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") Clearing port $PORT (PID $STUCK_PID)..."
+    kill -TERM "$STUCK_PID" 2>/dev/null || true
+    sleep 1
+    # Second check — SIGKILL if still alive
+    if kill -0 "$STUCK_PID" 2>/dev/null; then
+        echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") Still alive after SIGTERM — sending SIGKILL to $STUCK_PID..."
+        kill -KILL "$STUCK_PID" 2>/dev/null || true
+    fi
+fi
+
+# ── Database Integrity & Lock Recovery (non-fatal — warn and continue) ─────────
 if [ -f "$DB_PATH" ]; then
-    echo "[MBO] Verifying: $DB_PATH"
+    echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") Verifying: $DB_PATH"
     node -e "
 const Database = require('better-sqlite3');
 try {
@@ -43,16 +69,11 @@ try {
     console.error('[WARN] DB Check Error (continuing):', e.message);
 }" || echo "[WARN] DB check node process failed — continuing anyway."
 else
-    echo "[WARN] Database not found at $DB_PATH — server will create on first use."
+    echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") [WARN] Database not found at $DB_PATH — server will create on first use."
 fi
 
-echo "[MBO] Environment Verified. Launching Watchdog and MCP..."
-bash "$ROOT/scripts/mbo-watchdog.sh" "$AGENT" &
-WATCHDOG_PID=$!
-echo $WATCHDOG_PID > "$ROOT/.dev/run/watchdog-${AGENT}.pid"
+echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") Environment verified. Launching HTTP MCP server on port $PORT..."
 
-# Cleanup trap for both the shell and the watchdog
-trap 'rm -f "$PID_FILE"; rm -f "$ROOT/.dev/run/watchdog-${AGENT}.pid"; kill $WATCHDOG_PID 2>/dev/null; echo "[MBO] Cleanup complete."' EXIT TERM INT
-
+# Restore stdout before exec (mcp-server.js uses stderr for diagnostics)
 exec 1>&3
 exec node "$ROOT/src/graph/mcp-server.js" "$@"

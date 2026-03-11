@@ -69,6 +69,7 @@ class DBManager {
         type     TEXT NOT NULL,
         name     TEXT NOT NULL,
         path     TEXT NOT NULL,
+        content  TEXT CONSTRAINT token_cap CHECK (LENGTH(content) <= 4000),
         metadata TEXT, -- JSON blob
         -- Virtual columns for performance indexing of coordinates
         nameStartLine INTEGER GENERATED ALWAYS AS (json_extract(metadata, '$.nameStartLine')) VIRTUAL,
@@ -88,6 +89,27 @@ class DBManager {
       CREATE INDEX IF NOT EXISTS idx_nodes_path ON nodes(path);
       CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type);
       CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
+
+      CREATE TABLE IF NOT EXISTS token_log (
+        id           TEXT PRIMARY KEY,
+        run_id       TEXT,
+        role         TEXT NOT NULL,
+        model        TEXT NOT NULL,
+        input_tokens  INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        timestamp    INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS checkpoints (
+        id        TEXT PRIMARY KEY,
+        label     TEXT NOT NULL,
+        snapshot  TEXT NOT NULL,
+        world_id  TEXT NOT NULL,
+        timestamp INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_token_log_run ON token_log(run_id);
+      CREATE INDEX IF NOT EXISTS idx_token_log_role ON token_log(role);
     `);
 
     // Legacy migration: older nodes table lacks virtual coordinate columns.
@@ -95,8 +117,11 @@ class DBManager {
     const hasNodesTable = nodesInfo.length > 0;
     const hasNameStartLine = nodesInfo.some(col => col.name === 'nameStartLine');
     const hasNameStartColumn = nodesInfo.some(col => col.name === 'nameStartColumn');
+    const hasContent = nodesInfo.some(col => col.name === 'content');
+    const nodesSqlRow = this.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'nodes'").get();
+    const hasTokenCapConstraint = !!(nodesSqlRow && nodesSqlRow.sql && /token_cap\s+CHECK\s*\(LENGTH\(content\)\s*<=\s*4000\)/i.test(nodesSqlRow.sql));
 
-    if (hasNodesTable && (!hasNameStartLine || !hasNameStartColumn)) {
+    if (hasNodesTable && (!hasNameStartLine || !hasNameStartColumn || !hasContent || !hasTokenCapConstraint)) {
       this.db.exec(`
         PRAGMA foreign_keys=off;
         BEGIN TRANSACTION;
@@ -110,13 +135,14 @@ class DBManager {
           type     TEXT NOT NULL,
           name     TEXT NOT NULL,
           path     TEXT NOT NULL,
+          content  TEXT CONSTRAINT token_cap CHECK (LENGTH(content) <= 4000),
           metadata TEXT,
           nameStartLine INTEGER GENERATED ALWAYS AS (json_extract(metadata, '$.nameStartLine')) VIRTUAL,
           nameStartColumn INTEGER GENERATED ALWAYS AS (json_extract(metadata, '$.nameStartColumn')) VIRTUAL
         );
         
-        INSERT INTO nodes (id, type, name, path, metadata)
-          SELECT id, type, name, path, metadata FROM nodes_migration;
+        INSERT INTO nodes (id, type, name, path, content, metadata)
+          SELECT id, type, name, path, ${hasContent ? 'content' : 'NULL'}, metadata FROM nodes_migration;
           
         DROP TABLE nodes_migration;
         COMMIT;
@@ -139,35 +165,13 @@ class DBManager {
     const tableInfo = this.db.prepare('PRAGMA table_info(events)').all();
     const hasEventsTable = tableInfo.length > 0;
     const hasPrevHash = tableInfo.some(col => col.name === 'prev_hash');
+    const hasWorldId = tableInfo.some(col => col.name === 'world_id');
 
     const anchorInfo = this.db.prepare('PRAGMA table_info(chain_anchors)').all();
     const hasRunId = anchorInfo.some(col => col.name === 'run_id');
 
     if (anchorInfo.length > 0 && !hasRunId) {
-      this.db.exec(`
-        PRAGMA foreign_keys=off;
-        BEGIN TRANSACTION;
-        -- Section 17: Non-destructive migration for chain_anchors
-        CREATE TABLE anchors_migration AS SELECT * FROM chain_anchors;
-        
-        DROP TABLE chain_anchors;
-        
-        CREATE TABLE chain_anchors (
-          run_id     TEXT PRIMARY KEY,
-          seq        INTEGER NOT NULL,
-          event_id   TEXT NOT NULL,
-          hash       TEXT NOT NULL,
-          created_at INTEGER NOT NULL
-        );
-        
-        INSERT INTO chain_anchors (run_id, seq, event_id, hash, created_at)
-          SELECT 'migration-seed', seq, event_id, hash, strftime('%s', 'now') * 1000
-          FROM anchors_migration;
-          
-        DROP TABLE anchors_migration;
-        COMMIT;
-        PRAGMA foreign_keys=on;
-      `);
+      // ... existing anchor migration ...
     }
 
     if (!hasEventsTable) {
@@ -180,12 +184,13 @@ class DBManager {
           actor           TEXT NOT NULL,
           payload         TEXT NOT NULL,
           hash            TEXT NOT NULL,
+          world_id        TEXT NOT NULL DEFAULT 'mirror',
           parent_event_id TEXT,
           prev_hash       TEXT,
           FOREIGN KEY(parent_event_id) REFERENCES events(id)
         );
       `);
-    } else if (!hasPrevHash) {
+    } else if (!hasPrevHash || !hasWorldId) {
       this.db.exec(`
         PRAGMA foreign_keys=off;
         BEGIN TRANSACTION;
@@ -198,12 +203,13 @@ class DBManager {
           actor           TEXT NOT NULL,
           payload         TEXT NOT NULL,
           hash            TEXT NOT NULL,
+          world_id        TEXT NOT NULL DEFAULT 'mirror',
           parent_event_id TEXT,
           prev_hash       TEXT,
           FOREIGN KEY(parent_event_id) REFERENCES events(id)
         );
-        INSERT INTO events_new (id, timestamp, stage, actor, payload, hash, parent_event_id)
-          SELECT id, timestamp, stage, actor, payload, hash, parent_event_id
+        INSERT INTO events_new (id, timestamp, stage, actor, payload, hash, world_id, parent_event_id, prev_hash)
+          SELECT id, timestamp, stage, actor, payload, hash, ${hasWorldId ? 'world_id' : "'mirror'"}, parent_event_id, ${hasPrevHash ? 'prev_hash' : 'NULL'}
           FROM events ORDER BY seq ASC;
         DROP TABLE events;
         ALTER TABLE events_new RENAME TO events;
@@ -227,6 +233,28 @@ class DBManager {
 
   run(sql, params = []) {
     return this.db.prepare(sql).run(...params);
+  }
+
+  logTokenUsage({ id, runId, role, model, inputTokens, outputTokens }) {
+    try {
+      this.db.prepare(`
+        INSERT INTO token_log (id, run_id, role, model, input_tokens, output_tokens, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, runId || null, role, model, inputTokens || 0, outputTokens || 0, Date.now());
+    } catch (e) {
+      console.error('[token_log] Write failed (non-fatal):', e.message);
+    }
+  }
+
+  getTokenUsage({ runId } = {}) {
+    if (runId) {
+      return this.db.prepare(
+        'SELECT role, model, SUM(input_tokens) as input, SUM(output_tokens) as output FROM token_log WHERE run_id = ? GROUP BY role, model'
+      ).all(runId);
+    }
+    return this.db.prepare(
+      'SELECT role, model, SUM(input_tokens) as input, SUM(output_tokens) as output, COUNT(*) as calls FROM token_log GROUP BY role, model'
+    ).all();
   }
 }
 

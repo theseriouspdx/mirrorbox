@@ -107,7 +107,7 @@ cat > "$NEXT_DATA" <<EOF
 
 **Graph queries to run at Gate 0:**
 \`\`\`
-graph_search("${LAST_TASK_NAME}")
+graph_search("${NEXT_TASK_DESC}")
 \`\`\`
 
 ---

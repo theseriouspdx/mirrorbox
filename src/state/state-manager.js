@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('./db-manager');
 const eventStore = require('./event-store');
+const { randomUUID } = require('crypto');
 
 const STATE_JSON_PATH = path.join(__dirname, '../../data/state.json');
 const HANDOFF_MD_PATH = path.join(__dirname, '../../data/NEXT_SESSION.md');
@@ -11,19 +12,39 @@ class StateManager {
    * Invariant 13: Immutable Pre-Mutation Checkpoint
    * Required before any mutation in either world.
    */
-  checkpoint(worldId = 'mirror') {
+  checkpoint(worldId) {
+    // Invariant 13: world_id must be 'mirror' or 'subject'.
     if (worldId !== 'mirror' && worldId !== 'subject') {
       throw new Error(`[INVARIANT VIOLATION] Invalid world_id: ${worldId}. Must be 'mirror' or 'subject'.`);
     }
+
+    const snapshot = JSON.stringify(this.recover() || {});
+    const id = randomUUID();
+
+    db.run(`
+      INSERT INTO checkpoints (id, label, snapshot, world_id, timestamp)
+      VALUES (?, ?, ?, ?, ?)
+    `, [id, `checkpoint-${Date.now()}`, snapshot, worldId, Date.now()]);
+
     const lastEvent = db.get('SELECT id, hash, seq FROM events ORDER BY seq DESC LIMIT 1');
     const checkpoint = {
+      checkpointId: id,
       worldId,
       timestamp: Date.now(),
       parentHash: lastEvent ? lastEvent.hash : 'anchor',
-      parentSeq: lastEvent ? lastEvent.seq : 0
+      parentSeq: lastEvent ? lastEvent.seq : 0,
+      snapshotSize: snapshot.length
     };
     eventStore.append('CHECKPOINT', 'state-manager', checkpoint, worldId);
     return checkpoint;
+  }
+
+  rollback(checkpointId) {
+    const row = db.get('SELECT snapshot FROM checkpoints WHERE id = ?', [checkpointId]);
+    if (!row) throw new Error(`Checkpoint ${checkpointId} not found.`);
+    const state = JSON.parse(row.snapshot);
+    fs.writeFileSync(STATE_JSON_PATH, JSON.stringify(state, null, 2));
+    eventStore.append('ROLLBACK', 'state-manager', { checkpointId }, 'mirror');
   }
 
   /**

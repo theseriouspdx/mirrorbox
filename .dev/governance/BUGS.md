@@ -73,32 +73,15 @@
 - **Location:** `src/graph/mcp-server.js`
 - **Status:** FIXED — Implemented `GraphService.shutdown()` and PRAGMA wal_checkpoint.
 
-### BUG-009: Graph staleness detection not specified | Milestone: 0.4 | OPEN
-### BUG-010: Tiebreaker reviewer block loop undefined | Milestone: 0.7 | FIXED
-- **Location:** `src/auth/operator.js`
-- **Status:** FIXED — Added max retry count of 3 for tiebreaker audit.
+### BUG-009: Staleness Detection (Merkle Pulse Check) | Milestone: 1.0 | COMPLETED
+- **Location:** `bin/handshake.py`
+- **Severity:** High
+- **Status:** COMPLETED — Implemented Merkle Pulse Check and audit logging.
 
-### BUG-011: HardState truncation priority undefined | Milestone: 0.6 | FIXED
-- **Location:** `src/auth/operator.js`
-- **Status:** FIXED — Implemented priority: 1. graphSummary, 2. dangerZones, 3. onboardingProfile.
-
-### BUG-012: Smoke test failure loop has no maximum retry count | Milestone: 0.7 | FIXED
-- **Location:** `src/auth/operator.js`
-- **Status:** FIXED — Added max recoveryAttempts limit of 3 in handleApproval.
-
-### BUG-042: `graphSummary` truncation branch unreachable | Milestone: 0.7 | FIXED
-- **Location:** `src/auth/operator.js`
-- **Status:** FIXED — `graphSummary` populated in Stage 11.
-
-### BUG-043: PID file not written for default agent name | Milestone: 0.6 | FIXED
-- **Location:** `scripts/mbo-start.sh`
-- **Status:** FIXED — Always writes PID file for all agent names.
-
-### BUG-037: MCP lifecycle owned by CLI client configs, not orchestrator | Milestone: 0.9 | OPEN
-- **Location:** `.mcp.json` (Claude), `.gemini/settings.json` (Gemini)
-- **Impact:** MCP auto-start only works in CLI environments. VS Code extension and hosted web app have no equivalent mechanism.
-- **Correct fix:** Wire `mbo-start.sh` as the `startCommand` for the `mbo-graph` dependency in `gate0.config.json` so the orchestrator owns the lifecycle regardless of surface.
-- **Current workaround:** CLI-specific auto-start configs are sufficient for Phase 1. Do not rely on them past Milestone 0.9.
+### BUG-037: MCP lifecycle owned by CLI client configs | Milestone: 1.0 | COMPLETED
+- **Location:** `bin/mbo_server.py`, `src/graph/mcp-server.js`
+- **Severity:** Medium
+- **Status:** COMPLETED — Decoupled MCP server via independent Python host.
 
 ### Milestone 0.3
 - **BUG-023:** Fixed redactor callback offset/group1 confusion in `redactor.js`.

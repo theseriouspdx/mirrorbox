@@ -24,15 +24,31 @@ while true; do
   fi
 
   # Enforce timeout policy (Section 18)
-  # etime= format is [[dd-]hh:]mm:ss
-  ETIME=$(ps -p "$MCP_PID" -o etime= | tr -d ' ')
-  
-  # Check if elapsed time suggests a hang (coarse check for demonstration)
-  # For 0.7, we'll implement a simple threshold-based termination if active too long
-  if [[ "$ETIME" == *-* || "$ETIME" == *:* ]]; then
-    # If etime contains a dash (days) or colon (hours/mins), check thresholds
-    # This is a placeholder for the more complex logic in 0.8
-    echo "[WATCHDOG] Process ${MCP_PID} running for ${ETIME}; enforcing timeout policy"
+  # etime= format is [[dd-]hh:]mm:ss. We parse this into total seconds.
+  ETIME_RAW=$(ps -p "$MCP_PID" -o etime= | tr -d ' ')
+  if [[ -z "$ETIME_RAW" ]]; then continue; fi
+
+  # Split by days and clock
+  if [[ "$ETIME_RAW" == *"-"* ]]; then
+    DAYS="${ETIME_RAW%%-*}"
+    CLOCK="${ETIME_RAW#*-}"
+  else
+    DAYS=0
+    CLOCK="$ETIME_RAW"
+  fi
+
+  # Parse clock components (hh:mm:ss or mm:ss)
+  IFS=: read -r -a PARTS <<< "$CLOCK"
+  if [[ ${#PARTS[@]} -eq 3 ]]; then
+    ELAPSED_SEC=$(( (10#$DAYS * 86400) + (10#${PARTS[0]} * 3600) + (10#${PARTS[1]} * 60) + 10#${PARTS[2]} ))
+  elif [[ ${#PARTS[@]} -eq 2 ]]; then
+    ELAPSED_SEC=$(( (10#$DAYS * 86400) + (10#${PARTS[0]} * 60) + 10#${PARTS[1]} ))
+  else
+    ELAPSED_SEC=$(( (10#$DAYS * 86400) + 10#${PARTS[0]} ))
+  fi
+
+  if (( ELAPSED_SEC > TIMEOUT_SEC )); then
+    echo "[WATCHDOG] Process ${MCP_PID} exceeded timeout (${ELAPSED_SEC}s > ${TIMEOUT_SEC}s); enforcing policy"
     kill -TERM "$MCP_PID" 2>/dev/null || true
     sleep 5
     kill -KILL "$MCP_PID" 2>/dev/null || true
