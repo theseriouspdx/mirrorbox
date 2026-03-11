@@ -2,6 +2,11 @@
 ## [0.8-08] - 2026-03-10
 ### Fixed
 - **BUG-013**: Implemented CLI sandbox interaction focus mechanism via `ctrl+f`.
+- **BUG-036**: Implemented clean shutdown WAL checkpointing in `mcp-server.js`.
+- **BUG-042**: Populated `graphSummary` in Stage 11 update to enable HardState truncation logic.
+- **BUG-010**: Added max retry limit (3) for Tiebreaker code derivation loop.
+- **BUG-011**: Defined HardState truncation priority.
+- **BUG-012**: Added max recoveryAttempts limit (3) for pipeline failure loop.
 - **src/index.js**: Enabled raw mode and keypress detection.
 - **src/auth/operator.js**: Added `sandboxFocus` state and `processMessage` interception.
 

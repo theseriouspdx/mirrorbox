@@ -1,5 +1,9 @@
+'use strict';
+
+const http = require('http');
+const { randomUUID } = require('crypto');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
-const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
+const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
 const {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -13,77 +17,73 @@ const { DBManager } = require('../state/db-manager.js');
 const GraphStore = require('./graph-store.js');
 const StaticScanner = require('./static-scanner.js');
 
-class GraphMCPServer {
-  constructor() {
-    this.parseArgs();
-    
-    this.server = new Server(
-      {
-        name: `mbo-graph-server-${this.mode}`,
-        version: '0.1.0',
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      }
-    );
+// ─── Argument Parsing ─────────────────────────────────────────────────────────
 
-    const dbPath = this.mode === 'dev' 
-      ? path.join(this.root, '.dev/data/dev-graph.db')
-      : path.join(this.root, 'data/mirrorbox.db');
+function parseArgs() {
+  const args = process.argv.slice(2);
+  let mode = 'runtime';
+  let root = process.cwd();
+  for (const arg of args) {
+    if (arg.startsWith('--mode=')) mode = arg.split('=')[1];
+    else if (arg.startsWith('--root=')) root = arg.split('=')[1];
+  }
+  return { mode, root };
+}
+
+// ─── GraphService Singleton ───────────────────────────────────────────────────
+//
+// Owns all persistent state: DB, GraphStore, StaticScanner, write queue,
+// and the isScanning mutex. All MCP tool calls delegate here.
+// Per-session Server shells are thin wrappers that share this instance.
+
+class GraphService {
+  constructor(mode, root) {
+    this.mode = mode;
+    this.root = root;
+
+    // Coarse scan mutex — prevents concurrent full rescans from stepping on each other.
+    // Set with a finally block in every scanning tool to guarantee release.
+    this.isScanning = false;
+
+    const dbPath = mode === 'dev'
+      ? path.join(root, '.dev/data/dev-graph.db')
+      : path.join(root, 'data/mirrorbox.db');
 
     this.db = new DBManager(dbPath);
     this.graphStore = new GraphStore(this.db);
     this.scanner = new StaticScanner(this.graphStore, {
-      instanceType: this.mode,
-      scanRoots: [path.join(this.root, 'src')]
+      instanceType: mode,
+      scanRoots: [path.join(root, 'src')]
     });
 
-    this.setupToolHandlers();
-    
-    // Error handling
-    this.server.onerror = (error) => console.error('[MCP Error]', error);
-    
-    const shutdown = async () => {
-      console.error('[MCP] Shutting down graph server...');
-      await this.server.close();
-      process.exit(0);
-    };
-
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
-    process.on('uncaughtException', (error) => {
-      console.error('[CRITICAL] Uncaught Exception:', error);
-      shutdown();
-    });
+    // Promise-chain write queue — serializes all graph-mutating async operations.
+    // better-sqlite3 is synchronous but `await` yield points between DB calls
+    // allow the event loop to interleave requests; this queue prevents races.
+    this._writeQueue = Promise.resolve();
   }
 
-  parseArgs() {
-    const args = process.argv.slice(2);
-    this.mode = 'runtime';
-    this.root = process.cwd();
-
-    for (let i = 0; i < args.length; i++) {
-      if (args[i].startsWith('--mode=')) {
-        this.mode = args[i].split('=')[1];
-      } else if (args[i].startsWith('--root=')) {
-        this.root = args[i].split('=')[1];
-      }
-    }
+  // Enqueue a graph-mutating operation. `fn` must return a Promise.
+  // Errors are swallowed at the queue boundary to keep the chain alive.
+  enqueueWrite(fn) {
+    this._writeQueue = this._writeQueue
+      .then(fn)
+      .catch((err) => {
+        console.error(`[GraphService] ${new Date().toISOString()} Write queue error: ${err.message}`);
+      });
+    return this._writeQueue;
   }
 
-  setupToolHandlers() {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  // ── Tool Definitions ────────────────────────────────────────────────────────
+
+  listTools() {
+    return {
       tools: [
         {
           name: 'graph_query_impact',
           description: 'Given a node ID, return all nodes that would be affected by a change (up to 3 degrees of separation).',
           inputSchema: {
             type: 'object',
-            properties: {
-              nodeId: { type: 'string', description: 'The URI ID of the node.' },
-            },
+            properties: { nodeId: { type: 'string', description: 'The URI ID of the node.' } },
             required: ['nodeId'],
           },
         },
@@ -92,9 +92,7 @@ class GraphMCPServer {
           description: 'Return all nodes that call a given function.',
           inputSchema: {
             type: 'object',
-            properties: {
-              nodeId: { type: 'string', description: 'The URI ID of the node.' },
-            },
+            properties: { nodeId: { type: 'string', description: 'The URI ID of the node.' } },
             required: ['nodeId'],
           },
         },
@@ -103,9 +101,7 @@ class GraphMCPServer {
           description: 'Return the full dependency chain for a file or function.',
           inputSchema: {
             type: 'object',
-            properties: {
-              nodeId: { type: 'string', description: 'The URI ID of the node.' },
-            },
+            properties: { nodeId: { type: 'string', description: 'The URI ID of the node.' } },
             required: ['nodeId'],
           },
         },
@@ -114,9 +110,7 @@ class GraphMCPServer {
           description: 'Return tests that cover a given function or file.',
           inputSchema: {
             type: 'object',
-            properties: {
-              nodeId: { type: 'string', description: 'The URI ID of the node.' },
-            },
+            properties: { nodeId: { type: 'string', description: 'The URI ID of the node.' } },
             required: ['nodeId'],
           },
         },
@@ -125,9 +119,7 @@ class GraphMCPServer {
           description: 'Search nodes by name, path, or type.',
           inputSchema: {
             type: 'object',
-            properties: {
-              pattern: { type: 'string', description: 'Search pattern for name, path, or id.' },
-            },
+            properties: { pattern: { type: 'string', description: 'Search pattern for name, path, or id.' } },
             required: ['pattern'],
           },
         },
@@ -137,99 +129,333 @@ class GraphMCPServer {
           inputSchema: {
             type: 'object',
             properties: {
-              modifiedFiles: { 
-                type: 'array', 
+              modifiedFiles: {
+                type: 'array',
                 items: { type: 'string' },
-                description: 'List of relative file paths that were modified.'
+                description: 'List of relative file paths that were modified.',
               },
             },
             required: ['modifiedFiles'],
           },
-        }
+        },
+        {
+          name: 'graph_rescan',
+          description: 'Trigger a full graph rescan of the source directory. Queued — safe to call while another scan may be running.',
+          inputSchema: { type: 'object', properties: {} },
+        },
+        {
+          name: 'graph_ingest_runtime_trace',
+          description: 'Ingest a runtime-trace.json produced by the sandbox probe into the Intelligence Graph as runtime-source edges (Task 0.8-07).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              traceFile: { type: 'string', description: 'Relative path to runtime-trace.json from project root.' },
+            },
+            required: ['traceFile'],
+          },
+        },
+        {
+          name: 'get_token_usage',
+          description: 'Cumulative token usage per role/model. Optional run_id filter.',
+          inputSchema: {
+            type: 'object',
+            properties: { run_id: { type: 'string', description: 'Optional pipeline run UUID.' } },
+          },
+        },
       ],
-    }));
+    };
+  }
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      // E1 EXPERIMENT LOGGER — stderr only, does not affect JSON-RPC stream
-      console.error(`[TOOL CALL] ${new Date().toISOString()} ${request.params.name} args: ${JSON.stringify(request.params.arguments)}`);
-      try {
-        switch (request.params.name) {
-          case 'graph_query_impact': {
-            const { nodeId } = request.params.arguments;
-            const result = this.graphStore.getGraphQueryResult(nodeId);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-          }
-          
-          case 'graph_query_callers': {
-            const { nodeId } = request.params.arguments;
-            const callers = this.graphStore.getCallers(nodeId);
-            return { content: [{ type: 'text', text: JSON.stringify(callers, null, 2) }] };
-          }
-          
-          case 'graph_query_dependencies': {
-            const { nodeId } = request.params.arguments;
-            const dependencies = this.graphStore.getDependencies(nodeId);
-            return { content: [{ type: 'text', text: JSON.stringify(dependencies, null, 2) }] };
-          }
-          
-          case 'graph_query_coverage': {
-            const { nodeId } = request.params.arguments;
-            const coveringTests = this.graphStore.getCoverage(nodeId);
-            return { content: [{ type: 'text', text: JSON.stringify(coveringTests, null, 2) }] };
-          }
+  // ── Tool Dispatch ───────────────────────────────────────────────────────────
 
-          case 'graph_search': {
-            const { pattern } = request.params.arguments;
-            const results = this.graphStore.search(pattern);
-            return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
-          }
+  async callTool(name, args) {
+    // E1 EXPERIMENT LOGGER — stderr only, does not affect HTTP response stream
+    console.error(`[TOOL CALL] ${new Date().toISOString()} ${name} args: ${JSON.stringify(args)}`);
 
-          case 'graph_update_task': {
-            const { modifiedFiles } = request.params.arguments;
-            for (const file of modifiedFiles) {
+    switch (name) {
+      case 'graph_query_impact': {
+        const result = this.graphStore.getGraphQueryResult(args.nodeId);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case 'graph_query_callers': {
+        const callers = this.graphStore.getCallers(args.nodeId);
+        return { content: [{ type: 'text', text: JSON.stringify(callers, null, 2) }] };
+      }
+
+      case 'graph_query_dependencies': {
+        const dependencies = this.graphStore.getDependencies(args.nodeId);
+        return { content: [{ type: 'text', text: JSON.stringify(dependencies, null, 2) }] };
+      }
+
+      case 'graph_query_coverage': {
+        const coveringTests = this.graphStore.getCoverage(args.nodeId);
+        return { content: [{ type: 'text', text: JSON.stringify(coveringTests, null, 2) }] };
+      }
+
+      case 'graph_search': {
+        const results = this.graphStore.search(args.pattern);
+        return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+      }
+
+      case 'graph_update_task': {
+        // Queued write: scan modified files then enrich
+        return this.enqueueWrite(async () => {
+          if (this.isScanning) {
+            return {
+              content: [{ type: 'text', text: 'Scan already in progress. Try again shortly.' }],
+              isError: true,
+            };
+          }
+          this.isScanning = true;
+          try {
+            for (const file of (args.modifiedFiles || [])) {
               const absPath = path.resolve(this.root, file);
               if (fs.existsSync(absPath)) {
                 await this.scanner.scanFile(absPath, this.root);
               }
             }
             await this.scanner.enrich(this.root);
-            return { content: [{ type: 'text', text: `Graph updated for ${modifiedFiles.length} files.` }] };
+            return { content: [{ type: 'text', text: `Graph updated for ${(args.modifiedFiles || []).length} files.` }] };
+          } finally {
+            this.isScanning = false;
           }
-
-          default:
-            throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
-        }
-      } catch (error) {
-        if (error instanceof McpError) throw error;
-        return {
-          content: [{ type: 'text', text: `Error: ${error.message}` }],
-          isError: true,
-        };
+        });
       }
-    });
+
+      case 'graph_rescan': {
+        // Queued write: full directory rescan
+        return this.enqueueWrite(async () => {
+          if (this.isScanning) {
+            return {
+              content: [{ type: 'text', text: 'Scan already in progress. Try again shortly.' }],
+              isError: true,
+            };
+          }
+          this.isScanning = true;
+          try {
+            console.error(`[GraphService] ${new Date().toISOString()} Starting full rescan of src/...`);
+            await this.scanner.scanDirectory(path.join(this.root, 'src'), this.root);
+            await this.scanner.enrich(this.root);
+            console.error(`[GraphService] ${new Date().toISOString()} Rescan complete.`);
+            return { content: [{ type: 'text', text: 'Full graph rescan complete.' }] };
+          } finally {
+            this.isScanning = false;
+          }
+        });
+      }
+
+      case 'graph_ingest_runtime_trace': {
+        // Queued write: ingest runtime trace (Task 0.8-07)
+        return this.enqueueWrite(async () => {
+          const traceAbsPath = path.resolve(this.root, args.traceFile);
+          if (!fs.existsSync(traceAbsPath)) {
+            return {
+              content: [{ type: 'text', text: `Runtime trace not found: ${args.traceFile}` }],
+              isError: true,
+            };
+          }
+          await this.scanner.ingestRuntimeTrace(traceAbsPath, this.root);
+          return { content: [{ type: 'text', text: `Runtime trace ingested from ${args.traceFile}.` }] };
+        });
+      }
+
+      case 'get_token_usage': {
+        const rows = this.db.getTokenUsage({ runId: args?.run_id });
+        const total = rows.reduce(
+          (acc, r) => ({ input: acc.input + r.input, output: acc.output + r.output }),
+          { input: 0, output: 0 }
+        );
+        return { content: [{ type: 'text', text: JSON.stringify({ rows, total }, null, 2) }] };
+      }
+
+      default:
+        throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
+    }
   }
 
-  async run() {
-    if (this.mode === 'dev') {
-      console.error(`[Dev Mode] Initializing dev-graph at ${this.db.dbPath}`);
-      // Index SPEC.md if it exists
-      const specPath = path.join(this.root, '.dev/spec/SPEC.md');
-      if (fs.existsSync(specPath)) {
-        console.error(`[Dev Mode] Indexing SPEC.md...`);
-        await this.scanner.scanFile(specPath, this.root);
-      }
-      // Index src/ if not already done or for fresh start
-      console.error(`[Dev Mode] Scanning src/ directory...`);
-      await this.scanner.scanDirectory(path.join(this.root, 'src'), this.root);
-      console.error(`[Dev Mode] Enriching graph (LSP)...`);
-      await this.scanner.enrich(this.root);
-    }
+  // ── Dev-Mode Initial Scan ───────────────────────────────────────────────────
 
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error(`Graph MCP Server (${this.mode}) running on stdio`);
+  async initDev() {
+    const specPath = path.join(this.root, '.dev/spec/SPEC.md');
+    if (fs.existsSync(specPath)) {
+      console.error(`[GraphService] ${new Date().toISOString()} Indexing SPEC.md...`);
+      await this.scanner.scanFile(specPath, this.root);
+    }
+    console.error(`[GraphService] ${new Date().toISOString()} Scanning src/...`);
+    await this.scanner.scanDirectory(path.join(this.root, 'src'), this.root);
+    console.error(`[GraphService] ${new Date().toISOString()} Enriching graph (LSP)...`);
+    await this.scanner.enrich(this.root);
+    console.error(`[GraphService] ${new Date().toISOString()} Dev init complete.`);
+  }
+
+  /**
+   * BUG-036: Clean shutdown WAL checkpointing.
+   */
+  async shutdown() {
+    console.error(`[GraphService] ${new Date().toISOString()} Running final WAL checkpoint...`);
+    try {
+      this.db.run('PRAGMA wal_checkpoint(TRUNCATE)');
+      console.error(`[GraphService] ${new Date().toISOString()} Checkpoint complete.`);
+    } catch (e) {
+      console.error(`[GraphService] ${new Date().toISOString()} Checkpoint failed: ${e.message}`);
+    }
   }
 }
 
-const server = new GraphMCPServer();
-server.run().catch(console.error);
+// ─── Per-Session MCP Shell Factory ───────────────────────────────────────────
+//
+// Creates a fresh StreamableHTTPServerTransport + thin Server shell per client
+// initialize handshake. The shell delegates all tool calls to the shared
+// graphService singleton so state is never duplicated across sessions.
+
+async function createSession(graphService, mode, sessions) {
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+    onsessioninitialized: (id) => {
+      sessions.set(id, transport);
+      console.error(`[MCP] ${new Date().toISOString()} Session initialized: ${id}`);
+    },
+    onsessionclosed: (id) => {
+      sessions.delete(id);
+      console.error(`[MCP] ${new Date().toISOString()} Session closed: ${id}`);
+    },
+  });
+
+  const mcpShell = new Server(
+    { name: `mbo-graph-server-${mode}`, version: '0.1.0' },
+    { capabilities: { tools: {} } }
+  );
+
+  // Delegate all requests to the shared GraphService
+  mcpShell.setRequestHandler(ListToolsRequestSchema, async () => graphService.listTools());
+  mcpShell.setRequestHandler(CallToolRequestSchema, async (req) => {
+    try {
+      return await graphService.callTool(req.params.name, req.params.arguments);
+    } catch (error) {
+      if (error instanceof McpError) throw error;
+      return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
+    }
+  });
+
+  // connect() wires the server to the transport (synchronous handler registration,
+  // async only for the no-op start()). Await to be safe.
+  await mcpShell.connect(transport);
+  return transport;
+}
+
+// ─── HTTP Server + Session Router ────────────────────────────────────────────
+
+async function main() {
+  const { mode, root } = parseArgs();
+  const PORT = parseInt(process.env.MBO_PORT || '3737', 10);
+
+  console.error(`[MCP] ${new Date().toISOString()} Starting Graph MCP Server (${mode}) on port ${PORT}...`);
+
+  const graphService = new GraphService(mode, root);
+
+  if (mode === 'dev') {
+    console.error(`[MCP] ${new Date().toISOString()} Dev mode: initializing graph at ${graphService.db.dbPath}`);
+    await graphService.initDev();
+  }
+
+  // sessions: Map<sessionId, StreamableHTTPServerTransport>
+  // Populated by onsessioninitialized, cleaned up by onsessionclosed.
+  const sessions = new Map();
+
+  const httpServer = http.createServer(async (req, res) => {
+    // Route: /mcp only
+    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    if (url.pathname !== '/mcp') {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Not found. Use /mcp.' }));
+    }
+
+    try {
+      if (req.method === 'POST') {
+        // Accumulate body before routing
+        let body = '';
+        await new Promise((resolve, reject) => {
+          req.on('data', (chunk) => { body += chunk; });
+          req.on('end', resolve);
+          req.on('error', reject);
+        });
+
+        let parsedBody;
+        try { parsedBody = JSON.parse(body); } catch (_) { parsedBody = undefined; }
+
+        const sessionId = req.headers['mcp-session-id'];
+
+        if (sessionId) {
+          // Route to existing session
+          const transport = sessions.get(sessionId);
+          if (!transport) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Session not found' } }));
+          }
+          return await transport.handleRequest(req, res, parsedBody);
+        }
+
+        // No session ID → new client initializing; create transport + shell
+        const transport = await createSession(graphService, mode, sessions);
+        return await transport.handleRequest(req, res, parsedBody);
+
+      } else if (req.method === 'GET' || req.method === 'DELETE') {
+        // GET (SSE subscription) and DELETE (session close) always require a session ID
+        const sessionId = req.headers['mcp-session-id'];
+        if (!sessionId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'mcp-session-id header required' }));
+        }
+        const transport = sessions.get(sessionId);
+        if (!transport) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Session not found' }));
+        }
+        return await transport.handleRequest(req, res);
+
+      } else {
+        res.writeHead(405, { Allow: 'GET, POST, DELETE' });
+        res.end();
+      }
+    } catch (err) {
+      console.error(`[MCP] ${new Date().toISOString()} Request handler error:`, err);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Internal server error' }));
+      }
+    }
+  });
+
+  // Tune keep-alive to avoid ghost connections hanging on restart
+  httpServer.keepAliveTimeout = 30000;
+  httpServer.headersTimeout = 35000;
+
+  httpServer.listen(PORT, '127.0.0.1', () => {
+    console.error(`[MCP] ${new Date().toISOString()} Graph MCP Server (${mode}) listening on http://127.0.0.1:${PORT}/mcp`);
+  });
+
+  const shutdown = async () => {
+    console.error(`[MCP] ${new Date().toISOString()} Shutting down graph server...`);
+    for (const transport of sessions.values()) {
+      try { await transport.close(); } catch (_) {}
+    }
+    await graphService.shutdown();
+    httpServer.close(() => {
+      console.error(`[MCP] ${new Date().toISOString()} HTTP server closed.`);
+      process.exit(0);
+    });
+  };
+
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+  process.on('uncaughtException', (error) => {
+    console.error(`[CRITICAL] ${new Date().toISOString()} Uncaught Exception:`, error);
+    shutdown();
+  });
+}
+
+main().catch((err) => {
+  console.error(`[FATAL] ${new Date().toISOString()} mcp-server startup failed:`, err);
+  process.exit(1);
+});

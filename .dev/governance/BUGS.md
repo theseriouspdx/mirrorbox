@@ -69,33 +69,30 @@
 - Severity: P1
 - Status: COMPLETED — Section 18 Watchdog implemented. Monitors for high CPU/hung processes and SIGKILLs on violation. launchd/parent handles respawn.
 
-### BUG-036: `mcp-server.js` shutdown() does not WAL-checkpoint before exit | Milestone: 0.6 | OPEN
-- **Location:** `src/graph/mcp-server.js` — `shutdown()` calls `server.close()` + `process.exit(0)` without running `PRAGMA wal_checkpoint(TRUNCATE)`.
-- **Impact:** On SIGTERM/SIGKILL, any unflushed WAL data is not checkpointed. Next session start checkpoints on launch (existing behaviour), so data is not lost — only the shutdown is not fully clean.
-- **Mitigation until fixed:** 5-second SIGTERM grace period in `mbo-session-close.sh --terminate-mcp` allows in-flight ops to complete before the checkpoint-on-startup fallback.
+### BUG-036: `mcp-server.js` shutdown() does not WAL-checkpoint before exit | Milestone: 0.6 | FIXED
+- **Location:** `src/graph/mcp-server.js`
+- **Status:** FIXED — Implemented `GraphService.shutdown()` and PRAGMA wal_checkpoint.
 
 ### BUG-009: Graph staleness detection not specified | Milestone: 0.4 | OPEN
-### BUG-010: Tiebreaker reviewer block loop undefined | Milestone: 0.7 | OPEN
-### BUG-011: HardState truncation priority undefined | Milestone: 0.6 | OPEN
-### BUG-012: Smoke test failure loop has no maximum retry count | Milestone: 0.7 | OPEN
+### BUG-010: Tiebreaker reviewer block loop undefined | Milestone: 0.7 | FIXED
+- **Location:** `src/auth/operator.js`
+- **Status:** FIXED — Added max retry count of 3 for tiebreaker audit.
 
-### BUG-038: graph_query_impact returns empty callers/callees — cross-file edges not built | Milestone: 0.6 | COMPLETED
-- **Location:** `src/graph/static-scanner.js`
-- **Severity:** P1
-- **Status:** COMPLETED — Static import resolution fallback implemented. Placeholder ID collision fixed. Verified cross-file impact queries.
-- **Audit:** PASS (2026-03-09, Gemini CLI)
-- **Root cause:** LSP enrichment required a running language server. No JS LSP is configured for dev mode.
-- **Fix:** Implemented relative path resolution in `static-scanner.js` to build `IMPORTS` edges without LSP. Fixed placeholder ID collision by making relative IDs unique to source file.
-- **Workaround until fixed:** NEXT_SESSION.md must explicitly list the relevant files alongside graph queries so agents don't have to infer them from impact results. (Workaround deprecated)
+### BUG-011: HardState truncation priority undefined | Milestone: 0.6 | FIXED
+- **Location:** `src/auth/operator.js`
+- **Status:** FIXED — Implemented priority: 1. graphSummary, 2. dangerZones, 3. onboardingProfile.
 
-### BUG-042: `graphSummary` truncation branch unreachable | Milestone: 0.7 | OPEN
-- **Location:** `src/auth/operator.js` — `getHardState()` reads `graphSummary` from `this.stateSummary.graphSummary`, which is never populated. Field always falls to 8-word default (~11 tokens). First truncation branch cannot fire in production.
-- **Fix:** Wire `stateSummary.graphSummary` to real graph output when graph summary is used (0.7+).
+### BUG-012: Smoke test failure loop has no maximum retry count | Milestone: 0.7 | FIXED
+- **Location:** `src/auth/operator.js`
+- **Status:** FIXED — Added max recoveryAttempts limit of 3 in handleApproval.
 
-### BUG-043: PID file not written for default agent name | Milestone: 0.6 | OPEN
-- **Location:** `scripts/mbo-start.sh:24` — `if [[ "$AGENT" != "operator" ]]` skips PID write when no `--agent` flag is passed (default is `"operator"`).
-- **Impact:** `mbo-session-close.sh --terminate-mcp --agent=operator` exits 0 silently, leaving MCP process running.
-- **Workaround:** Always pass `--agent=claude` or `--agent=gemini` explicitly.
+### BUG-042: `graphSummary` truncation branch unreachable | Milestone: 0.7 | FIXED
+- **Location:** `src/auth/operator.js`
+- **Status:** FIXED — `graphSummary` populated in Stage 11.
+
+### BUG-043: PID file not written for default agent name | Milestone: 0.6 | FIXED
+- **Location:** `scripts/mbo-start.sh`
+- **Status:** FIXED — Always writes PID file for all agent names.
 
 ### BUG-037: MCP lifecycle owned by CLI client configs, not orchestrator | Milestone: 0.9 | OPEN
 - **Location:** `.mcp.json` (Claude), `.gemini/settings.json` (Gemini)

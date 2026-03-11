@@ -487,7 +487,17 @@ The output will be used as the new system context.`;
       };
     } catch (e) {
       console.error(`[Operator] Pipeline failure: ${e.message}`);
-      return { status: 'error', reason: e.message };
+      
+      // BUG-012: Smoke test failure loop (Recovery limit)
+      if (this.stateSummary.recoveryAttempts < 3) {
+        this.stateSummary.recoveryAttempts++;
+        console.error(`[Operator] Attempting recovery (${this.stateSummary.recoveryAttempts}/3)...`);
+        // Re-inject the pending decision into the pipeline for retry
+        this.stateSummary.pendingDecision = { classification, routing };
+        return await this.handleApproval('go');
+      }
+
+      return { status: 'error', reason: `Pipeline failure after ${this.stateSummary.recoveryAttempts} recovery attempts: ${e.message}` };
     }
   }
 
@@ -662,6 +672,12 @@ Return ONLY JSON per SPEC Section 13:
         await this.callMCPTool('graph_update_task', { modifiedFiles });
       }
 
+      // 3. Update Graph Summary (BUG-042)
+      const graphSummaryResult = await this.callMCPTool('graph_search', { pattern: 'SPEC.md' });
+      if (graphSummaryResult && graphSummaryResult.content && graphSummaryResult.content[0]) {
+        this.stateSummary.graphSummary = graphSummaryResult.content[0].text;
+      }
+
       console.error(`[Operator] Stage 11: Intelligence Graph Update complete.`);
     } catch (e) {
       // Stage 11 failures are non-fatal — log and continue
@@ -683,20 +699,26 @@ Return ONLY JSON per SPEC Section 13:
   async runStage4D(plan, classification, routing) {
     this.stateSummary.currentStage = 'tiebreaker_code';
     const hardState = this.getHardState();
-    
-    const prompt = `Tiebreaker: Produce the final arbitrated code draft based on competing derivations.\nPlan: ${JSON.stringify(plan)}\nTask: ${classification.rationale}\n\nReturn the final code/diff only.`;
-    const codeTied = await callModel('tiebreaker', prompt, { classification, routing }, hardState);
+    let retries = 0;
 
-    // Spec Note (BUG-010): One final audit for Tiebreaker code.
-    const reviewerPrompt = `Final Audit of Tiebreaker Code.\nTask: ${classification.rationale}\nCode: ${codeTied}\n\nReturn ONLY JSON verdict per SPEC Section 11.`;
-    const finalAuditRaw = await callModel('reviewer', reviewerPrompt, { classification }, hardState);
-    const finalAudit = this._safeParseJSON(finalAuditRaw);
+    while (retries < 3) {
+      const prompt = `Tiebreaker: Produce the final arbitrated code draft based on competing derivations.\nPlan: ${JSON.stringify(plan)}\nTask: ${classification.rationale}\n\nReturn the final code/diff only.`;
+      const codeTied = await callModel('tiebreaker', prompt, { classification, routing }, hardState);
 
-    if (finalAudit && finalAudit.verdict === 'block') {
-      throw new Error(`[BUG-010] Tiebreaker code blocked by reviewer. Escalating to human: ${finalAudit.reason}`);
+      // Spec Note (BUG-010): One final audit for Tiebreaker code.
+      const reviewerPrompt = `Final Audit of Tiebreaker Code.\nTask: ${classification.rationale}\nCode: ${codeTied}\n\nReturn ONLY JSON verdict per SPEC Section 11.`;
+      const finalAuditRaw = await callModel('reviewer', reviewerPrompt, { classification }, hardState);
+      const finalAudit = this._safeParseJSON(finalAuditRaw);
+
+      if (finalAudit && finalAudit.verdict === 'pass') {
+        return { status: 'code_agreed', code: codeTied, source: 'tiebreaker' };
+      }
+
+      console.error(`[BUG-010] Tiebreaker code blocked by reviewer (Attempt ${retries + 1}/3): ${finalAudit?.reason || 'Unknown reason'}`);
+      retries++;
     }
 
-    return { status: 'code_agreed', code: codeTied, source: 'tiebreaker' };
+    throw new Error(`[BUG-010] Tiebreaker code consistently blocked by reviewer after 3 attempts. Escalating to human.`);
   }
 
 
