@@ -1,0 +1,262 @@
+# Proposed Implementation for Milestone 1.0 Remainder
+
+## 1. New File: src/state/relay-listener.js (Mirror World)
+```javascript
+const net = require('net');
+const fs = require('fs');
+const eventStore = require('./event-store');
+const db = require('./db-manager');
+
+const SOCKET_PATH = '.dev/run/relay.sock';
+
+/**
+ * Section 24: The Relay Listener
+ * Persistent UDS server in Mirror World.
+ */
+class RelayListener {
+  constructor() {
+    this.server = null;
+    this.lastSeenSeq = 0;
+    this.activeTask = null;
+  }
+
+  start(taskId) {
+    this.activeTask = taskId;
+    if (fs.existsSync(SOCKET_PATH)) {
+      try { fs.unlinkSync(SOCKET_PATH); } catch (e) {}
+    }
+    
+    this.server = net.createServer((socket) => {
+      console.error(`[Relay] Subject connected.`);
+      socket.on('data', (data) => this.handlePacket(socket, data));
+      socket.on('end', () => console.error(`[Relay] Subject disconnected.`));
+    });
+
+    this.server.listen(SOCKET_PATH, () => {
+      console.error(`[Relay] Listening on ${SOCKET_PATH}`);
+    });
+  }
+
+  handlePacket(socket, data) {
+    const lines = data.toString().split('\n');
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const packet = JSON.parse(line);
+        if (this.validate(packet)) {
+          eventStore.append(packet.event, packet.actor, packet.payload, 'subject');
+          this.lastSeenSeq = packet.seq;
+        } else {
+          this.violation(socket, packet, "Guard validation failed");
+        }
+      } catch (e) {
+        this.violation(socket, null, `Malformed NDJSON: ${e.message}`);
+      }
+    }
+  }
+
+  /**
+   * Section 25: The Guard
+   */
+  validate(packet) {
+    if (packet.world_id !== 'subject') return false;
+    if (packet.task_id !== this.activeTask) return false;
+    if (packet.seq !== this.lastSeenSeq + 1) return false;
+    
+    // Path Scope & Governance Protection
+    const payloadStr = JSON.stringify(packet.payload);
+    if (payloadStr.includes('AGENTS.md') || payloadStr.includes('SPEC.md') || payloadStr.includes('.dev/governance/')) {
+      return false;
+    }
+
+    return true;
+  }
+
+  violation(socket, packet, reason) {
+    console.error(`[GUARD] Security Violation: ${reason}`);
+    socket.destroy();
+    fs.writeFileSync('.dev/run/incident.flag', JSON.stringify({ 
+      reason, 
+      packet, 
+      ts: new Date().toISOString() 
+    }));
+  }
+
+  stop() {
+    if (this.server) {
+      this.server.close();
+      if (fs.existsSync(SOCKET_PATH)) fs.unlinkSync(SOCKET_PATH);
+    }
+  }
+}
+
+module.exports = new RelayListener();
+```
+
+## 2. New File: src/state/relay-emitter.js (Subject World)
+```javascript
+const net = require('net');
+const SOCKET_PATH = '.dev/run/relay.sock';
+
+/**
+ * Section 24: The Relay Emitter
+ * Embedded module in Subject runtime.
+ */
+class RelayEmitter {
+  constructor(taskId) {
+    this.taskId = taskId;
+    this.seq = 1;
+    this.client = net.createConnection(SOCKET_PATH);
+    
+    this.client.on('error', (err) => {
+      console.error(`[Relay] Connection error: ${err.message}`);
+      process.exit(1); // Section 24.6: RELAY_SEVERED halts Subject
+    });
+  }
+
+  emit(event, actor, payload) {
+    const packet = {
+      event,
+      actor,
+      world_id: 'subject',
+      task_id: this.taskId,
+      seq: this.seq++,
+      ts: new Date().toISOString(),
+      payload
+    };
+    this.client.write(JSON.stringify(packet) + '\n');
+  }
+
+  close() {
+    this.emit('RELAY_DISCONNECTED', 'subject-runner', {});
+    this.client.end();
+  }
+}
+
+module.exports = RelayEmitter;
+```
+
+## 3. New File: src/state/pile.js
+```javascript
+const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const eventStore = require('./event-store');
+
+/**
+ * Section 26: The Pile
+ */
+class Pile {
+  promote(taskId, approvedFiles, mirrorRoot, subjectRoot) {
+    const lockPath = '.dev/run/pile.lock';
+    if (fs.existsSync(lockPath)) throw new Error("Pile already in progress.");
+    fs.writeFileSync(lockPath, JSON.stringify({ taskId, ts: Date.now() }));
+
+    try {
+      console.error(`[Pile] Promoting ${approvedFiles.length} files to Subject...`);
+      
+      // Step 5: Subject Checkpoint (simplified rsync snapshot)
+      const checkpointDir = path.join('.dev/snapshots', `subject_${Date.now()}`);
+      fs.mkdirSync(checkpointDir, { recursive: true });
+      execSync(`rsync -a --link-dest=${subjectRoot} ${subjectRoot}/ ${checkpointDir}/`);
+
+      // Step 6: Promote via rsync
+      for (const file of approvedFiles) {
+        const src = path.join(mirrorRoot, file);
+        const dest = path.join(subjectRoot, file);
+        const destDir = path.dirname(dest);
+        if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+        
+        execSync(`rsync -a --checksum ${src} ${dest}`);
+      }
+
+      eventStore.append('PILE_PROMOTED', 'mirror-operator', { files: approvedFiles, checkpoint: checkpointDir }, 'mirror');
+      console.error(`[Pile] Promotion complete.`);
+    } catch (e) {
+      eventStore.append('PILE_FAILED', 'mirror-operator', { error: e.message }, 'mirror');
+      throw e;
+    } finally {
+      if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+    }
+  }
+}
+
+module.exports = new Pile();
+```
+
+## 4. Diffs for Existing Files
+
+### src/state/db-manager.js
+```diff
+--- a/src/state/db-manager.js
++++ b/src/state/db-manager.js
+@@ -101,6 +101,15 @@
+         world_id  TEXT NOT NULL,
+         timestamp INTEGER NOT NULL
+       );
++
++      CREATE TABLE IF NOT EXISTS pipeline_runs (
++        id          TEXT PRIMARY KEY,
++        task_id     TEXT NOT NULL,
++        verdict     TEXT,  -- 'pass' | 'fail' | 'partial'
++        notes       TEXT,
++        attempt     INTEGER NOT NULL DEFAULT 1,
++        timestamp   INTEGER NOT NULL
++      );
+ 
+       CREATE INDEX IF NOT EXISTS idx_token_log_run ON token_log(run_id);
+       CREATE INDEX IF NOT EXISTS idx_token_log_role ON token_log(role);
+```
+
+### src/auth/operator.js
+```diff
+--- a/src/auth/operator.js
++++ b/src/auth/operator.js
+@@ -7,6 +7,8 @@
+ const stateManager = require('../state/state-manager');
+ const db = require('../state/db-manager');
+ const eventStore = require('../state/event-store');
++const relayListener = require('../state/relay-listener');
++const pile = require('../state/pile');
+ 
+ /**
+  * Section 8: The Operator
+@@ -48,6 +50,7 @@
+     this.contextThreshold = 0.8;      // Section 8: configurable via operatorContextThreshold
+     this.activeModelWindow = null;    // set after routeModels() resolves, see _loadModelWindow()
+     this.sandboxFocus = false;        // BUG-013: Sandbox interaction state
++    this.subjectRoot = null;          // Set during onboarding (§5)
+   }
+ 
+   /**
+@@ -342,6 +345,9 @@
+     const { classification, routing } = this.stateSummary.pendingDecision;
+     delete this.stateSummary.pendingDecision;
+ 
++    // Start Relay Listener for Subject Telemetry
++    relayListener.start(classification.taskId || '1.0-task');
++
+     try {
+       // Stage 3: Planning
+       const planResult = await this.runStage3(classification, routing);
+@@ -357,6 +363,12 @@
+       // Stage 4.5: Virtual Dry Run (Placeholder for 0.8)
+       const dryRun = await this.runStage4_5(codeResult.code);
+ 
++      // Stage 6: The Pile (Promotion)
++      if (this.subjectRoot) {
++        await pile.promote(classification.taskId, classification.files, process.cwd(), this.subjectRoot);
++      }
++
+       // Stage 11: Intelligence Graph Update (Task 0.8-07)
+       // Ingest any runtime trace from the probe and re-index modified files.
+       await this.runStage11();
+@@ -370,6 +382,8 @@
+         blockCount: this.stateSummary.blockCounter
+       };
+     } catch (e) {
++      relayListener.stop();
+       console.error(`[Operator] Pipeline failure: ${e.message}`);
+       
+       // BUG-012: Smoke test failure loop (Recovery limit)
+```

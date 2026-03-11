@@ -8,6 +8,7 @@
 This document specifies the architecture, behavior, and implementation contract for the Mirror Box Orchestrator. It is written in operational order — following a single task from the moment a user describes what they want to the moment working code is deployed.
 
 Companion documents:
+- `SPEC.md` — the implementation contract and source of truth
 - `ONBOARDING_SPEC.md` — interview logic, psychological calibration, question generation strategy
 - `BUGS.md` — known issues and queued fixes
 - `ROADMAP.md` — approved future versions
@@ -125,6 +126,21 @@ Ollama and LM Studio detected at Gate 0. Used for classification and patch gener
 | Any | Docker | — |
 | VS Code | Extension (all platforms) | — |
 | Hosted | Web app | — |
+
+### Section 3.5 — Self-Referential Mirror/Subject Isolation
+
+When the orchestrator develops itself (Milestone 1.0), it MUST maintain absolute isolation between its own runtime and the codebase it is modifying.
+
+| World | Path | Purpose |
+|-------|------|---------|
+| **Mirror** | `/Users/johnserious/MBO` | The running orchestrator. Owns the EventStore and governance. |
+| **Subject** | `/Users/johnserious/MBO_Alpha` | The target codebase. A clone of the Mirror world where changes are applied. |
+
+**Isolation Rules:**
+1. **No Shared State:** Mirror and Subject worlds never share a database, memory space, or process group.
+2. **UDS Telemetry (The Relay):** Subject-world events (tests, logs) are pushed to the Mirror via a Unix Domain Socket (Section 24).
+3. **Merkle Promotion (The Pile):** Changes are moved from Mirror to Subject only via the Merkle-validated promotion engine (Section 26).
+4. **World ID:** Every event and database record must explicitly declare its `world_id` ('mirror' or 'subject').
 
 ### Docker Configuration
 
@@ -294,6 +310,7 @@ interface OnboardingProfile {
   // ── VARIABLE FIELDS (populated when interview surfaces them) ──────
   aestheticRules: string | null;        // visual/style constraints that override logic
   firingOrder: string | null;           // execution order dependencies if present
+  subjectRoot: string | null;           // absolute path to the Subject World codebase
   coordinateSystem: string | null;      // fixed canvas or coordinate constraints
   logFormat: string | null;             // failure log naming convention
   failureProtocol: string | null;       // what happens when a task fails
@@ -1653,6 +1670,131 @@ The `bin/validator.py` is the final gate for all PRs and commits.
 | Local model unavailable | Fallback to CLI session or OpenRouter for current task. |
 | Force-kill / ungraceful exit | Next session detects missing handoff, reconstructs from database. |
 | Auth session expired mid-task | Surface to user: "Session expired for {provider}." Recovery options: re-authenticate, switch provider, abort. |
+
+---
+
+## Section 24 — Cross-World Event Streaming (The Relay)
+
+**24.1 Purpose**
+The Relay is a unidirectional telemetry bridge that allows the Subject World to emit structured events ingested and persisted by the Mirror World's EventStore. The Mirror orchestrator observes Subject execution without direct database access, memory sharing, or filesystem coupling.
+
+**24.2 Roles**
+
+| World | Role |
+|-------|------|
+| Mirror | UDS server — binds socket, validates, ingests |
+| Subject | UDS client — connects, emits, disconnects |
+
+**24.3 Transport**
+Unix Domain Socket (UDS) at `.dev/run/relay.sock`. UDS is required (not TCP) because:
+- Enforces local-machine-only communication
+- OS-level process isolation; no network stack
+- File-permission-controlled access
+
+**24.4 Packet Schema (NDJSON)**
+One JSON object per line, terminated by `\n`. Required fields:
+
+| Field | Type | Constraint |
+|-------|------|------------|
+| `event` | string | One of the defined event types (§24.5) |
+| `world_id` | string | Must be exactly `"subject"` |
+| `task_id` | string | Active task ID from `projecttracking.md` |
+| `seq` | integer | Monotonically increasing, starts at 1 per task |
+| `ts` | string | ISO 8601 UTC timestamp |
+| `merkle_root` | string | Hex SHA-256 Merkle root of Subject `approvedFiles` at emit time |
+| `actor` | string | Component emitting the event (e.g. `subject-runner`) |
+| `payload` | object | Event-specific structured data |
+
+**24.5 Event Types**
+
+| Event | Emitted When |
+|-------|-------------|
+| `RELAY_CONNECTED` | Emitter establishes socket connection |
+| `SANDBOX_STARTED` | Subject sandbox container spawned |
+| `STAGE_ENTERED` | Subject pipeline enters a stage |
+| `TEST_RUN` | Test suite execution begins |
+| `TEST_PASSED` | All tests pass |
+| `TEST_FAILED` | One or more tests fail; `payload.failures` contains details |
+| `STAGE_COMPLETED` | Subject pipeline stage exits cleanly |
+| `RELAY_DISCONNECTED` | Emitter closes connection (normal teardown) |
+
+**24.6 Subject-Side Emitter**
+The emitter is an **embedded module** in the Subject runtime (not a sidecar process). A sidecar requires independent lifecycle management and PID tracking in the Subject world — unnecessary surface area. The embedded module:
+- Opens the UDS connection at Subject runtime startup; emits `RELAY_CONNECTED`
+- Provides `emit(event, payload)` callable from all Subject pipeline stages
+- On clean shutdown: emits `RELAY_DISCONNECTED`, closes socket
+- On unexpected Mirror disconnect: halts Subject pipeline with `RELAY_SEVERED`; does not retry
+
+**24.7 Mirror-Side Listener**
+1. At Mirror startup: unlink any stale `.dev/run/relay.sock`, then bind and listen
+2. Accept exactly one concurrent Subject connection
+3. Each received NDJSON packet is passed synchronously to The Guard (§25) before any write
+4. Guard PASS → write to EventStore with `world_id = 'subject'`, update task telemetry
+5. Guard FAIL → close socket, write `.dev/run/incident.flag`, halt task with `SECURITY_VIOLATION`
+6. Normal Subject disconnect → record `RELAY_CLOSED` in EventStore; socket remains bound
+
+**24.8 Socket Lifecycle**
+```
+Mirror startup   → unlink stale relay.sock → bind → listen
+Subject launch   → connect
+Subject running  → emit events → Mirror validates + ingests
+Subject done     → RELAY_DISCONNECTED → Mirror records closure
+Mirror shutdown  → unlink relay.sock
+```
+
+---
+
+## Section 25 — The Guard (Relay Integrity Gatekeeper)
+
+**25.1 Purpose**
+Synchronous validation layer between the Relay Listener and EventStore. No packet reaches the EventStore without passing all Guard checks.
+
+**25.2 Validation Rules (ordered — first failure halts)**
+
+| # | Rule | Check |
+|---|------|-------|
+| 1 | World Identity | `world_id === 'subject'` |
+| 2 | Task Binding | `task_id` matches the currently active task in Mirror state |
+| 3 | Sequence Continuity | `seq === last_seen_seq + 1` (no gaps, no replay) |
+| 4 | Merkle Alignment | `merkle_root` matches computed Merkle hash of Subject `approvedFiles` at current checkpoint |
+| 5 | Path Scope | All paths in `payload` are within `approvedFiles` for the active task |
+| 6 | Governance Protection | No path references Mirror governance paths: `/src/governance/`, `AGENTS.md`, `SPEC.md`, `.dev/governance/` |
+| 7 | Schema Validity | All required fields present, correct types, no unknown fields |
+
+**25.3 Violation Response**
+On any failure: (1) write nothing to EventStore; (2) close UDS socket; (3) write `.dev/run/incident.flag` with rule number, redacted packet, timestamp; (4) set task status to `HALTED:SECURITY_VIOLATION`; (5) surface to human.
+
+**25.4 Pass Response**
+Guard returns the validated packet to the Listener. The Guard does not write — it validates and returns only.
+
+---
+
+## Section 26 — The Pile (Mirror → Subject Promotion Engine)
+
+**26.1 Purpose**
+The Pile is the only approved path for Mirror-world changes to reach the Subject World. Direct writes to the Subject root path outside The Pile are forbidden.
+
+**26.2 Trigger**
+Human Architect's explicit `go` after Stage 5 approval. Synchronous operation within the Mirror pipeline.
+
+**26.3 Promotion Protocol**
+1. **Acquire Lock:** Write `.dev/run/pile.lock` (timestamp + task_id). If exists: halt — "Pile already in progress."
+2. **Quiesce Mirror:** Suspend all Mirror-world EventStore writes for the duration.
+3. **Merkle Baseline:** Compute Merkle hash of all `approvedFiles` in Mirror. Store as `pre_promotion_merkle`.
+4. **Delta:** Identify which `approvedFiles` changed relative to Subject's known state.
+5. **Subject Checkpoint:** `rsync --link-dest` snapshot of Subject root. Record checkpoint path.
+6. **Promote:** `rsync --checksum --archive` delta files from Mirror root to Subject root.
+7. **Verify:** Recompute Merkle hash of promoted files in Subject. Must match `pre_promotion_merkle`. On mismatch: restore from Step 5 checkpoint; halt.
+8. **Release:** Delete `.dev/run/pile.lock`. Resume Mirror writes. Emit `PILE_PROMOTED` to EventStore (`world_id = 'mirror'`).
+
+**26.4 Subject World Initialization**
+First-time setup (one-time, not via The Pile):
+- Method: `git clone` of Mirror World into `subjectRoot` (stored in onboarding profile, §5)
+- Triggered by: human Architect during 1.0-02 initialization
+- All subsequent updates: The Pile only
+
+**26.5 Rollback**
+If any step fails after Step 5: restore Subject from checkpoint, delete `.dev/run/pile.lock`, resume Mirror writes, emit `PILE_FAILED` (step number + error), surface to human.
 
 ---
 

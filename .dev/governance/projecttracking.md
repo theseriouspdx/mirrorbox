@@ -2,13 +2,14 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.0 — Production Alpha [IN PROGRESS]
-**Next Action:** 1.0-03 — Implement Cross-World Event Streaming
+**Next Action:** 1.0-03 — The Relay (Cross-World Telemetry) — SPEC authoring required first
 
 ---
 
 ## NEXT ACTION
 
-**Task 1.0-03 — Implement Cross-World Event Streaming**
+**Task 1.0-03 — The Relay (Cross-World Telemetry)**
+Prerequisite: Author SPEC Section 24 (Cross-World Event Streaming) before implementation.
 
 ---
 
@@ -39,7 +40,13 @@
 |---------|------------------|--------|
 | 1.0-01 | Global Integrity & Bug-Fix Patch (BUG-009, BUG-037) | COMPLETED |
 | 1.0-02 | Initialize Subject World (Target Codebase) logic | COMPLETED |
-| 1.0-03 | Implement Cross-World Event Streaming | OPEN |
+| 1.0-03 | The Relay — UDS cross-world telemetry (Subject → Mirror EventStore) | OPEN |
+| 1.0-04 | The Pile — Promotion engine (Mirror → Subject, Merkle-validated) | OPEN |
+| 1.0-05 | The Guard — Relay integrity gatekeeper (scope + chain validation) | OPEN |
+| 1.0-06 | Stage 6/7/8 wiring — handshake.py writes, validator.py, test runner | COMPLETED |
+| 1.0-07 | Subject World graph routing — Stage 2 routes by world_id to correct DB | OPEN |
+| 1.0-08 | External Invariant Test Suite — black-box, all Section 22 invariants | OPEN |
+| 1.0-09 | Sovereign Loop — MBO patches itself end-to-end (1.0 close condition) | OPEN |
 | 1.0-MCP-01 | MCP Layer 1: Fix signal trap stderr redirect + close fd 3 (BUG-049) | COMPLETED |
 | 1.0-MCP-02 | MCP Layer 2: EPIPE guard in mcp-server.js | COMPLETED |
 | 1.0-MCP-03 | MCP Layer 3: Startup sentinel file (.dev/run/mcp.ready) | COMPLETED |

@@ -1,0 +1,78 @@
+--- a/.dev/spec/SPEC.md
++++ b/.dev/spec/SPEC.md
+@@ -1632,6 +1632,71 @@
+ | Force-kill / ungraceful exit | Next session detects missing handoff, reconstructs from database. |
+ | Auth session expired mid-task | Surface to user: "Session expired for {provider}." Recovery options: re-authenticate, switch provider, abort. |
+ 
++---
++
++## Section 24 — Cross-World Event Streaming (The Relay)
++
++**24.1 Purpose**  
++The Relay provides a secure, isolated telemetry channel for the **Subject World** to report its internal state and events back to the **Mirror World**. It ensures that the orchestrator (Mirror) can observe the execution of tasks on the target codebase (Subject) without requiring shared memory or direct database access.
++
++**24.2 Transport**  
++The Relay uses a **Unix Domain Socket (UDS)** located at `.dev/run/relay.sock`. 
++- **Mirror:** Acts as the UDS Server (Listener).
++- **Subject:** Acts as the UDS Client (Emitter).
++
++UDS is chosen over network sockets or EventEmitters to enforce physical isolation and local-only communication.
++
++**24.3 Protocol & Schema**  
++Communication is unidirectional (Subject → Mirror). Packets are Newline-Delimited JSON (NDJSON). Every packet must include:
++
++| Field | Type | Description |
++|-------|------|-------------|
++| `event` | String | Event type (e.g., `SANDBOX_STARTED`, `TEST_FAILED`) |
++| `actor` | String | The entity generating the event (e.g., `subject-runner`) |
++| `world_id` | String | Must be exactly `'subject'` |
++| `merkle_root` | String | The hex-encoded Merkle root of the Subject codebase |
++| `seq` | Number | Contiguous sequence number for the current task |
++| `payload` | Object | Event-specific data |
++
++**24.4 Mirror Side (Relay Listener)**  
++The Mirror world maintains a persistent UDS server. Upon receiving a packet, it:
++1. Validates the packet against **The Guard** (Section 25).
++2. Appends the event to the Mirror's EventStore with `world_id: 'subject'`.
++3. Updates the task's telemetry state.
++
++---
++
++## Section 25 — The Guard (Integrity Gatekeeper)
++
++**25.1 Purpose**  
++The Guard is the security layer embedded in the Mirror's Relay Listener. Its sole purpose is to prevent a potentially compromised Subject world from corrupting the Mirror's state or EventStore.
++
++**25.2 Validation Rules**  
++Every incoming packet from the Relay must pass these checks:
++1. **World Identity:** `world_id` must be exactly `'subject'`.
++2. **Path Scope:** Any file paths in the `payload` must be within the `approvedFiles` scope for the active task.
++3. **Continuity:** `seq` must be the expected next number (no gaps, no duplicates).
++4. **Governance Protection:** No event may contain paths or references to Mirror governance files (`/src/governance/`, `AGENTS.md`, `SPEC.md`).
++5. **Merkle Alignment:** `merkle_root` must match the known root of the Subject codebase for that sequence.
++
++**25.3 Violation Handling**  
++On any validation failure:
++1. The Relay bridge is immediately severed (socket closed).
++2. An incident flag is written to `.dev/run/incident.flag`.
++3. The current task is halted with a `CRITICAL_SECURITY_VIOLATION` error.
++4. The human Architect is notified immediately.
++
++---
++
++## Section 26 — The Pile (Promotion Engine)
++
++**26.1 Purpose**  
++The Pile is the mechanism for promoting validated code changes from the Mirror world to the Subject world. It is the only approved path for Mirror → Subject mutations.
++
++**26.2 Promotion Protocol**  
++1. **Quiesce:** The Mirror runtime is paused or locked to ensure no concurrent mutations.
++2. **Merkle Baseline:** Generate a Merkle hash of all approved files in the Mirror world.
++3. **Delta Generation:** Identify the exact list of `approvedFiles` that have changed.
++4. **Checkpoint:** Create a filesystem snapshot of the Subject world.
++5. **Promotion:** `rsync` (or equivalent) the approved files to the Subject root path.
++6. **Confirmation:** Generate a `PILE_PROMOTED` event on the Mirror side and a `RECEIPT` event on the Subject side (via the Relay).
++
+ ---
+ 
+ ## Appendix A — Development Pipeline

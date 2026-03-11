@@ -1,0 +1,113 @@
+--- /dev/null
++++ b/tests/test_invariants.py
+@@ -0,0 +1,96 @@
++#!/usr/bin/env python3
++"""
++External Invariant Test Suite — §22 / AGENTS.md §5
++Black-box validation of all active Section 22 invariants.
++Run with: python3 tests/test_invariants.py
++"""
++import json, os, sys, unittest
++from pathlib import Path
++
++MBO_ROOT = Path(__file__).parent.parent
++
++
++class Invariant10WorldIdEnforcement(unittest.TestCase):
++    """Inv 10: Every operation shall explicitly declare world_id = mirror|subject."""
++
++    def test_invalid_world_id_rejected(self):
++        result = os.popen(
++            'node -e "const e=require(\'./src/state/event-store\'); '
++            'try{e.append(\'TEST\',\'test\',{},\'invalid\');}catch(err){console.log(err.message);}"'
++        ).read()
++        self.assertIn('INVARIANT VIOLATION', result,
++                      'Invalid world_id must throw INVARIANT VIOLATION')
++
++    def test_mirror_world_id_accepted(self):
++        result = os.popen(
++            "node -e \"const e=require('./src/state/event-store'); "
++            "const id=e.append('TEST','test',{},'mirror'); console.log(typeof id);\""
++        ).read().strip()
++        self.assertEqual('string', result, 'mirror world_id must produce a string event id')
++
++    def test_subject_world_id_accepted(self):
++        result = os.popen(
++            "node -e \"const e=require('./src/state/event-store'); "
++            "const id=e.append('TEST','test',{},'subject'); console.log(typeof id);\""
++        ).read().strip()
++        self.assertEqual('string', result, 'subject world_id must produce a string event id')
++
++
++class Invariant13PreMutationCheckpoint(unittest.TestCase):
++    """Inv 13: Immutable checkpoint required before any mutation."""
++
++    def test_checkpoint_creates_db_record(self):
++        result = os.popen(
++            "node -e \"const s=require('./src/state/state-manager'); "
++            "const cp=s.checkpoint('mirror'); "
++            "console.log(cp.checkpointId ? 'ok' : 'fail');\""
++        ).read().strip()
++        self.assertEqual('ok', result)
++
++    def test_invalid_world_id_checkpoint_rejected(self):
++        result = os.popen(
++            "node -e \"const s=require('./src/state/state-manager'); "
++            "try{s.checkpoint('invalid');}catch(e){console.log('caught');}\""
++        ).read().strip()
++        self.assertEqual('caught', result)
++
++    def test_checkpoint_includes_parent_hash(self):
++        result = os.popen(
++            "node -e \"const s=require('./src/state/state-manager'); "
++            "const cp=s.checkpoint('mirror'); "
++            "console.log(cp.parentHash ? 'ok' : 'fail');\""
++        ).read().strip()
++        self.assertEqual('ok', result)
++
++
++class Invariant12HardStateBudget(unittest.TestCase):
++    """Inv 12: HardState ceiling 5,000 tokens. primeDirective non-evictable."""
++
++    def test_hard_state_never_exceeds_budget(self):
++        result = os.popen(
++            "node -e \"const {Operator}=require('./src/auth/operator'); "
++            "const op=new Operator('dev'); "
++            "const h=op.getHardState(); "
++            "const tokens=Math.ceil(JSON.stringify(h).length/3.7); "
++            "console.log(tokens<=5000?'ok':'OVER:'+tokens);\""
++        ).read().strip()
++        self.assertEqual('ok', result, f'HardState budget exceeded: {result}')
++
++    def test_prime_directive_never_truncated(self):
++        result = os.popen(
++            "node -e \"const {Operator}=require('./src/auth/operator'); "
++            "const op=new Operator('dev'); "
++            "const h=op.getHardState(); "
++            "console.log(h.primeDirective !== '[TRUNCATED]' ? 'ok' : 'truncated');\""
++        ).read().strip()
++        self.assertEqual('ok', result)
++
++
++class Invariant15NonDestructiveRecovery(unittest.TestCase):
++    """Inv 15: No rm -f or delete/recreate patterns. Recovery via rollback only."""
++
++    def test_rollback_restores_from_checkpoint(self):
++        result = os.popen(
++            "node -e \"const s=require('./src/state/state-manager'); "
++            "const cp=s.checkpoint('mirror'); "
++            "try{s.rollback(cp.checkpointId);console.log('ok');}catch(e){console.log('fail:'+e.message);}\""
++        ).read().strip()
++        self.assertEqual('ok', result)
++
++    def test_unknown_checkpoint_throws(self):
++        result = os.popen(
++            "node -e \"const s=require('./src/state/state-manager'); "
++            "try{s.rollback('nonexistent-id');}catch(e){console.log('caught');}\""
++        ).read().strip()
++        self.assertEqual('caught', result)
++
++
++if __name__ == '__main__':
++    os.chdir(MBO_ROOT)
++    unittest.main(verbosity=2)

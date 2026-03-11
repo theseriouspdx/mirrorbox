@@ -108,6 +108,15 @@ class DBManager {
         timestamp INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS pipeline_runs (
+        id          TEXT PRIMARY KEY,
+        task_id     TEXT NOT NULL,
+        verdict     TEXT,  -- 'pass' | 'fail' | 'partial'
+        notes       TEXT,
+        attempt     INTEGER NOT NULL DEFAULT 1,
+        timestamp   INTEGER NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_token_log_run ON token_log(run_id);
       CREATE INDEX IF NOT EXISTS idx_token_log_role ON token_log(role);
     `);

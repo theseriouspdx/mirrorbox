@@ -1,0 +1,75 @@
+// §25: Relay Integrity Gatekeeper
+// Synchronous validation layer. Does NOT write — validates and returns only.
+
+const PROTECTED = ['/src/governance/', 'AGENTS.md', 'SPEC.md', '.dev/governance/'];
+
+class Guard {
+  constructor() {
+    this.context = null;
+  }
+
+  // Called by Operator when a task with Subject world scope begins.
+  setContext({ taskId, merkleRoot, approvedFiles }) {
+    this.context = { taskId, merkleRoot, approvedFiles };
+  }
+
+  clearContext() {
+    this.context = null;
+  }
+
+  // Returns { ok: true } or { ok: false, rule: N, reason: string }
+  validate(packet, lastSeq) {
+    // Rule 7: schema validity first
+    const required = ['event', 'world_id', 'task_id', 'seq', 'ts', 'merkle_root', 'actor', 'payload'];
+    for (const f of required) {
+      if (packet[f] === undefined) {
+        return { ok: false, rule: 7, reason: `Missing field: ${f}` };
+      }
+    }
+
+    // Rule 1: world identity
+    if (packet.world_id !== 'subject') {
+      return { ok: false, rule: 1, reason: `world_id must be 'subject', got '${packet.world_id}'` };
+    }
+
+    // Rule 2: task binding
+    if (this.context && packet.task_id !== this.context.taskId) {
+      return { ok: false, rule: 2, reason: `task_id '${packet.task_id}' !== active '${this.context.taskId}'` };
+    }
+
+    // Rule 3: sequence continuity
+    if (packet.seq !== lastSeq + 1) {
+      return { ok: false, rule: 3, reason: `seq gap: expected ${lastSeq + 1}, got ${packet.seq}` };
+    }
+
+    // Rule 4: merkle alignment
+    if (this.context && packet.merkle_root !== this.context.merkleRoot) {
+      return { ok: false, rule: 4, reason: 'merkle_root mismatch' };
+    }
+
+    // Rules 5 & 6: path scope + governance protection
+    const paths = this._extractPaths(packet.payload);
+    for (const p of paths) {
+      if (PROTECTED.some(g => p.includes(g))) {
+        return { ok: false, rule: 6, reason: `Governance path in payload: ${p}` };
+      }
+      if (this.context && !this.context.approvedFiles.some(a => p.includes(a))) {
+        return { ok: false, rule: 5, reason: `Out-of-scope path: ${p}` };
+      }
+    }
+
+    return { ok: true };
+  }
+
+  _extractPaths(payload) {
+    const paths = [];
+    const walk = (v) => {
+      if (typeof v === 'string' && (v.includes('/') || /\.\w{2,4}$/.test(v))) paths.push(v);
+      else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+    };
+    walk(payload);
+    return paths;
+  }
+}
+
+module.exports = new Guard();

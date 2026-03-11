@@ -3,6 +3,19 @@
 
 ---
 
+### [1.0-planning] — 2026-03-11
+#### Architecture
+- **Milestone 1.0 two-world model locked:** Mirror = `/Users/johnserious/MBO` (live orchestrator), Subject = `/Users/johnserious/MBO_Alpha` (clone MBO operates on), Docker = ephemeral per-task sandbox for Stage 4.5/8 only.
+- **Self-referential loop confirmed:** MBO develops MBO_Alpha. MBO_Alpha graduates to become the new MBO at 1.0.
+- **3-agent DID reconciliation complete** (Claude session 1, Gemini CLI, Claude session 2). Plan saved to `.dev/sessions/milestone_1.0_plan.md`.
+#### Completed
+- **1.0-06 Stage 6/7/8:** Implemented `runStage6` (Implement), `runStage7` (Audit), and `runStage8` (Sync) in `operator.js`. Added `git diff` and `validator.py` generation to the Audit Gate.
+- **1.0-planning:** Architecture SPEC for Relay, Guard, and Pile integrated into `SPEC.md`.
+#### Findings
+- **Graph query tooling root cause identified:** `mcp_http_query.js` invocation bug — tool name was being passed as search term. Tools confirmed working correctly.
+- **SPEC gap confirmed:** Stages 6–10 unimplemented. `operator.js` has no execution path after Stage 5 approval.
+- **graph_rescan excludes SPEC.md:** `graph_rescan` only scans `src/`. SPEC.md only indexed on empty DB. Deferred fix — rescan is fast (88ms), should be triggered on session close.
+
 ### [1.0-MCP-fix] — 2026-03-11
 #### Fixed (BUG-049, MCP tooling)
 - **BUG-049 — fd3 dance removed (`scripts/mbo-start.sh`):** Removed vestigial `exec 3>&1` / `exec 1>&2` / `exec 1>&3` / `exec 3>&-` fd save-restore block. Caused silent fatal exit under `set -uo pipefail` in non-launchd contexts where fd 3 was invalid. `mcp-server.js` uses stderr exclusively; stdout ownership is irrelevant. BUG-049 CLOSED.

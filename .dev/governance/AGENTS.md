@@ -20,7 +20,7 @@ No code is written before this sequence completes.
 
 The MCP server starts automatically via CLI client config. Do not start it manually under normal conditions. Do not verify the PID file.
 
-The first graph query in Section 11 confirms MCP is reachable. If it fails, fall back to full SPEC.md load and continue — do not block work.
+The first graph query in Section 11 confirms MCP is reachable. If it fails, attempt manual recovery (see recovery command below). If still unreachable after recovery, follow the Section 11 hard stop protocol. Do not load SPEC.md. Do not proceed until MCP is confirmed reachable.
 
 **Known failure mode (BUG-044):** When a Gemini or Claude session pegs CPU (stuck node process), the MCP server becomes unresponsive without crashing. The supervisor does not restart it automatically. This will be resolved by a watchdog in Milestone 0.8. Until then:
 
@@ -87,8 +87,8 @@ This section defines the mandatory protocols for maintaining isolation between t
 - Missing or invalid world_id is a hard failure.
 
 ### Invariant 11 (Graph Investigation)
-- Run only the graph queries specified in NEXT_SESSION.md Section 1.
-- Load only what those queries return. Do not expand further.
+- Identify the first OPEN task in `projecttracking.md`. Derive a graph search term from the task description. Run `graph_search(<derived_term>)`.
+- Load only what the query returns. Do not expand further.
 - Full SPEC/file-dump context injection is disallowed by default.
 
 ### Invariant 12 (HardState Budget)
@@ -125,22 +125,29 @@ This section defines the mandatory protocols for maintaining isolation between t
 
 The human acts as the approval gate and reconciliation point, not the workflow engine.
 
-### 6A. The Completion Prompt
-The moment a task from `projecttracking.md` is successfully implemented, you MUST halt and proactively ask the human:
-> "Task complete. Shall we `wrap task` (sync state and continue) or `end session` (sync state and exit)?"
+### 6A. The Audit Gate (Completion Trigger)
+The moment a task from `projecttracking.md` is successfully implemented and Stage 8 passes, halt and present the audit package:
+1. Unified diff of all changes made (relative to pre-task HEAD).
+2. Full output of `python3 bin/validator.py --all`.
+3. One-paragraph summary: what changed, why, and what was validated.
 
-### 6B. Task Wrap Protocol (Continuous Execution)
-If the human confirms "wrap task", you must:
+State: "Audit package presented. Respond `approved` to sync state, or `reject` to roll back."
+
+- `approved` → proceed immediately to §6B without further input.
+- `reject` → run `git checkout HEAD` on all modified files; delete any files created during this task; state "Rolled back. Re-entering Stage 3." Return to §12 Step 3.
+
+### 6B. State Sync (Automatic on Approval)
+On `approved`, without waiting for additional human input:
 1. Update `projecttracking.md` (mark task done).
 2. Update `BUGS.md` (if any were found/fixed).
 3. Update `CHANGELOG.md` (record what was done).
 4. Commit the changes referencing the task ID.
-5. Recalculate the base `nhash` based on the newly updated files, ask the human for the salt, and update the internal `[Hard State]` anchor. 
+5. Recalculate the base `nhash` based on the newly updated files, ask the human for the salt, and update the internal `[Hard State]` anchor.
 6. Output a visual checklist of the current milestone's tasks and their status from `projecttracking.md`.
-7. Output: "Task wrapped. State synced. Ready for next task."
+7. Ask: "State synced. Continue to next task, or end session?"
 
-### 6C. Session End Protocol (Terminal Close)
-If the human confirms "end session", perform all steps in 6B, PLUS:
+### 6C. Session End (Terminal Close)
+If the human responds "end session" to the §6B prompt — state is already synced. Only:
 1. Write `.dev/sessions/NEXT_SESSION.md` (last task, status, suggested next task).
 2. Terminate the session-specific background MCP process:
    ```bash
@@ -149,6 +156,8 @@ If the human confirms "end session", perform all steps in 6B, PLUS:
    Do not verify the PID file. The script handles cleanup.
 3. Output the END SESSION CHECKLIST.
 4. State: "Handoff complete. It is now safe to clear context."
+
+Do not repeat §6B state sync steps here. They are already complete.
 
 ---
 
@@ -287,7 +296,8 @@ Every development session MUST follow this checklist. Failure to complete any st
 3. **Derive & Propose**: Derive the solution from graph context. Propose a diff-only implementation.
 4. **Human Approval**: Obtain explicit "go" from the human Architect.
 5. **Implement & Validate**: Apply changes. Run \`python3 bin/validator.py --all\` to ensure \`ENTROPY TAX: PAID\`.
-6. **Sync State**: Update \`projecttracking.md\`, \`CHANGELOG.md\`, and \`BUGS.md\`.
+5.5. **Audit Gate**: Present audit package per §6A (diff + validator output + summary). Wait for \`approved\` or \`reject\`. On \`reject\`: rollback all changes, return to Step 3.
+6. **Sync State**: Update \`projecttracking.md\`, \`CHANGELOG.md\`, and \`BUGS.md\`. (Reached only after \`approved\`.)
 7. **Lock & Journal**: Run \`python3 bin/handshake.py --revoke\` to return \`/src\` to read-only (444).
 8. **Baseline**: Run \`python3 bin/init_state.py\` to freeze the codebase and update \`.journal/audit.log\`.
 

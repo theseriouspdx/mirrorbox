@@ -76,6 +76,11 @@ def check_integrity(silent=False):
 def lock_src():
     for item in SRC_DIR.rglob("*"):
         if item.is_file(): item.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+    # Lock src/ dir itself to prevent new file/dir creation
+    SRC_DIR.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+    # Write deny sentinel so agents can detect lockout without parsing session.lock
+    DENY_SENTINEL.parent.mkdir(parents=True, exist_ok=True)
+    DENY_SENTINEL.write_text(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
 
 def handshake(cell_name):
     if SESSION_LOCK.exists():
@@ -96,6 +101,10 @@ def handshake(cell_name):
             print(f"[GATE] DENIED: Path {cell_name} missing.", file=sys.stderr); sys.exit(1)
             
     lock_src()
+    # Restore src/ dir to traversable after lock_src locked it
+    SRC_DIR.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+    # Clear deny sentinel on successful grant
+    DENY_SENTINEL.unlink(missing_ok=True)
     # Grant write access to the specific cell/path
     if cell_path.is_dir():
         for item in cell_path.rglob("*"):
@@ -108,11 +117,26 @@ def handshake(cell_name):
     log_audit(f"HANDSHAKE_GRANTED: {cell_name}")
     print(f"[GATE] Handshake complete. Scope: {cell_name}")
 
+DENY_SENTINEL = MBO_ROOT / ".dev" / "run" / "write.deny"
+
 if __name__ == "__main__":
     if not JOURNAL_DIR.exists(): JOURNAL_DIR.mkdir(parents=True)
     if len(sys.argv) < 2: sys.exit(1)
-    
+
+    # Human-only guard: grant and revoke require MBO_HUMAN_TOKEN in environment.
+    # Agents may only run --status and --pulse without the token.
+    HUMAN_TOKEN = os.environ.get("MBO_HUMAN_TOKEN", "")
     arg = sys.argv[1]
+    is_grant = not arg.startswith("--")
+    is_revoke = arg == "--revoke"
+    if (is_grant or is_revoke) and not HUMAN_TOKEN:
+        print("[GATE] DENIED: Grant/revoke requires MBO_HUMAN_TOKEN env var. Agents may only run --status or --pulse.", file=sys.stderr)
+        sys.exit(1)
+
+    if arg == "--merkle-root":
+        target = Path(sys.argv[2]) if len(sys.argv) > 2 else SRC_DIR
+        print(compute_merkle_root(target))
+        sys.exit(0)
     if arg == "--status":
         if SESSION_LOCK.exists():
             data = json.loads(SESSION_LOCK.read_text())

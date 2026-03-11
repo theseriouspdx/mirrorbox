@@ -1,10 +1,12 @@
-const { spawn } = require('child_process');
+const { spawn, execSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { callModel, computeContentHashes } = require('./call-model');
 const stateManager = require('../state/state-manager');
 const db = require('../state/db-manager');
 const eventStore = require('../state/event-store');
+
+const MBO_ROOT = path.resolve(__dirname, '../..');
 
 /**
  * Section 8: The Operator
@@ -307,6 +309,95 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
     return fs.existsSync(path.resolve(process.cwd(), filePath));
   }
 
+  /**
+   * §12 Step 5: Implement & Validate
+   * Grants write access, applies code to filesystem, runs validator.py.
+   */
+  async runStage6(code, files) {
+    this.stateSummary.currentStage = 'implement';
+    const modifiedFiles = [];
+
+    for (const filePath of files) {
+      const absPath = path.resolve(MBO_ROOT, filePath);
+      const cellName = path.relative(path.join(MBO_ROOT, 'src'), absPath);
+
+      // §12 Step 2: Permission check
+      const hs = spawnSync('python3', [path.join(MBO_ROOT, 'bin/handshake.py'), cellName], { encoding: 'utf8' });
+      if (hs.status !== 0) throw new Error(`[Stage6] Handshake denied for ${cellName}: ${hs.stderr}`);
+
+      // Extract code block for this file (convention: fenced block tagged with filename)
+      const blockRe = new RegExp(`\`\`\`[\\w.]*\\s*//\\s*${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?\`\`\``, 'g');
+      const match = blockRe.exec(code);
+      const fileContent = match
+        ? match[0].replace(/^```[\w.]*\n/, '').replace(/\n```$/, '')
+        : code;
+
+      fs.mkdirSync(path.dirname(absPath), { recursive: true });
+      fs.writeFileSync(absPath, fileContent, 'utf8');
+      modifiedFiles.push(filePath);
+      eventStore.append('FILE_WRITTEN', 'operator', { path: filePath }, 'mirror');
+    }
+
+    // §12 Step 5: Run validator
+    const val = spawnSync('python3', [path.join(MBO_ROOT, 'bin/validator.py'), '--all'], { encoding: 'utf8' });
+    const validatorOutput = val.stdout + val.stderr;
+    const validatorPassed = val.status === 0;
+
+    eventStore.append('VALIDATE', 'operator', { passed: validatorPassed, output: validatorOutput.slice(0, 500) }, 'mirror');
+
+    return { modifiedFiles, validatorOutput, validatorPassed };
+  }
+
+  /**
+   * §6A / §12 Step 5.5: Audit Gate
+   * Presents diff + validator output + summary. Sets pendingAudit for REPL to resolve.
+   */
+  async runStage7(writeResult) {
+    this.stateSummary.currentStage = 'audit_gate';
+
+    let diff = '';
+    try { diff = execSync('git diff HEAD', { cwd: MBO_ROOT, encoding: 'utf8' }); }
+    catch (e) { diff = '[git diff unavailable]'; }
+
+    const pkg = {
+      diff,
+      validatorOutput: writeResult.validatorOutput,
+      summary: `Modified: ${writeResult.modifiedFiles.join(', ')}. Validator: ${writeResult.validatorPassed ? 'PASS' : 'FAIL'}.`
+    };
+
+    eventStore.append('AUDIT_PACKAGE', 'operator', { summary: pkg.summary, validatorPassed: writeResult.validatorPassed }, 'mirror');
+
+    this.stateSummary.pendingAudit = pkg;
+    // Approval is resolved by the REPL on 'approved'/'reject' input
+    return { approved: false, pendingAuditPackage: pkg };
+  }
+
+  async runStage7Rollback(modifiedFiles) {
+    try {
+      execSync(`git checkout HEAD -- ${modifiedFiles.map(f => `"${f}"`).join(' ')}`, { cwd: MBO_ROOT });
+      eventStore.append('ROLLBACK', 'operator', { files: modifiedFiles, reason: 'audit_rejected' }, 'mirror');
+    } catch (e) {
+      console.error(`[Stage7] Rollback failed: ${e.message}`);
+    }
+  }
+
+  /**
+   * §6B / §12 Steps 6-8: State Sync, Lock, Baseline
+   */
+  async runStage8(classification, routing) {
+    this.stateSummary.currentStage = 'state_sync';
+
+    // §12 Step 7: Lock src
+    spawnSync('python3', [path.join(MBO_ROOT, 'bin/handshake.py'), '--revoke'], { encoding: 'utf8' });
+
+    // §12 Step 8: Baseline
+    const init = path.join(MBO_ROOT, 'bin/init_state.py');
+    if (fs.existsSync(init)) spawnSync('python3', [init], { encoding: 'utf8' });
+
+    eventStore.append('STATE_SYNCED', 'operator', { task: classification.files, tier: routing.tier }, 'mirror');
+    this.stateSummary.currentStage = 'idle';
+  }
+
   getPrimeDirective() {
     const profile = db.get('SELECT profile_data FROM onboarding_profiles ORDER BY version DESC LIMIT 1');
     return profile ? JSON.parse(profile.profile_data).primeDirective : "No prime directive set.";
@@ -474,6 +565,21 @@ The output will be used as the new system context.`;
       // Stage 4.5: Virtual Dry Run (Placeholder for 0.8)
       const dryRun = await this.runStage4_5(codeResult.code);
 
+      // Stage 6: Write + Validate
+      const writeResult = await this.runStage6(codeResult.code, classification.files);
+
+      // Stage 5.5: Surface audit package to REPL — pause here.
+      // REPL resolves via 'approved' → runStage8(), or 'reject' → runStage7Rollback().
+      // Do NOT auto-approve, auto-rollback, or continue to Stage 11 here.
+      this.stateSummary.pendingAuditContext = { classification, routing, modifiedFiles: writeResult.modifiedFiles };
+      const auditPkg = await this.runStage7(writeResult);
+      return {
+        status: 'audit_pending',
+        auditPackage: auditPkg,
+        prompt: 'Audit package ready. Respond "approved" to sync state, or "reject" to roll back.'
+      };
+
+      // NOTE: Stage 11 (graph update) runs after 'approved' via runStage8(), not here.
       // Stage 11: Intelligence Graph Update (Task 0.8-07)
       // Ingest any runtime trace from the probe and re-index modified files.
       await this.runStage11();
