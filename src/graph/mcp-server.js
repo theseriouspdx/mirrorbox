@@ -17,6 +17,7 @@ const {
 const path = require('path');
 const fs = require('fs');
 
+const eventStore = require('../state/event-store');
 const { DBManager } = require('../state/db-manager.js');
 const GraphStore = require('./graph-store.js');
 const StaticScanner = require('./static-scanner.js');
@@ -35,18 +36,11 @@ function parseArgs() {
 }
 
 // ─── GraphService Singleton ───────────────────────────────────────────────────
-//
-// Owns all persistent state: DB, GraphStore, StaticScanner, write queue,
-// and the isScanning mutex. All MCP tool calls delegate here.
-// Per-session Server shells are thin wrappers that share this instance.
 
 class GraphService {
   constructor(mode, root) {
     this.mode = mode;
     this.root = root;
-
-    // Coarse scan mutex — prevents concurrent full rescans from stepping on each other.
-    // Set with a finally block in every scanning tool to guarantee release.
     this.isScanning = false;
 
     const dbPath = mode === 'dev'
@@ -59,15 +53,9 @@ class GraphService {
       instanceType: mode,
       scanRoots: [path.join(root, 'src')]
     });
-
-    // Promise-chain write queue — serializes all graph-mutating async operations.
-    // better-sqlite3 is synchronous but `await` yield points between DB calls
-    // allow the event loop to interleave requests; this queue prevents races.
     this._writeQueue = Promise.resolve();
   }
 
-  // Enqueue a graph-mutating operation. `fn` must return a Promise.
-  // Errors are swallowed at the queue boundary to keep the chain alive.
   enqueueWrite(fn) {
     this._writeQueue = this._writeQueue
       .then(fn)
@@ -76,8 +64,6 @@ class GraphService {
       });
     return this._writeQueue;
   }
-
-  // ── Tool Definitions ────────────────────────────────────────────────────────
 
   listTools() {
     return {
@@ -170,13 +156,8 @@ class GraphService {
     };
   }
 
-  // ── Tool Dispatch ───────────────────────────────────────────────────────────
-
   async callTool(name, args) {
-    // E1 EXPERIMENT LOGGER — stderr only, does not affect HTTP response stream
     console.error(`[TOOL CALL] ${new Date().toISOString()} ${name} args: ${JSON.stringify(args)}`);
-
-    // Safety: If the graph is still indexing in the background, inform the agent.
     if (this.isScanning && name.startsWith('graph_query_')) {
       return {
         content: [{ type: 'text', text: 'INDEXING_IN_PROGRESS: The Intelligence Graph is currently being updated. Please wait 10-20 seconds and retry.' }],
@@ -189,29 +170,23 @@ class GraphService {
         const result = this.graphStore.getGraphQueryResult(args.nodeId);
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       }
-
       case 'graph_query_callers': {
         const callers = this.graphStore.getCallers(args.nodeId);
         return { content: [{ type: 'text', text: JSON.stringify(callers, null, 2) }] };
       }
-
       case 'graph_query_dependencies': {
         const dependencies = this.graphStore.getDependencies(args.nodeId);
         return { content: [{ type: 'text', text: JSON.stringify(dependencies, null, 2) }] };
       }
-
       case 'graph_query_coverage': {
         const coveringTests = this.graphStore.getCoverage(args.nodeId);
         return { content: [{ type: 'text', text: JSON.stringify(coveringTests, null, 2) }] };
       }
-
       case 'graph_search': {
         const results = this.graphStore.search(args.pattern);
         return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
       }
-
       case 'graph_update_task': {
-        // Queued write: scan modified files then enrich
         return this.enqueueWrite(async () => {
           if (this.isScanning) {
             return {
@@ -234,9 +209,7 @@ class GraphService {
           }
         });
       }
-
       case 'graph_rescan': {
-        // Queued write: full directory rescan
         return this.enqueueWrite(async () => {
           if (this.isScanning) {
             return {
@@ -256,9 +229,7 @@ class GraphService {
           }
         });
       }
-
       case 'graph_ingest_runtime_trace': {
-        // Queued write: ingest runtime trace (Task 0.8-07)
         return this.enqueueWrite(async () => {
           const traceAbsPath = path.resolve(this.root, args.traceFile);
           if (!fs.existsSync(traceAbsPath)) {
@@ -271,7 +242,6 @@ class GraphService {
           return { content: [{ type: 'text', text: `Runtime trace ingested from ${args.traceFile}.` }] };
         });
       }
-
       case 'get_token_usage': {
         const rows = this.db.getTokenUsage({ runId: args?.run_id });
         const total = rows.reduce(
@@ -280,13 +250,10 @@ class GraphService {
         );
         return { content: [{ type: 'text', text: JSON.stringify({ rows, total }, null, 2) }] };
       }
-
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
     }
   }
-
-  // ── Dev-Mode Initial Scan ───────────────────────────────────────────────────
 
   async initDev() {
     const specPath = path.join(this.root, '.dev/spec/SPEC.md');
@@ -301,9 +268,6 @@ class GraphService {
     console.error(`[GraphService] ${new Date().toISOString()} Dev init complete.`);
   }
 
-  /**
-   * BUG-036: Clean shutdown WAL checkpointing.
-   */
   async shutdown() {
     console.error(`[GraphService] ${new Date().toISOString()} Running final WAL checkpoint...`);
     try {
@@ -314,12 +278,6 @@ class GraphService {
     }
   }
 }
-
-// ─── Per-Session MCP Shell Factory ───────────────────────────────────────────
-//
-// Creates a fresh StreamableHTTPServerTransport + thin Server shell per client
-// initialize handshake. The shell delegates all tool calls to the shared
-// graphService singleton so state is never duplicated across sessions.
 
 async function createSession(graphService, mode, sessions) {
   const transport = new StreamableHTTPServerTransport({
@@ -339,7 +297,6 @@ async function createSession(graphService, mode, sessions) {
     { capabilities: { tools: {} } }
   );
 
-  // Delegate all requests to the shared GraphService
   mcpShell.setRequestHandler(ListToolsRequestSchema, async () => graphService.listTools());
   mcpShell.setRequestHandler(CallToolRequestSchema, async (req) => {
     try {
@@ -350,67 +307,72 @@ async function createSession(graphService, mode, sessions) {
     }
   });
 
-  // connect() wires the server to the transport (synchronous handler registration,
-  // async only for the no-op start()). Await to be safe.
   await mcpShell.connect(transport);
   return transport;
 }
 
-// ─── HTTP Server + Session Router ────────────────────────────────────────────
-
 async function main() {
   const { mode, root } = parseArgs();
   const PORT = parseInt(process.env.MBO_PORT || '3737', 10);
-
   console.error(`[MCP] ${new Date().toISOString()} Starting Graph MCP Server (${mode}) on port ${PORT}...`);
 
   const graphService = new GraphService(mode, root);
-
-  // sessions: Map<sessionId, StreamableHTTPServerTransport>
-  // Populated by onsessioninitialized, cleaned up by onsessionclosed.
   const sessions = new Map();
 
   const httpServer = http.createServer(async (req, res) => {
-    // Route: /mcp only
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    
+    // Section 21: Event Streaming Endpoint (SSE)
+    if (url.pathname === '/stream') {
+      const targetWorld = url.searchParams.get('world_id');
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*'
+      });
+      const onEvent = (event) => {
+        if (targetWorld && event.world_id !== targetWorld) return;
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      };
+      res.write(`retry: 10000\n`);
+      res.write(`data: ${JSON.stringify({ type: 'connected', world_id: targetWorld || 'all', timestamp: Date.now() })}\n\n`);
+      eventStore.on('event', onEvent);
+      req.on('close', () => {
+        eventStore.removeListener('event', onEvent);
+        res.end();
+      });
+      return;
+    }
+
     if (url.pathname !== '/mcp') {
       res.writeHead(404, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Not found. Use /mcp.' }));
+      return res.end(JSON.stringify({ error: 'Not found. Use /mcp or /stream.' }));
     }
 
     try {
       if (req.method === 'POST') {
-        // Accumulate body before routing
         let body = '';
         await new Promise((resolve, reject) => {
           req.on('data', (chunk) => { body += chunk; });
           req.on('end', resolve);
           req.on('error', reject);
         });
-
         let parsedBody;
         try { parsedBody = JSON.parse(body); } catch (_) { parsedBody = undefined; }
-
         const sessionId = req.headers['mcp-session-id'];
-
         if (sessionId) {
-          // Route to existing session
           const transport = sessions.get(sessionId);
           if (!transport) {
-            // Layer 5 — Transparent session recovery: stale ID after server restart
             console.error(`[MCP] ${new Date().toISOString()} TRANSPARENT_RECOVERY: stale session ${sessionId} — creating new session`);
             const newTransport = await createSession(graphService, mode, sessions);
             return await newTransport.handleRequest(req, res, parsedBody);
           }
           return await transport.handleRequest(req, res, parsedBody);
         }
-
-        // No session ID → new client initializing; create transport + shell
         const transport = await createSession(graphService, mode, sessions);
         return await transport.handleRequest(req, res, parsedBody);
-
       } else if (req.method === 'GET' || req.method === 'DELETE') {
-        // GET (SSE subscription) and DELETE (session close) always require a session ID
         const sessionId = req.headers['mcp-session-id'];
         if (!sessionId) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -422,7 +384,6 @@ async function main() {
           return res.end(JSON.stringify({ error: 'Session not found' }));
         }
         return await transport.handleRequest(req, res);
-
       } else {
         res.writeHead(405, { Allow: 'GET, POST, DELETE' });
         res.end();
@@ -436,20 +397,16 @@ async function main() {
     }
   });
 
-  // Tune keep-alive to avoid ghost connections hanging on restart
   httpServer.keepAliveTimeout = 30000;
   httpServer.headersTimeout = 35000;
-
   httpServer.listen(PORT, '127.0.0.1', () => {
     console.error(`[MCP] ${new Date().toISOString()} Graph MCP Server (${mode}) listening on http://127.0.0.1:${PORT}/mcp`);
-    // Layer 3 — Startup sentinel: write .dev/run/mcp.ready so session scripts can verify bind
     try {
       const sentinelPath = path.join(root, '.dev/run/mcp.ready');
       fs.writeFileSync(sentinelPath, new Date().toISOString());
     } catch (e) {
       console.error(`[MCP] ${new Date().toISOString()} WARN: Could not write sentinel file: ${e.message}`);
     }
-
     if (mode === 'dev') {
       try {
         const nodeCount = graphService.db.get('SELECT COUNT(*) as count FROM nodes').count;
@@ -459,15 +416,9 @@ async function main() {
           console.error(`[MCP] ${new Date().toISOString()} Dev mode: Starting background initialization...`);
           graphService.isScanning = true;
           graphService.initDev()
-            .then(() => {
-              console.error(`[MCP] ${new Date().toISOString()} Background initialization complete.`);
-            })
-            .catch(err => {
-              console.error(`[MCP] ${new Date().toISOString()} Background initialization failed:`, err);
-            })
-            .finally(() => {
-              graphService.isScanning = false;
-            });
+            .then(() => { console.error(`[MCP] ${new Date().toISOString()} Background initialization complete.`); })
+            .catch(err => { console.error(`[MCP] ${new Date().toISOString()} Background initialization failed:`, err); })
+            .finally(() => { graphService.isScanning = false; });
         }
       } catch (e) {
         console.error(`[MCP] ${new Date().toISOString()} Failed to check node count:`, e.message);

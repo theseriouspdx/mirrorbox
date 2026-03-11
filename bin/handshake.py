@@ -77,7 +77,7 @@ def lock_src():
     for item in SRC_DIR.rglob("*"):
         if item.is_file(): item.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
     # Lock src/ dir itself to prevent new file/dir creation
-    SRC_DIR.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+    SRC_DIR.chmod(stat.S_IRUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
     # Write deny sentinel so agents can detect lockout without parsing session.lock
     DENY_SENTINEL.parent.mkdir(parents=True, exist_ok=True)
     DENY_SENTINEL.write_text(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
@@ -93,12 +93,16 @@ def handshake(cell_name):
         print("[GATE] Triggering HYDRATION MODE. Manual intervention required.", file=sys.stderr)
         sys.exit(1)
 
-    cell_path = SRC_DIR / "cells" / cell_name
-    if not cell_path.exists():
-        # Allow non-cell src paths if they exist
-        cell_path = SRC_DIR / cell_name
+    # Special case: 'src' grants the entire src/ directory
+    if cell_name == "src":
+        cell_path = SRC_DIR
+    else:
+        cell_path = SRC_DIR / "cells" / cell_name
         if not cell_path.exists():
-            print(f"[GATE] DENIED: Path {cell_name} missing.", file=sys.stderr); sys.exit(1)
+            # Allow non-cell src paths if they exist
+            cell_path = SRC_DIR / cell_name
+            if not cell_path.exists():
+                print(f"[GATE] DENIED: Path {cell_name} missing.", file=sys.stderr); sys.exit(1)
             
     lock_src()
     # Restore src/ dir to traversable after lock_src locked it
@@ -119,18 +123,51 @@ def handshake(cell_name):
 
 DENY_SENTINEL = MBO_ROOT / ".dev" / "run" / "write.deny"
 
+HELP_TEXT = """
+mbo — MBO Sovereign Factory handshake tool
+
+USAGE (human):
+  mbo auth <scope>    Grant write access to src/<scope> (requires MBO_HUMAN_TOKEN)
+  mbo revoke          End session, lock src/, generate handoff (requires MBO_HUMAN_TOKEN)
+  mbo reset           Rebaseline Merkle root after commits to src/ (git must be clean)
+
+USAGE (agent-safe, no token required):
+  mbo status          Show active session scope and expiry
+  mbo pulse           Integrity check — verify src/ matches baseline
+  mbo --help          Show this message
+
+SCOPE EXAMPLES:
+  mbo auth relay
+  mbo auth auth/operator
+  mbo auth index.js
+
+NOTES:
+  - alias mbo='MBO_HUMAN_TOKEN=1 python3 ~/MBO/bin/handshake.py'
+  - src/ is locked (555) when no session is active; writes are blocked
+  - Session TTL: 30 minutes
+"""
+
 if __name__ == "__main__":
     if not JOURNAL_DIR.exists(): JOURNAL_DIR.mkdir(parents=True)
-    if len(sys.argv) < 2: sys.exit(1)
+    if len(sys.argv) < 2 or sys.argv[1] in ("--help", "help"):
+        print(HELP_TEXT); sys.exit(0)
+
+    # Friendly subcommand aliases
+    if sys.argv[1] == "auth":
+        if len(sys.argv) < 3:
+            print("Usage: mbo auth <scope>", file=sys.stderr); sys.exit(1)
+        sys.argv[1] = sys.argv[2]
+    elif sys.argv[1] in ("revoke", "status", "pulse", "reset"):
+        sys.argv[1] = f"--{sys.argv[1]}"
 
     # Human-only guard: grant and revoke require MBO_HUMAN_TOKEN in environment.
-    # Agents may only run --status and --pulse without the token.
+    # Agents may only run --status, --pulse, and --reset without the token.
     HUMAN_TOKEN = os.environ.get("MBO_HUMAN_TOKEN", "")
     arg = sys.argv[1]
     is_grant = not arg.startswith("--")
     is_revoke = arg == "--revoke"
     if (is_grant or is_revoke) and not HUMAN_TOKEN:
-        print("[GATE] DENIED: Grant/revoke requires MBO_HUMAN_TOKEN env var. Agents may only run --status or --pulse.", file=sys.stderr)
+        print("[GATE] DENIED: Grant/revoke requires MBO_HUMAN_TOKEN env var. Agents may only run --status, --pulse, or --reset.", file=sys.stderr)
         sys.exit(1)
 
     if arg == "--merkle-root":
@@ -147,7 +184,6 @@ if __name__ == "__main__":
         SESSION_LOCK.unlink(missing_ok=True)
         log_audit("SESSION_REVOKED")
         print("[GATE] Session revoked. Generating handoff...")
-        # Trigger session close script
         subprocess.run(["bash", str(MBO_ROOT / "scripts" / "mbo-session-close.sh")])
     elif arg == "--pulse":
         if check_integrity(silent=True):
@@ -155,5 +191,14 @@ if __name__ == "__main__":
         else:
             print("[PULSE] FAIL: EXTERNAL_MUTATION_DETECTED")
             sys.exit(1)
+    elif arg == "--reset":
+        result = subprocess.run(["git", "diff", "--quiet", "HEAD", "--", str(SRC_DIR)], cwd=MBO_ROOT)
+        if result.returncode != 0:
+            print("[GATE] DENIED: src/ has uncommitted changes. Commit or stash before reset.", file=sys.stderr)
+            sys.exit(1)
+        sys.path.insert(0, str(Path(__file__).parent))
+        from init_state import init
+        init()
+        log_audit("MERKLE_REBASELINE")
     else:
         handshake(arg)
