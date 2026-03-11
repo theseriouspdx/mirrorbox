@@ -49,11 +49,11 @@
 - **Severity:** High
 - **Status:** COMPLETED — Snapshot-based checkpointing and rollback implemented in StateManager.
 
-### BUG-013: CLI sandbox interaction undefined for terminal context | Milestone: 0.8 | OPEN
+### BUG-013: CLI sandbox interaction undefined for terminal context | Milestone: 0.8 | FIXED
 - **Location:** `src/index.js`, `src/auth/operator.js`
 - **Severity:** Medium
-- **Impact:** User cannot interact with dry-run applications in terminal.
-- **Note:** Requires ctrl+f focus mechanism and port forwarding/URL display.
+- **Status:** FIXED — Implemented `ctrl+f` focus toggle in `index.js` and input interception in `operator.js`.
+- **Impact:** User can interact with dry-run applications in terminal by focusing the sandbox.
 
 ### BUG-045: No token usage logging per callModel invocation | Milestone: 0.8 | COMPLETED
 - **Location:** `src/auth/call-model.js`, `src/state/db-manager.js`

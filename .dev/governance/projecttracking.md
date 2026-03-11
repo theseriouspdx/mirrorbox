@@ -22,7 +22,7 @@
 | 0.8-05 | Implement runtime trace collection | COMPLETED |
 | 0.8-06 | Implement runtime edge update logic | COMPLETED |
 | 0.8-07 | Implement Runtime Edge enrichment for Intelligence Graph | COMPLETED |
-| 0.8-08 | Implement BUG-013: CLI sandbox interaction (focus ctrl+f) | PENDING |
+| 0.8-08 | Implement BUG-013: CLI sandbox interaction (focus ctrl+f) | COMPLETED |
 
 ---
 

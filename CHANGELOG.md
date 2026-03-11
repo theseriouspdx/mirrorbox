@@ -1,4 +1,10 @@
 # CHANGELOG.md
+## [0.8-08] - 2026-03-10
+### Fixed
+- **BUG-013**: Implemented CLI sandbox interaction focus mechanism via `ctrl+f`.
+- **src/index.js**: Enabled raw mode and keypress detection.
+- **src/auth/operator.js**: Added `sandboxFocus` state and `processMessage` interception.
+
 ## [0.9.2] - 2026-03-10
 ### Added
 - Sovereign Factory Protocol (Fortress 2.0).

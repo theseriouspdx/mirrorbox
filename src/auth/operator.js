@@ -44,6 +44,15 @@ class Operator {
     this.mcpCallbacks = new Map();
     this.contextThreshold = 0.8;      // Section 8: configurable via operatorContextThreshold
     this.activeModelWindow = null;    // set after routeModels() resolves, see _loadModelWindow()
+    this.sandboxFocus = false;        // BUG-013: Sandbox interaction state
+  }
+
+  /**
+   * BUG-013: Toggles focus between the MBO CLI and the active sandbox.
+   */
+  toggleSandboxFocus() {
+    this.sandboxFocus = !this.sandboxFocus;
+    return this.sandboxFocus;
   }
 
   /**
@@ -384,6 +393,12 @@ The output will be used as the new system context.`;
     await this.checkContextLifecycle();
     const input = userMessage.trim().toLowerCase();
 
+    // BUG-013: Intercept input if sandbox is focused
+    if (this.sandboxFocus) {
+      eventStore.append('SANDBOX_INPUT', 'human', { input: userMessage }, 'mirror');
+      return { status: 'sandbox_intercept', message: "Input sent to sandbox." };
+    }
+
     // State Machine Transitions
     if (input === 'go' && this.stateSummary.pendingDecision) {
       return await this.handleApproval('go');
@@ -459,12 +474,16 @@ The output will be used as the new system context.`;
       // Stage 4.5: Virtual Dry Run (Placeholder for 0.8)
       const dryRun = await this.runStage4_5(codeResult.code);
 
-      return { 
-        status: 'complete', 
-        plan: agreedPlan, 
-        code: codeResult.code, 
+      // Stage 11: Intelligence Graph Update (Task 0.8-07)
+      // Ingest any runtime trace from the probe and re-index modified files.
+      await this.runStage11();
+
+      return {
+        status: 'complete',
+        plan: agreedPlan,
+        code: codeResult.code,
         dryRun,
-        blockCount: this.stateSummary.blockCounter 
+        blockCount: this.stateSummary.blockCounter
       };
     } catch (e) {
       console.error(`[Operator] Pipeline failure: ${e.message}`);
@@ -612,6 +631,42 @@ Return ONLY JSON per SPEC Section 13:
 
     // Stage 4D: Tiebreaker (Code)
     return await this.runStage4D(plan, classification, routing);
+  }
+
+  /**
+   * Section 15: Stage 11 — Intelligence Graph Update (Task 0.8-07)
+   *
+   * Called after successful code derivation (Stage 4 / 4.5).
+   * 1. Ingests runtime-trace.json if the sandbox probe produced one.
+   * 2. Re-indexes any files touched during this pipeline run.
+   *
+   * Non-fatal: failures are logged but do not block task completion.
+   */
+  async runStage11() {
+    this.stateSummary.currentStage = 'knowledge_update';
+    console.error(`[Operator] Stage 11: Intelligence Graph Update starting...`);
+
+    try {
+      // 1. Ingest runtime trace (0.8-07)
+      const traceFile = 'data/runtime-trace.json';
+      const traceAbsPath = path.resolve(process.cwd(), traceFile);
+      if (fs.existsSync(traceAbsPath)) {
+        console.error(`[Operator] Stage 11: Ingesting runtime trace from ${traceFile}...`);
+        await this.callMCPTool('graph_ingest_runtime_trace', { traceFile });
+      }
+
+      // 2. Re-index files modified during this run
+      const modifiedFiles = this.stateSummary.filesInScope || [];
+      if (modifiedFiles.length > 0) {
+        console.error(`[Operator] Stage 11: Re-indexing ${modifiedFiles.length} modified file(s)...`);
+        await this.callMCPTool('graph_update_task', { modifiedFiles });
+      }
+
+      console.error(`[Operator] Stage 11: Intelligence Graph Update complete.`);
+    } catch (e) {
+      // Stage 11 failures are non-fatal — log and continue
+      console.error(`[Operator] Stage 11: Non-fatal error during graph update: ${e.message}`);
+    }
   }
 
   async evaluateCodeConsensus(codeA, plan, reviewerOutput, hardState) {
