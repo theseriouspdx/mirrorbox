@@ -3,6 +3,14 @@
 
 ---
 
+### [1.1.6] — 2026-03-12
+#### Fixed
+- **1.1-H05 Authoritative Launch Sequence**: Full MCP server detachment and startup robustness across macOS terminal, launchd, Docker, and CI vendor environments.
+  - `scripts/mbo-start.sh`: `nohup` + `disown` detachment — server survives shell exit and SIGHUP. Port stability via manifest port reuse. Stale sentinel cleared before poll. TCP liveness probe after sentinel detection. PID file written after confirmed readiness. `exit 0` — no `wait`. Canonical `MBO_PROJECT_ROOT` via `pwd -P` exported before node spawn.
+  - `src/auth/operator.js`: Fixed undefined `sentinelPath` bug in `_waitForMCPReady`. Added manifest port read + TCP liveness probe after sentinel. Process fingerprint checks degrade gracefully when `ps(1)` unavailable (Docker/CI minimal images).
+  - `src/graph/mcp-server.js`: `fs.realpathSync` canonicalization in `parseArgs()` with try/catch for Docker late-mount safety. Trust contract comment added.
+- **1.1-H08 MCP Runtime Contract v3**: Confirmed closed. Manifest v3 schema, CAS startup lock, process fingerprint, circuit breaker, and acceptance tests — all verified 2026-03-12.
+
 ### [1.1.5] — 2026-03-12
 #### Added
 - **1.1-07 Tokenmiser Value-Tracking**: Real-time token and cost attribution for all model calls.

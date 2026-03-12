@@ -2,23 +2,7 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Tokenmiser [IN PROGRESS]
-**Next Action:** 1.1-H08 — MCP Runtime Contract v3 (99/1 Reliability)
-
----
-
-## NEXT ACTION
-
-**Task 1.1-H08 — MCP Runtime Contract v3 (99/1 Reliability)**
-
-Goal: Make MCP startup/connect/recovery deterministic under concurrency and crash conditions while preserving governance-safe recovery.
-
-Scope:
-1. Add atomic manifest contract (`manifest_version`, `checksum`, `epoch`, `instance_id`).
-2. Add MCP-protocol health validation (`initialize` + `graph_server_info`) before trust.
-3. Add CAS startup lock to prevent dual-start split-brain.
-4. Add process fingerprint validation (pid + start time + command/root).
-5. Add restart circuit breaker + explicit incident state (no silent retry loops).
-6. Add acceptance tests for concurrency, stale/corrupt state, crash loops, and cross-project isolation.
+**Next Action:** 1.0-09 — Sovereign Loop [IN PROGRESS] / Review open hardening tasks
 
 ---
 
@@ -53,7 +37,7 @@ Scope:
 | 1.1-H02 | Implement Machine Config validation & corrupt-rename logic | COMPLETED |
 | 1.1-H03 | Implement Non-TTY Guard & Env-Var output for CI | COMPLETED |
 | 1.1-H04 | Implement .mbo/ Scaffolding and .gitignore Automator | COMPLETED |
-| 1.1-H05 | Implement Authoritative Launch Sequence (Step 1-7) | IN REVIEW |
+| 1.1-H05 | Implement Authoritative Launch Sequence (Step 1-7) | COMPLETED |
 | 1.1-H06 | Implement Tokenmiser Baseline & Current-Raw scan hooks | COMPLETED |
 | 1.1-H07 | Implement TOKEN_USAGE event emission in call-model.js | COMPLETED |
 | 1.1-H08 | Implement MCP Runtime Contract v3 (99/1 Reliability) | COMPLETED |
