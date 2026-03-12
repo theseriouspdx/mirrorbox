@@ -1,34 +1,29 @@
+'use strict';
+
 const http = require('http');
-const fs = require('fs');
-const path = require('path');
+const { resolveManifest } = require('./src/utils/resolve-manifest');
 
 function resolveEndpoint() {
-  const projectRoot = process.env.MBO_PROJECT_ROOT || process.cwd();
-  const manifestPath = path.join(projectRoot, '.mbo', 'run', 'mcp.json');
-  try {
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    return { host: '127.0.0.1', port: Number(manifest.port) || 3737, path: '/mcp' };
-  } catch {
-    return { host: '127.0.0.1', port: 3737, path: '/mcp' };
-  }
+  // Throws with an actionable message if manifest missing or not ready.
+  // No silent fallback to 3737.
+  const { manifest } = resolveManifest();
+  return { host: '127.0.0.1', port: manifest.port, path: '/mcp' };
 }
 
 async function mcpQuery(method, params, sessionId = null) {
   const ep = resolveEndpoint();
   const options = {
     hostname: ep.host,
-    port: ep.port,
-    path: ep.path,
-    method: 'POST',
+    port:     ep.port,
+    path:     ep.path,
+    method:   'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Accept': 'application/json, text/event-stream'
-    }
+      'Accept':       'application/json, text/event-stream',
+    },
   };
 
-  if (sessionId) {
-    options.headers['mcp-session-id'] = sessionId;
-  }
+  if (sessionId) options.headers['mcp-session-id'] = sessionId;
 
   return new Promise((resolve, reject) => {
     const req = http.request(options, (res) => {
@@ -54,24 +49,19 @@ async function mcpQuery(method, params, sessionId = null) {
     });
 
     req.on('error', (err) => { reject(err); });
-    req.write(JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method,
-      params
-    }));
+    req.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }));
     req.end();
   });
 }
 
 async function main() {
   const query = process.argv[2] || 'event streaming';
-  
+
   try {
     const { response: initRes, sessionId } = await mcpQuery('initialize', {
       protocolVersion: '2024-11-05',
-      capabilities: {},
-      clientInfo: { name: 'mbo-http-query', version: '1.0.0' }
+      capabilities:    {},
+      clientInfo:      { name: 'mbo-http-query', version: '1.0.0' },
     });
 
     if (initRes.error) {
@@ -80,12 +70,11 @@ async function main() {
     }
 
     const { response: toolRes } = await mcpQuery('tools/call', {
-      name: 'graph_search',
-      arguments: { pattern: query }
+      name:      'graph_search',
+      arguments: { pattern: query },
     }, sessionId);
 
     console.log(JSON.stringify(toolRes.result, null, 2));
-
   } catch (err) {
     console.error('Error:', err.message);
     process.exit(1);

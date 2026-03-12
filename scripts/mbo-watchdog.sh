@@ -31,15 +31,34 @@ while true; do
     continue
   fi
 
-  # Determine port from environment or PID file sibling, fall back to default.
-  PORT="${MBO_PORT:-}"
+  # Read port from manifest — dev path first, runtime fallback.
+  # If manifest is missing or server isn't ready, skip this probe cycle.
+  PORT="$(node -e "
+const fs = require('fs');
+const paths = [
+  '$ROOT_DIR/.dev/run/mcp.json',
+  '$ROOT_DIR/.mbo/run/mcp.json'
+];
+for (const p of paths) {
+  try {
+    const m = JSON.parse(fs.readFileSync(p, 'utf8'));
+    if (m.manifest_version === 3 && m.port && m.status === 'ready') {
+      console.log(m.port);
+      process.exit(0);
+    }
+  } catch (_) {}
+}
+process.exit(1);
+  " 2>/dev/null)" || {
+    echo "[WATCHDOG] $(date -u +"%Y-%m-%dT%H:%M:%SZ") Manifest missing or server not ready — skipping probe cycle."
+    CONSECUTIVE_FAILURES=0
+    continue
+  }
+
   if [[ -z "$PORT" ]]; then
-    # Infer from agent name: dev agent uses 4737, runtime uses 3737.
-    if [[ "$AGENT" == *"dev"* ]] || [[ "$AGENT" == "launchd" ]]; then
-      PORT=4737
-    else
-      PORT=3737
-    fi
+    echo "[WATCHDOG] $(date -u +"%Y-%m-%dT%H:%M:%SZ") Could not resolve port from manifest — skipping probe cycle."
+    CONSECUTIVE_FAILURES=0
+    continue
   fi
 
   # HTTP liveness probe — any response (including 4xx) means the server is alive.

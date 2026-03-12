@@ -9,55 +9,16 @@ const eventStore = require('../state/event-store');
 
 const MBO_ROOT = path.resolve(__dirname, '../..');
 
-function getRunDir() {
-  const projectRoot = process.env.MBO_PROJECT_ROOT || process.cwd();
-  return path.join(projectRoot, '.mbo/run');
-}
+const {
+  resolveManifest,
+  readManifest,
+  getRunDir: _getRunDir,
+  tryReadManifestRelaxed,
+} = require('../utils/resolve-manifest');
 
-function getManifestPath() {
-  return path.join(getRunDir(), 'mcp.json');
-}
-
-function readManifest() {
-  try {
-    return JSON.parse(fs.readFileSync(getManifestPath(), 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-function writeManifestAtomic(filePath, manifest) {
-  const dir = path.dirname(filePath);
-  const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
-  fs.mkdirSync(dir, { recursive: true });
-  const fd = fs.openSync(tmpPath, 'w');
-  try {
-    fs.writeFileSync(fd, JSON.stringify(manifest, null, 2), 'utf8');
-    fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
-  }
-  fs.renameSync(tmpPath, filePath);
-  const dirFd = fs.openSync(dir, 'r');
-  try {
-    fs.fsyncSync(dirFd);
-  } finally {
-    fs.closeSync(dirFd);
-  }
-}
-
-function canonicalizeJSON(value) {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map((v) => canonicalizeJSON(v)).join(',')}]`;
-  const keys = Object.keys(value).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalizeJSON(value[k])}`).join(',')}}`;
-}
-
-function computeManifestChecksum(withoutChecksum) {
-  const { createHash } = require('crypto');
-  return createHash('sha256')
-    .update(Buffer.from(canonicalizeJSON(withoutChecksum), 'utf8'))
-    .digest('hex');
+// Mode-aware run dir — used everywhere PID/session files are written.
+function getRunDir(mode) {
+  return _getRunDir(mode || 'runtime');
 }
 
 function readProcessStartMs(pid) {
@@ -195,8 +156,8 @@ class Operator {
       throw new Error('[Operator] MCP manifest checksum mismatch.');
     }
 
-    if (manifest.status === 'incident') {
-      throw new Error(`[Operator] MCP manifest in incident state: ${manifest.incident_reason || 'unspecified'}`);
+    if (manifest.status !== 'ready') {
+      throw new Error(`[Operator] MCP manifest status is "${manifest.status}" — server not ready. incident_reason: ${manifest.incident_reason || 'none'}`);
     }
 
     const expectedRoot = getExpectedProjectRoot();
@@ -267,7 +228,10 @@ class Operator {
         console.error(`[Operator] Existing MCP manifest invalid: ${err.message}. Attempting scoped restart path.`);
       }
     }
-    this.mcpPort = manifest && Number.isFinite(Number(manifest.port)) ? Number(manifest.port) : null;
+    // Use port from manifest only if it passed validation — don't carry over a stale port.
+    this.mcpPort = (manifest && manifest.status === 'ready' && Number.isFinite(Number(manifest.port)))
+      ? Number(manifest.port)
+      : null;
     
     const portBusy = this.mcpPort ? await this._isPortBound(this.mcpPort) : false;
 
@@ -275,9 +239,12 @@ class Operator {
       // Port is free — spawn the MCP server process.
       try {
         await this._spawnMCPServer(scriptPath, args);
-        // Wait for the sentinel file the server writes on successful bind,
-        // rather than polling TCP — avoids ECONNREFUSED retry storms.
         await this._waitForMCPReady();
+        // Re-read manifest after server is up to get the actual live port.
+        const liveManifest = readManifest({ mustReady: false });
+        if (liveManifest && Number.isFinite(liveManifest.port)) {
+          this.mcpPort = liveManifest.port;
+        }
       } catch (err) {
         this._registerMCPRestartFailure(err.message);
         throw err;
@@ -285,7 +252,7 @@ class Operator {
     } else {
       console.error(`[Operator] MCP port ${this.mcpPort} already bound — reusing existing server.`);
       // Restore persisted session ID so subsequent requests carry the correct header.
-      const sessionFile = path.join(getRunDir(), 'mcp.session');
+      const sessionFile = path.join(getRunDir(this.mode), 'mcp.session');
       try {
         const saved = require('fs').readFileSync(sessionFile, 'utf8').trim();
         if (saved) {
@@ -374,16 +341,41 @@ class Operator {
     }
     await this._killServerOnPort(this.mcpPort);
 
-    const sessionFile = path.join(getRunDir(), 'mcp.session');
+    const sessionFile = path.join(getRunDir(this.mode), 'mcp.session');
     try { require('fs').unlinkSync(sessionFile); } catch (_) {}
     this.mcpSessionId = null;
 
     await this._spawnMCPServer(scriptPath, args);
     await this._waitForMCPReady();
+    this._syncClientConfigs();
     await this._initializeMCPWithRetry(false);
     const info = await this._assertProjectId();
     if (info.is_scanning) {
       await this._waitForScanComplete();
+    }
+  }
+
+  _syncClientConfigs() {
+    const port = this.mcpPort;
+    if (!port) return;
+    const url = `http://127.0.0.1:${port}/mcp`;
+    const root = process.env.MBO_PROJECT_ROOT || process.cwd();
+    for (const relPath of ['.mcp.json', '.gemini/settings.json']) {
+      const filePath = path.join(root, relPath);
+      try {
+        const cfg = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        let updated = false;
+        for (const key of Object.keys(cfg.mcpServers || {})) {
+          if (cfg.mcpServers[key].url !== undefined) {
+            cfg.mcpServers[key].url = url;
+            updated = true;
+          }
+        }
+        if (updated) {
+          fs.writeFileSync(filePath, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+          console.error(`[Operator] Synced ${relPath} to port ${port}`);
+        }
+      } catch (_) {}
     }
   }
 
@@ -469,7 +461,7 @@ class Operator {
    * Timeout: 15 seconds total.
    */
   async _waitForMCPReady(timeoutMs = 15000) {
-    const sentinelPath = path.join(getRunDir(), 'mcp.ready');
+    const sessionFile = path.join(getRunDir(this.mode), 'mcp.ready');
     const interval = 100;
     const deadline = Date.now() + timeoutMs;
 
@@ -477,13 +469,11 @@ class Operator {
     try { require('fs').unlinkSync(sentinelPath); } catch (_) {}
 
     while (Date.now() < deadline) {
-      // Prefer sentinel: it means the server is past listen() and ready.
-      if (require('fs').existsSync(sentinelPath)) return;
+      if (require('fs').existsSync(sessionFile)) return;
       if (!this.mcpPort) {
-        const manifest = readManifest();
-        if (manifest && Number.isFinite(Number(manifest.port))) {
-          this.mcpPort = Number(manifest.port);
-        }
+        const m = tryReadManifestRelaxed(path.join(getRunDir(this.mode), 'mcp.json'))
+               || tryReadManifestRelaxed(path.join(getRunDir('runtime'), 'mcp.json'));
+        if (m && Number.isFinite(m.port)) this.mcpPort = m.port;
       }
       // Fallback: TCP probe (handles cases where sentinel write fails).
       if (this.mcpPort && await this._isPortBound(this.mcpPort)) return;
@@ -515,10 +505,10 @@ class Operator {
         // to re-initialize with a clean slate.
         if (this.mcpSessionId) {
           console.error(`[Operator] Stored session ID rejected (${err.message}) — server likely restarted. Re-initializing.`);
-          const sessionFile = path.join(getRunDir(), 'mcp.session');
-          try { require('fs').unlinkSync(sessionFile); } catch (_) {}
-          this.mcpSessionId = null;
-        } else {
+      const sessionFile = path.join(getRunDir(this.mode), 'mcp.session');
+      try { require('fs').unlinkSync(sessionFile); } catch (_) {}
+      this.mcpSessionId = null;
+      } else {
           // No stored session — server may enforce session on all endpoints.
           console.error(`[Operator] tools/list probe failed with no stored session (${err.message}). Attempting initialize.`);
         }
@@ -623,10 +613,9 @@ class Operator {
   _sendMCPHttp(payload) {
     return new Promise((resolve, reject) => {
       if (!this.mcpPort) {
-        const manifest = readManifest();
-        if (manifest && Number.isFinite(Number(manifest.port))) {
-          this.mcpPort = Number(manifest.port);
-        }
+        const m = tryReadManifestRelaxed(path.join(getRunDir(this.mode), 'mcp.json'))
+               || tryReadManifestRelaxed(path.join(getRunDir('runtime'), 'mcp.json'));
+        if (m && Number.isFinite(m.port)) this.mcpPort = m.port;
       }
       if (!this.mcpPort) return reject(new Error('MCP port not set'));
 
@@ -652,7 +641,7 @@ class Operator {
           this.mcpSessionId = Array.isArray(sid) ? sid[0] : sid;
           // Persist so a restarted Operator can rejoin an existing session.
           try {
-            const runDir = getRunDir();
+            const runDir = getRunDir(this.mode);
             require('fs').mkdirSync(runDir, { recursive: true });
             require('fs').writeFileSync(path.join(runDir, 'mcp.session'), this.mcpSessionId, 'utf8');
           } catch (_) {}
@@ -760,8 +749,7 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
 
     try {
       const response = await callModel('classifier', prompt, input, hardState);
-
-      console.error(`[DEBUG] Classifier response: ${response}`);
+      if (process.env.MBO_DEBUG) console.error(`[DEBUG] Classifier response: ${response}`);
       const classification = this._safeParseJSON(response);
       
       if (!classification || classification.confidence < 0.6) {
@@ -880,7 +868,7 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
       );
       return { content: [{ text: JSON.stringify({ affectedFiles: rows.map(r => r.target_id) }) }] };
     }
-    const nodeId = `file://${path.resolve(process.cwd(), file)}`;
+    const nodeId = `file://${path.resolve(MBO_ROOT, file)}`;
     return this.callMCPTool('graph_query_impact', { nodeId });
   }
 
@@ -892,7 +880,7 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
   }
 
   _fileExists(filePath) {
-    return fs.existsSync(path.resolve(process.cwd(), filePath));
+    return fs.existsSync(path.resolve(MBO_ROOT, filePath));
   }
 
   /**
@@ -1196,19 +1184,7 @@ The output will be used as the new system context.`;
         auditPackage: auditPkg,
         prompt: 'Audit package ready. Respond "approved" to sync state, or "reject" to roll back.'
       };
-
-      // NOTE: Stage 11 (graph update) runs after 'approved' via runStage8(), not here.
-      // Stage 11: Intelligence Graph Update (Task 0.8-07)
-      // Ingest any runtime trace from the probe and re-index modified files.
-      await this.runStage11();
-
-      return {
-        status: 'complete',
-        plan: agreedPlan,
-        code: codeResult.code,
-        dryRun,
-        blockCount: this.stateSummary.blockCounter
-      };
+      // NOTE: Stage 11 (graph update) runs after 'approved' in runStage8(), not here.
     } catch (e) {
       console.error(`[Operator] Pipeline failure: ${e.message}`);
       
@@ -1496,7 +1472,7 @@ Return ONLY JSON per SPEC Section 13:
   async evaluateCodeConsensus(codeA, plan, reviewerOutput, hardState) {
     const auditPrompt = `Audit the Planner's code against the agreed plan and Reviewer's independent derivation.\nPlan: ${JSON.stringify(plan)}\nPlanner Code: ${codeA}\nReviewer Code: ${reviewerOutput.independentCode}\nReviewer Concerns: ${JSON.stringify(reviewerOutput.concerns)}\n\nDoes the code correctly implement state transitions? Return JSON with verdict, reason, citation, and consensusIntent.`;
     const result = await callModel('reviewer', auditPrompt, {}, hardState);
-    console.error(`[DEBUG] evaluateCodeConsensus response: ${result}`);
+    if (process.env.MBO_DEBUG) console.error(`[DEBUG] evaluateCodeConsensus response: ${result}`);
     return this._safeParseJSON(result, { verdict: 'block', reason: 'JSON Parse Failure' });
   }
 
@@ -1566,7 +1542,7 @@ Return JSON:
   "consensusIntent": "The shared goal both plans achieve"
 }`;
     const result = await callModel('classifier', auditPrompt, {}, hardState);
-    console.error(`[DEBUG] evaluateSpecAdherence response: ${result}`);
+    if (process.env.MBO_DEBUG) console.error(`[DEBUG] evaluateSpecAdherence response: ${result}`);
     return this._safeParseJSON(result, { verdict: 'divergent', conflict: 'JSON Parse Failure' });
   }
 
@@ -1591,7 +1567,7 @@ Return JSON:
     this.mcpSessionId = null;
     // Clean up persisted session — a killed server's session ID is invalid.
     try {
-      require('fs').unlinkSync(path.join(getRunDir(), 'mcp.session'));
+      require('fs').unlinkSync(path.join(getRunDir(this.mode), 'mcp.session'));
     } catch (_) {}
     // Section 17: Generate handoff on clean shutdown
     stateManager.checkpoint('mirror');
