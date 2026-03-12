@@ -3,6 +3,10 @@
 
 ---
 
+### [1.1.4] — 2026-03-12
+#### Fixed
+- **1.1-06 Validator failure recovery**: Implemented pipeline halt on `validator.py` failure in `operator.js`. Validator logs are now captured and injected into `this.stateSummary.executorLogs`, triggering a re-entry to the Stage 3 planning stage (up to 3 attempts). Ensures implementation correctness via automated feedback loop.
+
 ### [1.1.3] — 2026-03-11
 #### Added
 - **1.1-03 mbo setup wizard**: Interactive first-run wizard (`src/cli/setup.js`). Detects CLI tools (claude/gemini/codex), queries Ollama for local models, reads/collects API keys, builds recommended config, supports manual role assignment. Saves to `~/.mbo/config.json`. Non-TTY guard for CI/Docker.

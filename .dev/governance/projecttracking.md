@@ -30,7 +30,7 @@ Scope:
 | 1.1-04 | Implement .mbo/ project init — directory walk, .gitignore guard (Section 28.3) | COMPLETED |
 | 1.1-05 | Implement launch sequence — version check, re-onboard trigger (Section 28.5) | COMPLETED |
 | 1.1-10 | Graph Server Trust Contract — server identity + client assertion | COMPLETED |
-| 1.1-06 | Fix BUG-050: Validator failure halts pipeline, re-enters Stage 3A (Section 28) | OPEN |
+| 1.1-06 | Fix BUG-050: Validator failure halts pipeline, re-enters Stage 3A (Section 28) | COMPLETED |
 | 1.1-07 | Implement Tokenizer module — scan, onboard, track (Section 29) | OPEN |
 | 1.1-08 | Implement token accounting — event schema, live tally, session summary (Section 30) | OPEN |
 | 1.1-09 | Wire Tokenizer into MBO launch sequence as onboarding engine | OPEN |

@@ -141,12 +141,12 @@
   4. Operator asserts project_id on every connect; hard fails on mismatch.
   5. Documented explicit rescan contract.
 
-### BUG-050: Validator failure does not halt pipeline | Milestone: 1.1 | OPEN
-- **Location:** `src/auth/operator.js` — `runStage6`
+### BUG-050: Validator failure does not halt pipeline | Milestone: 1.1 | COMPLETED
+- **Location:** `src/auth/operator.js` — `runStage6`, `handleApproval`, `runStage3`
 - **Severity:** P1
-- **Status:** OPEN
-- **Description:** `runStage6` logs `validatorPassed: false` but does not halt the pipeline. Execution continues to the audit gate regardless of validator result.
-- **Fix:** When `validatorPassed === false`, halt before Stage 7, inject validator output into `executorLogs`, re-enter Stage 3A (same path as sandbox regression failure).
+- **Status:** COMPLETED — 2026-03-12
+- **Description:** `handleApproval` logged `validatorPassed: false` but did not halt.
+- **Fix:** Implemented pipeline halt in `handleApproval` on validator failure. Logs are captured into `stateSummary.executorLogs` and injected into `runStage3` for a planning retry (up to 3 recovery attempts). Added `executorLogs` reset in `processMessage` for new tasks.
 
 ### BUG-051: DBManager DB path hardcoded to MBO source directory | Milestone: 1.1 | FIXED
 - **Fixed:** 2026-03-11 — `path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db')`

@@ -96,32 +96,7 @@ class Operator {
 
     if (!portBusy) {
       // Port is free — spawn the MCP server process.
-      const logDir = path.join(__dirname, '../../.dev/logs');
-      const logPath = path.join(logDir, 'mcp-stderr.log');
-      let logFd;
-      try {
-        require('fs').mkdirSync(logDir, { recursive: true });
-        logFd = require('fs').openSync(logPath, 'a');
-      } catch (e) {
-        console.error(`[Operator] WARN: Could not open MCP log file: ${e.message}`);
-      }
-
-      this.mcpServer = spawn(scriptPath, args, { 
-        stdio: ['ignore', 'ignore', logFd || 'inherit'],
-        env: { ...process.env, NODE_ENV: this.mode === 'dev' ? 'development' : 'production' },
-        detached: false,
-      });
-
-      if (logFd) {
-        this.mcpServer.on('spawn', () => require('fs').closeSync(logFd));
-      }
-
-      this.mcpServer.on('exit', (code, signal) => {
-        if (code !== 0 && code !== null) {
-          console.error(`[Operator] MCP launcher exited with code=${code} signal=${signal || 'none'}.`);
-        }
-      });
-
+      await this._spawnMCPServer(scriptPath, args);
       // Wait for the sentinel file the server writes on successful bind,
       // rather than polling TCP — avoids ECONNREFUSED retry storms.
       await this._waitForMCPReady();
@@ -150,9 +125,126 @@ class Operator {
       await this._waitForScanComplete();
     }
 
+    if (this.mode === 'dev') {
+      await this._ensureDevGraphFreshOrRecover(scriptPath, args);
+    }
+
     // Best-effort initialization notification; server compatibility may vary.
     await this.sendMCPNotification('notifications/initialized', {});
     await this._loadModelWindow();
+  }
+
+  async _spawnMCPServer(scriptPath, args) {
+    const logDir = path.join(__dirname, '../../.dev/logs');
+    const logPath = path.join(logDir, 'mcp-stderr.log');
+    let logFd;
+    try {
+      require('fs').mkdirSync(logDir, { recursive: true });
+      logFd = require('fs').openSync(logPath, 'a');
+    } catch (e) {
+      console.error(`[Operator] WARN: Could not open MCP log file: ${e.message}`);
+    }
+
+    this.mcpServer = spawn(scriptPath, args, {
+      stdio: ['ignore', 'ignore', logFd || 'inherit'],
+      env: { ...process.env, NODE_ENV: this.mode === 'dev' ? 'development' : 'production' },
+      detached: false,
+    });
+
+    if (logFd) {
+      this.mcpServer.on('spawn', () => require('fs').closeSync(logFd));
+    }
+
+    this.mcpServer.on('exit', (code, signal) => {
+      if (code !== 0 && code !== null) {
+        console.error(`[Operator] MCP launcher exited with code=${code} signal=${signal || 'none'}.`);
+      }
+    });
+  }
+
+  async _killServerOnPort(port) {
+    try {
+      const out = execSync(`lsof -ti:${port}`, { encoding: 'utf8' }).trim();
+      if (!out) return;
+      for (const pidStr of out.split(/\s+/)) {
+        const pid = parseInt(pidStr, 10);
+        if (Number.isFinite(pid)) {
+          try { process.kill(pid, 'SIGTERM'); } catch (_) {}
+        }
+      }
+      await new Promise(r => setTimeout(r, 500));
+    } catch (_) {
+      // nothing listening or lsof unavailable
+    }
+  }
+
+  async _restartMCPServer(scriptPath, args) {
+    console.error(`[Operator] Restarting MCP server on port ${this.mcpPort} for self-healing...`);
+
+    if (this.mcpServer) {
+      try { this.mcpServer.kill('SIGTERM'); } catch (_) {}
+      this.mcpServer = null;
+    }
+    await this._killServerOnPort(this.mcpPort);
+
+    const sessionFile = path.join(__dirname, '../../.dev/run/mcp.session');
+    try { require('fs').unlinkSync(sessionFile); } catch (_) {}
+    this.mcpSessionId = null;
+
+    await this._spawnMCPServer(scriptPath, args);
+    await this._waitForMCPReady();
+    await this._initializeMCPWithRetry(false);
+    const info = await this._assertProjectId();
+    if (info.is_scanning) {
+      await this._waitForScanComplete();
+    }
+  }
+
+  async _ensureDevGraphFreshOrRecover(scriptPath, args) {
+    const epoch = new Date(0).toISOString();
+
+    const tryRescan = async () => {
+      const beforeInfo = await this.callMCPTool('graph_server_info', {});
+      const before = JSON.parse(beforeInfo.content[0].text);
+      const revBefore = Number(before.index_revision || 0);
+
+      const rescanResult = await this.callMCPTool('graph_rescan', {});
+      let summary = null;
+      try {
+        summary = JSON.parse(rescanResult.content[0].text);
+      } catch (_) {
+        // keep going, rev check is authoritative
+      }
+
+      const afterInfo = await this.callMCPTool('graph_server_info', {});
+      const after = JSON.parse(afterInfo.content[0].text);
+      const revAfter = Number(after.index_revision || 0);
+      const freshTimestamp = after.last_indexed_at && after.last_indexed_at !== epoch;
+
+      return {
+        ok: revAfter > revBefore && freshTimestamp,
+        revBefore,
+        revAfter,
+        lastIndexedAt: after.last_indexed_at,
+        summary,
+      };
+    };
+
+    try {
+      const first = await tryRescan();
+      if (first.ok) return;
+      console.error(`[Operator] Dev graph freshness check failed (rev ${first.revBefore} -> ${first.revAfter}, ts=${first.lastIndexedAt}). Attempting self-heal restart.`);
+    } catch (e) {
+      console.error(`[Operator] Dev graph rescan failed (${e.message}). Attempting self-heal restart.`);
+    }
+
+    await this._restartMCPServer(scriptPath, args);
+    const second = await tryRescan();
+    if (!second.ok) {
+      throw new Error(
+        `[Operator] Dev graph still stale after self-heal restart (rev ${second.revBefore} -> ${second.revAfter}, ts=${second.lastIndexedAt}).`
+      );
+    }
   }
 
   /**
@@ -790,6 +882,7 @@ The output will be used as the new system context.`;
     const routing = await this.determineRouting(classification);
     this.stateSummary.pendingDecision = { classification, routing };
     this.stateSummary.worldId = classification.worldId || 'mirror';
+    this.stateSummary.executorLogs = null;
 
     // Invariant 13: Checkpoint before state snapshot
     stateManager.checkpoint('mirror');
@@ -851,7 +944,7 @@ The output will be used as the new system context.`;
 
     try {
       // Stage 3: Planning
-      const planResult = await this.runStage3(classification, routing);
+      const planResult = await this.runStage3(classification, routing, [], this.stateSummary.executorLogs);
       let agreedPlan = planResult.plan;
 
       if (planResult.needsTiebreaker) {
@@ -866,6 +959,17 @@ The output will be used as the new system context.`;
 
       // Stage 6: Write + Validate
       const writeResult = await this.runStage6(codeResult.code, classification.files);
+
+      if (!writeResult.validatorPassed) {
+        const errorHash = require('crypto').createHash('sha256').update(writeResult.validatorOutput).digest('hex').slice(0, 16);
+        eventStore.append('VALIDATION_FAILED', 'operator', { 
+          files: writeResult.modifiedFiles, 
+          errorHash 
+        }, 'mirror');
+        const err = new Error(`Validator failed: ${writeResult.validatorOutput.slice(0, 200)}...`);
+        err.validatorOutput = writeResult.validatorOutput;
+        throw err;
+      }
 
       // Stage 5.5: Surface audit package to REPL — pause here.
       // REPL resolves via 'approved' → runStage8(), or 'reject' → runStage7Rollback().
@@ -898,6 +1002,7 @@ The output will be used as the new system context.`;
         this.stateSummary.recoveryAttempts++;
         console.error(`[Operator] Attempting recovery (${this.stateSummary.recoveryAttempts}/3)...`);
         // Re-inject the pending decision into the pipeline for retry
+        this.stateSummary.executorLogs = e.validatorOutput || e.message;
         this.stateSummary.pendingDecision = { classification, routing };
         return await this.handleApproval('go');
       }
@@ -1013,13 +1118,14 @@ The output will be used as the new system context.`;
    * Section 15: Stage 3 — Independent Plan Derivation
    * Qualitative consensus based on Spec Adherence.
    */
-  async runStage3(classification, routing, pinnedContext = []) {
+  async runStage3(classification, routing, pinnedContext = [], executorLogs = null) {
     this.stateSummary.currentStage = 'planning';
     const hardState = this.getHardState();
 
     const planPrompt = `Derive an ExecutionPlan adhering to the Prime Directive.
 Task: ${classification.rationale}
 Prime Directive: ${hardState.primeDirective}
+Failure Context (Retry): ${executorLogs || 'None'}
 Pinned Context: ${pinnedContext.join(', ')}
 
 Return ONLY JSON per SPEC Section 13:
