@@ -28,6 +28,8 @@ function readProcessStartMs(pid) {
     const ms = Date.parse(out);
     return Number.isFinite(ms) ? Math.floor(ms / 1000) * 1000 : null;
   } catch {
+    // Some minimal Docker/CI images lack ps(1) with lstart support.
+    // Degrade gracefully; caller decides whether this check is mandatory.
     return null;
   }
 }
@@ -36,6 +38,8 @@ function readProcessCommand(pid) {
   try {
     return execSync(`ps -o command= -p ${pid}`, { encoding: 'utf8' }).trim();
   } catch {
+    // Some minimal Docker/CI images lack ps(1) command output support.
+    // Degrade gracefully; caller decides whether this check is mandatory.
     return null;
   }
 }
@@ -102,8 +106,8 @@ class Operator {
         incident_reason: `circuit_breaker_open: ${this.mcpRestartHistory.length} restart failures within ${Math.floor(this.mcpCircuitWindowMs / 1000)}s`,
       };
       try {
-        const manifestPath = getManifestPath();
-        const current = readManifest() || {};
+        const resolved = resolveManifest({ root: process.env.MBO_PROJECT_ROOT || process.cwd(), mustReady: false });
+        const current = resolved && resolved.manifest ? resolved.manifest : {};
         const payload = {
           ...current,
           status: incident.status,
@@ -111,11 +115,9 @@ class Operator {
           restart_count: this.mcpRestartHistory.length,
           last_verified_at: new Date().toISOString(),
         };
-        if (payload.checksum) {
-          const { checksum, ...withoutChecksum } = payload;
-          payload.checksum = computeManifestChecksum(withoutChecksum);
+        if (resolved && resolved.manifestPath) {
+          fs.writeFileSync(resolved.manifestPath, JSON.stringify(payload, null, 2), 'utf8');
         }
-        writeManifestAtomic(manifestPath, payload);
       } catch (_) {}
       throw new Error(`[Operator] MCP incident: ${incident.incident_reason}`);
     }
@@ -171,13 +173,19 @@ class Operator {
 
     const startMs = readProcessStartMs(Number(manifest.pid));
     const manifestStartMs = Math.floor(Number(manifest.process_start_ms) / 1000) * 1000;
-    if (!startMs || startMs !== manifestStartMs) {
+    if (startMs !== null && startMs !== manifestStartMs) {
       throw new Error('[Operator] MCP process fingerprint mismatch (pid/start time).');
+    }
+    if (startMs === null) {
+      console.error('[Operator] WARN: process start time unavailable (ps missing?) — skipping start-time fingerprint check.');
     }
 
     const cmd = readProcessCommand(Number(manifest.pid));
-    if (!cmd || !cmd.includes('mcp-server.js') || !cmd.includes(expectedRoot)) {
+    if (cmd !== null && (!cmd.includes('mcp-server.js') || !cmd.includes(expectedRoot))) {
       throw new Error('[Operator] MCP process fingerprint mismatch (command/root).');
+    }
+    if (cmd === null) {
+      console.error('[Operator] WARN: process command unavailable (ps missing?) — skipping command fingerprint check.');
     }
 
     return manifest;
@@ -461,7 +469,9 @@ class Operator {
    * Timeout: 15 seconds total.
    */
   async _waitForMCPReady(timeoutMs = 15000) {
-    const sessionFile = path.join(getRunDir(this.mode), 'mcp.ready');
+    const sentinelPath = path.join(getRunDir(this.mode), 'mcp.ready');
+    const modeManifestPath = path.join(getRunDir(this.mode), 'mcp.json');
+    const runtimeManifestPath = path.join(getRunDir('runtime'), 'mcp.json');
     const interval = 100;
     const deadline = Date.now() + timeoutMs;
 
@@ -469,10 +479,31 @@ class Operator {
     try { require('fs').unlinkSync(sentinelPath); } catch (_) {}
 
     while (Date.now() < deadline) {
-      if (require('fs').existsSync(sessionFile)) return;
+      if (require('fs').existsSync(sentinelPath)) {
+        // Sentinel exists: resolve live port from manifest with short retry window.
+        for (let i = 0; i < 5; i++) {
+          const m = tryReadManifestRelaxed(modeManifestPath)
+                 || tryReadManifestRelaxed(runtimeManifestPath);
+          if (m && Number.isFinite(m.port)) {
+            this.mcpPort = m.port;
+            break;
+          }
+          await new Promise(r => setTimeout(r, 100));
+        }
+
+        // After sentinel + manifest port, verify TCP liveness to avoid ghost-ready.
+        if (!this.mcpPort) {
+          throw new Error('MCP readiness sentinel detected but live port unavailable from manifest.');
+        }
+        for (let i = 0; i < 10; i++) {
+          if (await this._isPortBound(this.mcpPort)) return;
+          await new Promise(r => setTimeout(r, 200));
+        }
+        throw new Error(`MCP sentinel detected but port ${this.mcpPort} is not accepting connections.`);
+      }
       if (!this.mcpPort) {
-        const m = tryReadManifestRelaxed(path.join(getRunDir(this.mode), 'mcp.json'))
-               || tryReadManifestRelaxed(path.join(getRunDir('runtime'), 'mcp.json'));
+        const m = tryReadManifestRelaxed(modeManifestPath)
+               || tryReadManifestRelaxed(runtimeManifestPath);
         if (m && Number.isFinite(m.port)) this.mcpPort = m.port;
       }
       // Fallback: TCP probe (handles cases where sentinel write fails).

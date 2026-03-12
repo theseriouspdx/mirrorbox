@@ -8,6 +8,9 @@ const { validateConfig, runSetup } = require('./cli/setup');
 const { initProject } = require('./cli/init-project');
 const { detectProviders } = require('./cli/detect-providers');
 const { checkOnboarding } = require('./cli/onboarding');
+const { fetchPricing } = require('./utils/pricing');
+const dashboard = require('./cli/tokenmiser-dashboard');
+const statsManager = require('./state/stats-manager');
 
 // §28.1 & 28.7: Step 1: Authoritative Root Resolution
 const resolvedRoot = process.env.MBO_PROJECT_ROOT || findProjectRoot();
@@ -56,7 +59,12 @@ async function main() {
   // §24.7: Start Relay listener for Subject → Mirror telemetry
   relay.start();
 
-  console.log("MBO Engine v0.1.0 initialized. [ctrl+f to focus sandbox]");
+  // Task 1.1-H09: Fetch pricing and increment session counter
+  await fetchPricing();
+  statsManager.stats.sessions++;
+  statsManager.save();
+
+  console.log("MBO Engine v0.1.0 initialized. [ctrl+f to focus sandbox, SHIFT+T for stats]");
 
   readline.emitKeypressEvents(process.stdin);
   if (process.stdin.isTTY) {
@@ -73,6 +81,11 @@ async function main() {
   rl.prompt();
 
   process.stdin.on('keypress', (str, key) => {
+    // SHIFT+T (toggle stats overlay)
+    if (key.shift && key.name === 't') {
+      dashboard.toggleOverlay(rl);
+      return;
+    }
     // ctrl+f (focus sandbox)
     if (key.ctrl && key.name === 'f') {
       const state = operator.toggleSandboxFocus();
@@ -113,6 +126,7 @@ async function main() {
     }
 
     const result = await operator.processMessage(trimmed);
+    process.stdout.write(dashboard.renderHeader());
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     rl.prompt();
   });

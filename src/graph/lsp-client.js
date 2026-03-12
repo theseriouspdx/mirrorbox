@@ -3,16 +3,14 @@ const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
 const rpc = require('vscode-jsonrpc/node');
-const {
-  InitializeRequest,
-  InitializedNotification,
-  DidOpenTextDocumentNotification,
-  DidCloseTextDocumentNotification,
-  DefinitionRequest,
-  PrepareCallHierarchyRequest,
-  CallHierarchyIncomingCallsRequest,
-  CallHierarchyOutgoingCallsRequest
-} = require('vscode-languageserver-protocol');
+
+// HACK: Some versions of vscode-languageserver-protocol use a different instance of 
+// vscode-jsonrpc than the one we have, leading to "Unknown parameter structure byName"
+// when the ProtocolRequestType instances are used. We've replaced them with strings,
+// but the underlying library might still be checking against its own internal list.
+if (rpc.ParameterStructures && !rpc.ParameterStructures.byName) {
+  rpc.ParameterStructures.byName = new rpc.ParameterStructures('byName');
+}
 
 // Axis 2: Orphan Process Prevention Registry
 const activeLSPProcesses = new Set();
@@ -85,8 +83,8 @@ class LSPClient {
 
     try {
       this.initStatus = 'initializing';
-      await this.connection.sendRequest(InitializeRequest.type, initParams);
-      this.connection.sendNotification(InitializedNotification.type, {});
+      await this.connection.sendRequest('initialize', initParams);
+      this.connection.sendNotification('initialized', {});
       this.initStatus = 'initialized';
       // Axis 2: Don't block indefinitely on $/progress. 
       // Many servers (vtsls) are ready immediately after initialized.
@@ -112,7 +110,7 @@ class LSPClient {
 
   async openDocument(absolutePath) {
     const uri = pathToFileURL(absolutePath).href;
-    await this.connection.sendNotification(DidOpenTextDocumentNotification.type, {
+    await this.connection.sendNotification('textDocument/didOpen', {
       textDocument: {
         uri,
         languageId: this.language,
@@ -125,7 +123,7 @@ class LSPClient {
 
   async closeDocument(absolutePath) {
     const uri = pathToFileURL(absolutePath).href;
-    await this.connection.sendNotification(DidCloseTextDocumentNotification.type, {
+    await this.connection.sendNotification('textDocument/didClose', {
       textDocument: { uri }
     });
   }
@@ -145,7 +143,7 @@ class LSPClient {
     const uri = pathToFileURL(absolutePath).href;
     try {
       const result = await this._withTimeout(
-        this.connection.sendRequest(DefinitionRequest.type, {
+        this.connection.sendRequest('textDocument/definition', {
           textDocument: { uri },
           position: { line, character }
         })
@@ -160,7 +158,7 @@ class LSPClient {
     const uri = pathToFileURL(absolutePath).href;
     try {
       const items = await this._withTimeout(
-        this.connection.sendRequest(PrepareCallHierarchyRequest.type, {
+        this.connection.sendRequest('textDocument/prepareCallHierarchy', {
           textDocument: { uri },
           position: { line, character }
         })
@@ -168,8 +166,8 @@ class LSPClient {
       if (!items || items.length === 0) return null;
       const item = items[0];
       const [incoming, outgoing] = await Promise.all([
-        this._withTimeout(this.connection.sendRequest(CallHierarchyIncomingCallsRequest.type, { item })),
-        this._withTimeout(this.connection.sendRequest(CallHierarchyOutgoingCallsRequest.type, { item }))
+        this._withTimeout(this.connection.sendRequest('callHierarchy/incomingCalls', { item })),
+        this._withTimeout(this.connection.sendRequest('callHierarchy/outgoingCalls', { item }))
       ]);
       return { incoming, outgoing };
     } catch (e) { return null; }

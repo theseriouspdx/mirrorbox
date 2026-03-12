@@ -97,6 +97,9 @@ class DBManager {
         model        TEXT NOT NULL,
         input_tokens  INTEGER NOT NULL DEFAULT 0,
         output_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_usd      REAL NOT NULL DEFAULT 0,
+        raw_tokens_estimate INTEGER NOT NULL DEFAULT 0,
+        raw_cost_estimate   REAL NOT NULL DEFAULT 0,
         timestamp    INTEGER NOT NULL
       );
 
@@ -181,11 +184,17 @@ class DBManager {
     const hasPrevHash = tableInfo.some(col => col.name === 'prev_hash');
     const hasWorldId = tableInfo.some(col => col.name === 'world_id');
 
-    const anchorInfo = this.db.prepare('PRAGMA table_info(chain_anchors)').all();
-    const hasRunId = anchorInfo.some(col => col.name === 'run_id');
+    const tokenLogInfo = this.db.prepare('PRAGMA table_info(token_log)').all();
+    const hasCostUsd = tokenLogInfo.some(col => col.name === 'cost_usd');
+    const hasRawTokens = tokenLogInfo.some(col => col.name === 'raw_tokens_estimate');
+    const hasRawCost = tokenLogInfo.some(col => col.name === 'raw_cost_estimate');
 
-    if (anchorInfo.length > 0 && !hasRunId) {
-      // ... existing anchor migration ...
+    if (tokenLogInfo.length > 0 && (!hasCostUsd || !hasRawTokens || !hasRawCost)) {
+      this.db.exec(`
+        ALTER TABLE token_log ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0;
+        ALTER TABLE token_log ADD COLUMN raw_tokens_estimate INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE token_log ADD COLUMN raw_cost_estimate REAL NOT NULL DEFAULT 0;
+      `);
     }
 
     if (!hasEventsTable) {
@@ -249,12 +258,12 @@ class DBManager {
     return this.db.prepare(sql).run(...params);
   }
 
-  logTokenUsage({ id, runId, role, model, inputTokens, outputTokens }) {
+  logTokenUsage({ id, runId, role, model, inputTokens, outputTokens, costUsd, rawTokensEstimate, rawCostEstimate }) {
     try {
       this.db.prepare(`
-        INSERT INTO token_log (id, run_id, role, model, input_tokens, output_tokens, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(id, runId || null, role, model, inputTokens || 0, outputTokens || 0, Date.now());
+        INSERT INTO token_log (id, run_id, role, model, input_tokens, output_tokens, cost_usd, raw_tokens_estimate, raw_cost_estimate, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, runId || null, role, model, inputTokens || 0, outputTokens || 0, costUsd || 0, rawTokensEstimate || 0, rawCostEstimate || 0, Date.now());
     } catch (e) {
       console.error('[token_log] Write failed (non-fatal):', e.message);
     }
@@ -263,11 +272,11 @@ class DBManager {
   getTokenUsage({ runId } = {}) {
     if (runId) {
       return this.db.prepare(
-        'SELECT role, model, SUM(input_tokens) as input, SUM(output_tokens) as output FROM token_log WHERE run_id = ? GROUP BY role, model'
+        'SELECT role, model, SUM(input_tokens) as input, SUM(output_tokens) as output, SUM(cost_usd) as cost, SUM(raw_tokens_estimate) as raw_tokens, SUM(raw_cost_estimate) as raw_cost FROM token_log WHERE run_id = ? GROUP BY role, model'
       ).all(runId);
     }
     return this.db.prepare(
-      'SELECT role, model, SUM(input_tokens) as input, SUM(output_tokens) as output, COUNT(*) as calls FROM token_log GROUP BY role, model'
+      'SELECT role, model, SUM(input_tokens) as input, SUM(output_tokens) as output, SUM(cost_usd) as cost, SUM(raw_tokens_estimate) as raw_tokens, SUM(raw_cost_estimate) as raw_cost, COUNT(*) as calls FROM token_log GROUP BY role, model'
     ).all();
   }
 

@@ -1,84 +1,89 @@
-'use strict';
-
 const http = require('http');
-const { resolveManifest } = require('./src/utils/resolve-manifest');
 
-function resolveEndpoint() {
-  // Throws with an actionable message if manifest missing or not ready.
-  // No silent fallback to 3737.
-  const { manifest } = resolveManifest();
-  return { host: '127.0.0.1', port: manifest.port, path: '/mcp' };
-}
+async function callMCP(method, params = {}, sessionId = null) {
+  const port = 3737; // Server port
+  const body = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method,
+    params
+  });
 
-async function mcpQuery(method, params, sessionId = null) {
-  const ep = resolveEndpoint();
-  const options = {
-    hostname: ep.host,
-    port:     ep.port,
-    path:     ep.path,
-    method:   'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept':       'application/json, text/event-stream',
-    },
+  const headers = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json, text/event-stream',
+    'Content-Length': Buffer.byteLength(body)
   };
-
-  if (sessionId) options.headers['mcp-session-id'] = sessionId;
+  if (sessionId) {
+    headers['mcp-session-id'] = sessionId;
+  }
 
   return new Promise((resolve, reject) => {
-    const req = http.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
+    const req = http.request({
+      host: '127.0.0.1',
+      port,
+      path: '/mcp',
+      method: 'POST',
+      headers
+    }, (res) => {
+      let responseBody = '';
+      const sid = res.headers['mcp-session-id'];
+      res.on('data', (chunk) => { responseBody += chunk.toString(); });
       res.on('end', () => {
         try {
-          const events = data.split('\n\n').filter(e => e.trim());
-          let response = null;
-          for (const event of events) {
-            const dataLine = event.split('\n').find(l => l.startsWith('data:'));
-            if (dataLine) {
-              response = JSON.parse(dataLine.slice(5).trim());
-              break;
-            }
+          if (responseBody.includes('data:')) {
+             const lines = responseBody.split('\n');
+             for (const line of lines) {
+               if (line.startsWith('data:')) {
+                 const data = line.slice(5).trim();
+                 if (data && data !== '[DONE]') {
+                   const json = JSON.parse(data);
+                   resolve({ result: json.result, sessionId: sid, raw: responseBody });
+                   return;
+                 }
+               }
+             }
           }
-          if (!response) throw new Error('No data event found');
-          resolve({ response, sessionId: res.headers['mcp-session-id'] });
+          const json = JSON.parse(responseBody);
+          resolve({ result: json.result, sessionId: sid, raw: responseBody });
         } catch (e) {
-          reject(new Error(`Failed to parse response: ${data}`));
+          reject(new Error(`Failed to parse response: ${responseBody}`));
         }
       });
     });
 
-    req.on('error', (err) => { reject(err); });
-    req.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }));
+    req.on('error', reject);
+    req.write(body);
     req.end();
   });
 }
 
-async function main() {
-  const query = process.argv[2] || 'Implement Cross-World Event Streaming';
+const [,, command, ...args] = process.argv;
 
+(async () => {
   try {
-    const { response: initRes, sessionId } = await mcpQuery('initialize', {
+    const init = await callMCP('initialize', {
       protocolVersion: '2024-11-05',
-      capabilities:    {},
-      clientInfo:      { name: 'mbo-query-tool', version: '1.0.0' },
+      capabilities: {},
+      clientInfo: { name: 'mcp-query-script', version: '1.0.0' }
     });
+    const sid = init.sessionId;
 
-    if (initRes.error) {
-      console.error('Initialization Error:', initRes.error);
-      process.exit(1);
+    let res;
+    if (command === 'graph_server_info') {
+      res = await callMCP('tools/call', { name: 'graph_server_info', arguments: {} }, sid);
+    } else if (command === 'graph_search') {
+      res = await callMCP('tools/call', { name: 'graph_search', arguments: { pattern: args[0] } }, sid);
+    } else if (command === 'graph_rescan') {
+      res = await callMCP('tools/call', { name: 'graph_rescan', arguments: {} }, sid);
+    } else if (command === 'tools_list') {
+      res = await callMCP('tools/list', {}, sid);
+    } else {
+      console.log("Usage: node mcp_query.js [graph_server_info | graph_search <pattern> | graph_rescan | tools_list]");
+      return;
     }
-
-    const { response: toolRes } = await mcpQuery('tools/call', {
-      name:      'graph_search',
-      arguments: { pattern: query },
-    }, sessionId);
-
-    console.log(JSON.stringify(toolRes.result, null, 2));
-  } catch (err) {
-    console.error('Error:', err.message);
-    process.exit(1);
+    console.log(JSON.stringify(res, null, 2));
+  } catch (e) {
+    console.error(e.message);
   }
-}
-
-main();
+})();

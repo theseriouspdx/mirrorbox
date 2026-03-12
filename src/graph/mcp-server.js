@@ -229,7 +229,13 @@ function parseArgs() {
   let root = PROJECT_ROOT;
   for (const arg of args) {
     if (arg.startsWith('--mode=')) mode = arg.split('=')[1];
-    else if (arg.startsWith('--root=')) root = fs.realpathSync(arg.split('=')[1]);
+    else if (arg.startsWith('--root=')) {
+      const rawRoot = arg.split('=')[1];
+      // Canonicalize when available to align with operator-side root checks.
+      // If realpath is unavailable (late mounts), keep provided root non-fatally.
+      try { root = fs.realpathSync(rawRoot); }
+      catch { root = rawRoot; }
+    }
   }
   return { mode, root };
 }
