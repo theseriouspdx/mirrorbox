@@ -189,7 +189,15 @@ if __name__ == "__main__":
         SESSION_LOCK.unlink(missing_ok=True)
         log_audit("SESSION_REVOKED")
         print("[GATE] Session revoked. Generating handoff...")
-        subprocess.run(["bash", str(MBO_ROOT / "scripts" / "mbo-session-close.sh")])
+        try:
+            subprocess.run(
+                ["bash", str(MBO_ROOT / "scripts" / "mbo-session-close.sh")],
+                timeout=45,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            log_audit("SESSION_CLOSE_TIMEOUT")
+            print("[GATE] WARN: Session close exceeded 45s and was aborted. Handoff may be partial.", file=sys.stderr)
     elif arg == "--pulse":
         if check_integrity(silent=True):
             print("[PULSE] OK")

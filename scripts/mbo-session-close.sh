@@ -1,6 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Bound expensive operations so session-close never hangs forever.
+log(){ echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") $*"; }
+run_with_timeout() {
+  local timeout_s="$1"; shift
+  local cmd=("$@")
+  "${cmd[@]}" &
+  local pid=$!
+  (
+    sleep "$timeout_s"
+    if kill -0 "$pid" 2>/dev/null; then
+      log "WARN: Timeout (${timeout_s}s) reached for: ${cmd[*]}"
+      kill -TERM "$pid" 2>/dev/null || true
+      sleep 2
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
+  ) &
+  local watchdog=$!
+  wait "$pid" || return_code=$?
+  kill -TERM "$watchdog" 2>/dev/null || true
+  wait "$watchdog" 2>/dev/null || true
+  return ${return_code:-0}
+}
+
 # --terminate-mcp --agent=<name>: graceful MCP process shutdown via PID file
 if [[ "${1:-}" == "--terminate-mcp" ]]; then
     AGENT=""
@@ -141,10 +164,49 @@ fi
 
 # Rebuild DB: drop and regenerate from source scan (keeps DB tiny)
 echo "[MBO] Rebuilding mirrorbox.db from source..."
-if node "$ROOT_DIR/scripts/rebuild-mirror.js" 2>&1 | tail -2; then
+if run_with_timeout 30 node "$ROOT_DIR/scripts/rebuild-mirror.js" 2>&1 | tail -2; then
   echo "[MBO] DB rebuild complete."
 else
-  echo "[MBO] WARN: DB rebuild failed — backup preserved at $BACKUP_FILE" >&2
+  echo "[MBO] WARN: DB rebuild failed or timed out — backup preserved at $BACKUP_FILE" >&2
+fi
+
+# Best-effort dev graph freshness bump (non-fatal): if MCP dev server is running,
+# trigger graph_rescan so next agent session doesn't start stale.
+DEV_PORT="4737"
+if lsof -ti:"$DEV_PORT" >/dev/null 2>&1; then
+  echo "[MBO] Triggering dev graph_rescan on :$DEV_PORT (best-effort)..."
+  CURL_COMMON_ARGS=(
+    --silent --show-error
+    --connect-timeout 1
+    --max-time 4
+    --retry 1
+    --retry-delay 1
+    --retry-connrefused
+  )
+  MCP_INIT_HEADERS="$(mktemp)"
+  MCP_INIT_BODY='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"mbo-session-close","version":"1.0"}}}'
+  INIT_RESP="$(curl "${CURL_COMMON_ARGS[@]}" -D "$MCP_INIT_HEADERS" -X POST "http://127.0.0.1:${DEV_PORT}/mcp" \
+    -H 'Content-Type: application/json' \
+    -H 'Accept: application/json, text/event-stream' \
+    --data "$MCP_INIT_BODY" 2>/dev/null || true)"
+  MCP_SID="$(awk 'BEGIN{IGNORECASE=1}/^mcp-session-id:/{gsub("\r",""); print $2}' "$MCP_INIT_HEADERS")"
+  rm -f "$MCP_INIT_HEADERS"
+
+  if [[ -n "$MCP_SID" ]]; then
+    RSCAN_BODY='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"graph_rescan","arguments":{}}}'
+    RSCAN_RESP="$(curl "${CURL_COMMON_ARGS[@]}" -X POST "http://127.0.0.1:${DEV_PORT}/mcp" \
+      -H 'Content-Type: application/json' \
+      -H 'Accept: application/json, text/event-stream' \
+      -H "mcp-session-id: $MCP_SID" \
+      --data "$RSCAN_BODY" 2>/dev/null || true)"
+    if echo "$RSCAN_RESP" | grep -q "event: message"; then
+      echo "[MBO] Dev graph_rescan triggered."
+    else
+      echo "[MBO] WARN: dev graph_rescan trigger did not return expected MCP response." >&2
+    fi
+  else
+    echo "[MBO] WARN: Could not establish MCP session for dev graph_rescan trigger." >&2
+  fi
 fi
 
 # 3. Generate NEXT_SESSION.md Content
@@ -202,4 +264,3 @@ echo "SHA-256: $SHA256"
 echo "----------------------------------------------------"
 echo "Handoff complete. It is now safe to clear context."
 echo "----------------------------------------------------"
-
