@@ -1,4 +1,5 @@
 const { spawn, execSync, spawnSync } = require('child_process');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { callModel, computeContentHashes } = require('./call-model');
@@ -43,8 +44,9 @@ class Operator {
       pendingDecision: null
     };
     this.mcpServer = null;
+    this.mcpSessionId = null;
+    this.mcpPort = null;
     this.messageId = 1;
-    this.mcpCallbacks = new Map();
     this.contextThreshold = 0.8;      // Section 8: configurable via operatorContextThreshold
     this.activeModelWindow = null;    // set after routeModels() resolves, see _loadModelWindow()
     this.sandboxFocus = false;        // BUG-013: Sandbox interaction state
@@ -87,70 +89,124 @@ class Operator {
   async startMCP() {
     const scriptPath = path.join(__dirname, '../../scripts/mbo-start.sh');
     const args = this.mode === 'dev' ? ['--mode=dev'] : [];
+    const defaultPort = this.mode === 'dev' ? 4737 : 3737;
+    this.mcpPort = parseInt(process.env.MBO_PORT || String(defaultPort), 10);
     
-    // Launch using the vendor-agnostic script
+    // Launch using the vendor-agnostic script (or reuse existing listener on the same port).
     this.mcpServer = spawn(scriptPath, args, { 
-      stdio: ['pipe', 'pipe', 'inherit'],
+      stdio: ['ignore', 'ignore', 'inherit'],
       env: { ...process.env, NODE_ENV: this.mode === 'dev' ? 'development' : 'production' }
     });
-    
-    let buffer = '';
-    this.mcpServer.stdout.on('data', (data) => {
-      buffer += data.toString();
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-      
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const msg = JSON.parse(line);
-          if (msg.id && this.mcpCallbacks.has(msg.id)) {
-            const cb = this.mcpCallbacks.get(msg.id);
-            this.mcpCallbacks.delete(msg.id);
-            if (msg.error) cb.reject(msg.error);
-            else cb.resolve(msg.result);
-          }
-        } catch (e) {
-          // Non-JSON output handled by script redirection to stderr
-        }
+
+    this.mcpServer.on('exit', (code, signal) => {
+      if (code !== 0 && code !== null) {
+        console.error(`[Operator] MCP launcher exited with code=${code} signal=${signal || 'none'}. Attempting existing MCP listener reuse on port ${this.mcpPort}.`);
       }
     });
 
-    await this.sendMCPRequest('initialize', {
-      protocolVersion: '2024-11-05',
-      capabilities: {},
-      clientInfo: { name: 'mbo-operator', version: '1.0.0' }
-    });
-    this.sendMCPNotification('notifications/initialized', {});
+    await this._initializeMCPWithRetry();
+
+    // Best-effort initialization notification; server compatibility may vary.
+    await this.sendMCPNotification('notifications/initialized', {});
     await this._loadModelWindow();
   }
 
-  sendMCPNotification(method, params) {
-    if (!this.mcpServer) return;
-    const jsonRpc = { jsonrpc: '2.0', method, params };
-    this.mcpServer.stdin.write(JSON.stringify(jsonRpc) + '\n');
+  async _initializeMCPWithRetry() {
+    const maxAttempts = 20;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.sendMCPRequest('initialize', {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'mbo-operator', version: '1.0.0' }
+        });
+        return;
+      } catch (err) {
+        lastError = err;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+
+    throw new Error(`MCP initialize failed on port ${this.mcpPort}: ${lastError ? lastError.message : 'unknown error'}`);
+  }
+
+  async sendMCPNotification(method, params) {
+    try {
+      await this._sendMCPHttp({
+        jsonrpc: '2.0',
+        method,
+        params
+      });
+    } catch {
+      // Notification is optional for current server behavior.
+    }
   }
 
   sendMCPRequest(method, params) {
+    const id = this.messageId++;
+    return this._sendMCPHttp({
+      jsonrpc: '2.0',
+      id,
+      method,
+      params
+    });
+  }
+
+  _sendMCPHttp(payload) {
     return new Promise((resolve, reject) => {
-      if (!this.mcpServer) return reject(new Error("MCP Server not started"));
-      
-      const id = this.messageId++;
-      let timer;
-      this.mcpCallbacks.set(id, {
-        resolve: (v) => { clearTimeout(timer); resolve(v); },
-        reject:  (e) => { clearTimeout(timer); reject(e); }
+      if (!this.mcpPort) return reject(new Error('MCP port not set'));
+
+      const body = JSON.stringify(payload);
+      const headers = {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      };
+      if (this.mcpSessionId) {
+        headers['mcp-session-id'] = this.mcpSessionId;
+      }
+
+      const req = http.request({
+        host: '127.0.0.1',
+        port: this.mcpPort,
+        path: '/mcp',
+        method: 'POST',
+        headers,
+      }, (res) => {
+        const sid = res.headers['mcp-session-id'];
+        if (sid) this.mcpSessionId = Array.isArray(sid) ? sid[0] : sid;
+
+        let responseBody = '';
+        res.on('data', (chunk) => { responseBody += chunk.toString(); });
+        res.on('end', () => {
+          if (res.statusCode && res.statusCode >= 400) {
+            return reject(new Error(`MCP HTTP ${res.statusCode}: ${responseBody || 'no response body'}`));
+          }
+
+          if (!responseBody.trim()) {
+            return resolve(null);
+          }
+
+          try {
+            const msg = JSON.parse(responseBody);
+            if (msg.error) {
+              return reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+            }
+            resolve(msg.result);
+          } catch (e) {
+            reject(new Error(`Invalid MCP JSON response: ${e.message}`));
+          }
+        });
       });
 
-      const jsonRpc = { jsonrpc: '2.0', id, method, params };
-      this.mcpServer.stdin.write(JSON.stringify(jsonRpc) + '\n');
+      req.setTimeout(15000, () => {
+        req.destroy(new Error(`MCP request timeout for ${payload.method || 'notification'}`));
+      });
 
-      timer = setTimeout(() => {
-        if (this.mcpCallbacks.has(id)) {
-          this.mcpCallbacks.delete(id);
-          reject(new Error(`MCP request timeout for ${method}`));
-        }
-      }, 15000);
+      req.on('error', reject);
+      req.write(body);
+      req.end();
     });
   }
 
@@ -1000,14 +1056,10 @@ Return JSON:
 
   async shutdown() {
     if (this.mcpServer) {
-      // Reject any in-flight MCP requests before killing the process
-      for (const [id, cb] of this.mcpCallbacks) {
-        cb.reject(new Error('MBO shutdown — MCP server terminating'));
-      }
-      this.mcpCallbacks.clear();
       this.mcpServer.kill();
       this.mcpServer = null;
     }
+    this.mcpSessionId = null;
     // Section 17: Generate handoff on clean shutdown
     stateManager.checkpoint('mirror');
     stateManager.generateHandoff();
