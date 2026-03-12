@@ -5,7 +5,8 @@
   "main": "src/index.js",
   "bin": {
     "mbo": "bin/mbo.js",
-    "mboalpha": "bin/mbo.js"
+    "mboalpha": "bin/mbo.js",
+    "mboauth": "bin/handshake.py"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

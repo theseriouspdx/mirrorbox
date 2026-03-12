@@ -27,14 +27,16 @@ Milestone 1.0 is a threshold, not a feature. The system runs its first task on i
 
 Milestone 1.1 focuses on expanding the Sovereign Loop's reach and hardening the system's resilience for multi-user production environments.
 
-### Milestone 1.1 — Expanding the Sovereign Loop [IN PROGRESS]
-- [ ] Implement Task Decomposition for High-Entropy tasks.
-- [ ] Automated Merit/Audit tracking for autonomous Stage 8 promotion.
-- [ ] Integration with CI/CD for Mirror → Production promotion.
+### Milestone 1.1 — Portability & Hardening [IN PROGRESS]
+- [ ] Implement Section 28v2 CLI Portability (upward root resolution).
+- [ ] Implement Project Scaffolding (.mbo/ init) and .gitignore automation.
+- [ ] Implement Tokenizer Baseline and real-time TOKEN_USAGE accounting.
+- [ ] Implement Authoritative Launch Sequence with Non-TTY CI guards.
+- [ ] Fix BUG-050: Recursive self-correction on validator failure.
 
-### Milestone 1.2 — Multi-User Collaboration
-- [ ] User-specific approval gates and attribution.
-- [ ] Conflict resolution between multiple human operators.
+### Milestone 1.2 — TUI Stability & Economics
+- [ ] Implement Independent Panel Gating for reliable layout math.
+- [ ] Implement Budget-Based Model Routing (The Economic Governor).
 
 ---
 

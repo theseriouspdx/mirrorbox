@@ -92,40 +92,158 @@ class Operator {
     const defaultPort = this.mode === 'dev' ? 4737 : 3737;
     this.mcpPort = parseInt(process.env.MBO_PORT || String(defaultPort), 10);
     
-    // Launch using the vendor-agnostic script (or reuse existing listener on the same port).
-    this.mcpServer = spawn(scriptPath, args, { 
-      stdio: ['ignore', 'ignore', 'inherit'],
-      env: { ...process.env, NODE_ENV: this.mode === 'dev' ? 'development' : 'production' }
-    });
+    const portBusy = await this._isPortBound(this.mcpPort);
 
-    this.mcpServer.on('exit', (code, signal) => {
-      if (code !== 0 && code !== null) {
-        console.error(`[Operator] MCP launcher exited with code=${code} signal=${signal || 'none'}. Attempting existing MCP listener reuse on port ${this.mcpPort}.`);
+    if (!portBusy) {
+      // Port is free — spawn the MCP server process.
+      const logDir = path.join(__dirname, '../../.dev/logs');
+      const logPath = path.join(logDir, 'mcp-stderr.log');
+      let logFd;
+      try {
+        require('fs').mkdirSync(logDir, { recursive: true });
+        logFd = require('fs').openSync(logPath, 'a');
+      } catch (e) {
+        console.error(`[Operator] WARN: Could not open MCP log file: ${e.message}`);
       }
-    });
 
-    await this._initializeMCPWithRetry();
+      this.mcpServer = spawn(scriptPath, args, { 
+        stdio: ['ignore', 'ignore', logFd || 'inherit'],
+        env: { ...process.env, NODE_ENV: this.mode === 'dev' ? 'development' : 'production' },
+        detached: false,
+      });
+
+      if (logFd) {
+        this.mcpServer.on('spawn', () => require('fs').closeSync(logFd));
+      }
+
+      this.mcpServer.on('exit', (code, signal) => {
+        if (code !== 0 && code !== null) {
+          console.error(`[Operator] MCP launcher exited with code=${code} signal=${signal || 'none'}.`);
+        }
+      });
+
+      // Wait for the sentinel file the server writes on successful bind,
+      // rather than polling TCP — avoids ECONNREFUSED retry storms.
+      await this._waitForMCPReady();
+    } else {
+      console.error(`[Operator] MCP port ${this.mcpPort} already bound — reusing existing server.`);
+      // Restore persisted session ID so subsequent requests carry the correct header.
+      const sessionFile = path.join(__dirname, '../../.dev/run/mcp.session');
+      try {
+        const saved = require('fs').readFileSync(sessionFile, 'utf8').trim();
+        if (saved) {
+          this.mcpSessionId = saved;
+          console.error(`[Operator] Restored MCP session ID from disk: ${saved}`);
+        }
+      } catch (_) {
+        // No persisted session — server will reject non-initialize requests;
+        // _initializeMCPWithRetry will handle the fallback.
+      }
+    }
+
+    await this._initializeMCPWithRetry(portBusy);
+
+    // Task 1.1-10: Assert the server is serving the correct project root.
+    // Hard fails with an actionable message if project_id mismatches.
+    const serverInfo = await this._assertProjectId();
+    if (serverInfo.is_scanning) {
+      await this._waitForScanComplete();
+    }
 
     // Best-effort initialization notification; server compatibility may vary.
     await this.sendMCPNotification('notifications/initialized', {});
     await this._loadModelWindow();
   }
 
-  async _initializeMCPWithRetry() {
-    const maxAttempts = 20;
+  /**
+   * Returns true if something is already listening on this.mcpPort.
+   * Uses a non-blocking TCP probe — no child process required.
+   */
+  _isPortBound(port) {
+    return new Promise((resolve) => {
+      const net = require('net');
+      const sock = net.createConnection(port, '127.0.0.1');
+      sock.once('connect', () => { sock.destroy(); resolve(true); });
+      sock.once('error', () => resolve(false));
+    });
+  }
+
+  /**
+   * Waits for the sentinel file written by mcp-server.js on successful bind,
+   * OR falls back to TCP polling if the sentinel does not appear in time.
+   * Timeout: 15 seconds total.
+   */
+  async _waitForMCPReady(timeoutMs = 15000) {
+    const sentinelPath = path.join(__dirname, '../../.dev/run/mcp.ready');
+    const interval = 100;
+    const deadline = Date.now() + timeoutMs;
+
+    // Remove any stale sentinel from a previous run before waiting.
+    try { require('fs').unlinkSync(sentinelPath); } catch (_) {}
+
+    while (Date.now() < deadline) {
+      // Prefer sentinel: it means the server is past listen() and ready.
+      if (require('fs').existsSync(sentinelPath)) return;
+      // Fallback: TCP probe (handles cases where sentinel write fails).
+      if (await this._isPortBound(this.mcpPort)) return;
+      await new Promise(r => setTimeout(r, interval));
+    }
+    throw new Error(`MCP server did not become ready on port ${this.mcpPort} within ${timeoutMs}ms. Check .dev/logs/mcp-stderr.log`);
+  }
+
+  /**
+   * Sends the MCP initialize handshake.
+   *
+   * When portBusy=true the server already has an active session from a prior
+   * Operator instance. In that case we skip initialize entirely — the session
+   * ID is unknown and re-initializing would return "Server already initialized".
+   * Instead we do a lightweight tools/list probe to confirm the server is live.
+   *
+   * When portBusy=false we just spawned the server so we own the fresh session.
+   */
+  async _initializeMCPWithRetry(portBusy = false) {
+    if (portBusy) {
+      // Server already running — probe with tools/list instead of initialize.
+      try {
+        await this.sendMCPRequest('tools/list', {});
+        console.error(`[Operator] Reused existing MCP session on port ${this.mcpPort}.`);
+        return;
+      } catch (err) {
+        // If we had a restored session ID, the server may have restarted
+        // (new session assigned). Evict the stale session file and fall through
+        // to re-initialize with a clean slate.
+        if (this.mcpSessionId) {
+          console.error(`[Operator] Stored session ID rejected (${err.message}) — server likely restarted. Re-initializing.`);
+          const sessionFile = path.join(__dirname, '../../.dev/run/mcp.session');
+          try { require('fs').unlinkSync(sessionFile); } catch (_) {}
+          this.mcpSessionId = null;
+        } else {
+          // No stored session — server may enforce session on all endpoints.
+          console.error(`[Operator] tools/list probe failed with no stored session (${err.message}). Attempting initialize.`);
+        }
+      }
+    }
+
+    const maxAttempts = 10;
     let lastError = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        await this.sendMCPRequest('initialize', {
+        const res = await this.sendMCPRequest('initialize', {
           protocolVersion: '2024-11-05',
           capabilities: {},
           clientInfo: { name: 'mbo-operator', version: '1.0.0' }
         });
-        return;
+        if (res !== null) return; // Normal success path.
       } catch (err) {
+        if (err.message && err.message.includes('Server already initialized')) {
+          // Harmless race: server was already initialized (e.g. another client beat us).
+          // Session ID was captured from the response header — we can proceed.
+          console.error(`[Operator] MCP already initialized — session captured, proceeding.`);
+          return;
+        }
         lastError = err;
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        await new Promise((resolve) => setTimeout(resolve, 300 * attempt)); // backoff
       }
     }
 
@@ -142,6 +260,53 @@ class Operator {
     } catch {
       // Notification is optional for current server behavior.
     }
+  }
+
+  /**
+   * Task 1.1-10: Assert the graph server is serving the correct project root.
+   * Computes project_id from MBO_ROOT using the same UTF-8 sha256 contract as the server.
+   * Hard fails with an actionable error message on mismatch.
+   */
+  async _assertProjectId() {
+    const result = await this.callMCPTool('graph_server_info', {});
+    const info = JSON.parse(result.content[0].text);
+
+    const { createHash } = require('crypto');
+    const expectedRoot = fs.realpathSync(MBO_ROOT);
+    // UTF-8 encoding matches mcp-server.js — part of the trust contract, do not change.
+    const expectedId = createHash('sha256')
+      .update(Buffer.from(expectedRoot, 'utf8'))
+      .digest('hex')
+      .slice(0, 16);
+
+    if (info.project_id !== expectedId) {
+      throw new Error(
+        `[Operator] FATAL: Graph server project_id mismatch.\n` +
+        `  Expected: ${expectedId} (root: ${expectedRoot})\n` +
+        `  Got:      ${info.project_id} (root: ${info.project_root})\n` +
+        `  The server is serving a different project.\n` +
+        `  Kill and restart MCP: lsof -ti:${this.mcpPort} | xargs kill -9`
+      );
+    }
+
+    console.error(`[Operator] Graph server identity verified: project_id=${info.project_id}, index_revision=${info.index_revision}`);
+    return info;
+  }
+
+  /**
+   * Task 1.1-10: Wait for an in-progress graph scan to complete.
+   * Bounded to 6 attempts × 5s = 30s max. Not an open loop — each poll is a full
+   * MCP tool call, so interval spacing matters.
+   */
+  async _waitForScanComplete(maxAttempts = 6, intervalMs = 5000) {
+    for (let i = 0; i < maxAttempts; i++) {
+      const result = await this.callMCPTool('graph_server_info', {});
+      const info = JSON.parse(result.content[0].text);
+      if (!info.is_scanning) return info;
+      console.error(`[Operator] Graph scan in progress (${i + 1}/${maxAttempts}), waiting ${intervalMs}ms...`);
+      await new Promise(r => setTimeout(r, intervalMs));
+    }
+    throw new Error(`[Operator] Graph server still scanning after ${maxAttempts * intervalMs / 1000}s. Aborting.`);
   }
 
   sendMCPRequest(method, params) {
@@ -176,8 +341,17 @@ class Operator {
         headers,
       }, (res) => {
         const sid = res.headers['mcp-session-id'];
-        if (sid) this.mcpSessionId = Array.isArray(sid) ? sid[0] : sid;
+        if (sid) {
+          this.mcpSessionId = Array.isArray(sid) ? sid[0] : sid;
+          // Persist so a restarted Operator can rejoin an existing session.
+          try {
+            const runDir = path.join(__dirname, '../../.dev/run');
+            require('fs').mkdirSync(runDir, { recursive: true });
+            require('fs').writeFileSync(path.join(runDir, 'mcp.session'), this.mcpSessionId, 'utf8');
+          } catch (_) {}
+        }
 
+        const contentType = String(res.headers['content-type'] || '').toLowerCase();
         let responseBody = '';
         res.on('data', (chunk) => { responseBody += chunk.toString(); });
         res.on('end', () => {
@@ -189,12 +363,33 @@ class Operator {
             return resolve(null);
           }
 
-          try {
-            const msg = JSON.parse(responseBody);
-            if (msg.error) {
-              return reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+          const parseAndResolve = (jsonText) => {
+            const msg = JSON.parse(jsonText);
+            if (msg && msg.error) {
+              reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+              return true;
             }
             resolve(msg.result);
+            return true;
+          };
+
+          try {
+            if (contentType.includes('text/event-stream')) {
+              // Parse first JSON-RPC payload from SSE frames.
+              const lines = responseBody.split(/\r?\n/);
+              for (const line of lines) {
+                if (!line.startsWith('data:')) continue;
+                const data = line.slice(5).trim();
+                if (!data || data === '[DONE]') continue;
+                try {
+                  if (parseAndResolve(data)) return;
+                } catch (_) {
+                  // ignore non-JSON SSE payloads (comments, pings, etc.)
+                }
+              }
+              return reject(new Error(`Invalid MCP SSE response: ${responseBody.slice(0, 300)}`));
+            }
+            parseAndResolve(responseBody);
           } catch (e) {
             reject(new Error(`Invalid MCP JSON response: ${e.message}`));
           }
@@ -949,7 +1144,19 @@ Return ONLY JSON per SPEC Section 13:
       const modifiedFiles = this.stateSummary.filesInScope || [];
       if (modifiedFiles.length > 0) {
         console.error(`[Operator] Stage 11: Re-indexing ${modifiedFiles.length} modified file(s)...`);
+        // Capture revision before and after to verify the scan completed successfully.
+        const beforeInfo = await this.callMCPTool('graph_server_info', {});
+        const revBefore = JSON.parse(beforeInfo.content[0].text).index_revision;
+
         await this.callMCPTool('graph_update_task', { modifiedFiles });
+
+        const afterInfo = await this.callMCPTool('graph_server_info', {});
+        const revAfter = JSON.parse(afterInfo.content[0].text).index_revision;
+        if (revAfter <= revBefore) {
+          console.error(`[Operator] Stage 11: WARN: index_revision did not increment after graph_update_task (was ${revBefore}, still ${revAfter}). Scan may have failed.`);
+        } else {
+          console.error(`[Operator] Stage 11: index_revision: ${revBefore} → ${revAfter}`);
+        }
       }
 
       // 3. Update Graph Summary (BUG-042)
@@ -1061,6 +1268,10 @@ Return JSON:
       this.mcpServer = null;
     }
     this.mcpSessionId = null;
+    // Clean up persisted session — a killed server's session ID is invalid.
+    try {
+      require('fs').unlinkSync(path.join(__dirname, '../../.dev/run/mcp.session'));
+    } catch (_) {}
     // Section 17: Generate handoff on clean shutdown
     stateManager.checkpoint('mirror');
     stateManager.generateHandoff();

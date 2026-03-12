@@ -3,15 +3,53 @@ const readline = require('readline');
 const fs   = require('fs');
 const os   = require('os');
 const path = require('path');
+const { findProjectRoot } = require('./utils/root');
+const { validateConfig, runSetup } = require('./cli/setup');
+const { initProject } = require('./cli/init-project');
+const { detectProviders } = require('./cli/detect-providers');
+const { checkOnboarding } = require('./cli/onboarding');
+
+// §28.1 & 28.7: Step 1: Authoritative Root Resolution
+const resolvedRoot = process.env.MBO_PROJECT_ROOT || findProjectRoot();
+if (!resolvedRoot) {
+  process.stderr.write('ERROR: Could not resolve MBO project root (no .mbo directory or .git found in parents).\n');
+  process.exit(1);
+}
+const PROJECT_ROOT = path.resolve(resolvedRoot);
+process.env.MBO_PROJECT_ROOT = PROJECT_ROOT;
+
 const { Operator } = require('./auth/operator');
 const relay = require('./relay/relay-listener');
 
 async function main() {
-  const configPath = path.join(os.homedir(), '.mbo', 'config.json');
-  if (!fs.existsSync(configPath)) {
-    await require('./cli/setup').runSetup();
+  // §28.5 Step 2 & 28.8: Validate machine config + non-TTY guard
+  if (!validateConfig()) {
+    if (!process.stdout.isTTY) {
+      process.stderr.write('ERROR: Non-TTY launch with missing/corrupt ~/.mbo/config.json\n');
+      process.stderr.write('Run `mbo setup` in an interactive shell first.\n');
+      process.exit(1);
+    }
+    await runSetup();
   }
 
+  // §28.5 Step 3: Detect providers/credentials
+  const providers = await detectProviders();
+  if (!providers.claudeCLI && !providers.geminiCLI && !providers.codexCLI && !providers.openrouterKey && !providers.anthropicKey) {
+    process.stderr.write('ERROR: No model providers or API keys detected. Run "mbo setup" or set environment variables.\n');
+    process.exit(1);
+  }
+
+  // §28.5 Step 4: Initialize .mbo/ scaffolding and .gitignore
+  initProject(PROJECT_ROOT);
+
+  // §28.5 Step 5 & 6: Run/check onboarding and version re-onboard
+  const needsOnboarding = await checkOnboarding(PROJECT_ROOT);
+  if (needsOnboarding && !process.stdout.isTTY) {
+    process.stderr.write('ERROR: Non-TTY launch requires onboarding but no onboarding.json found.\n');
+    process.exit(1);
+  }
+
+  // §28.5 Step 7: Start operator
   const operator = new Operator('runtime');
   await operator.startMCP();
 

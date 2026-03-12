@@ -1,0 +1,154 @@
+--- a/src/index.js
++++ b/src/index.js
+@@ -10,23 +10,25 @@
+ const { checkOnboarding } = require('./cli/onboarding');
+ 
+ // §28.1 & 28.7: Step 1: Authoritative Root Resolution
+-const PROJECT_ROOT = process.env.MBO_PROJECT_ROOT || findProjectRoot();
+-process.env.MBO_PROJECT_ROOT = PROJECT_ROOT;
++const resolvedRoot = process.env.MBO_PROJECT_ROOT || findProjectRoot();
++if (!resolvedRoot) {
++  process.stderr.write('ERROR: Could not resolve MBO project root (no .mbo directory or .git found in parents).\n');
++  process.exit(1);
++}
++const PROJECT_ROOT = path.resolve(resolvedRoot);
++process.env.MBO_PROJECT_ROOT = PROJECT_ROOT;
+ 
+ const { Operator } = require('./auth/operator');
+ const relay = require('./relay/relay-listener');
+ 
+ async function main() {
+-  if (!process.stdout.isTTY && !validateConfig()) {
+-    process.stderr.write('ERROR: non-TTY launch with missing/corrupt ~/.mbo/config.json\n');
+-    process.stderr.write('Run `mbo setup` in an interactive shell first.\n');
+-    process.exit(1);
+-  }
+-
+-  // §28.5 Step 2: Validate machine config
++  // §28.5 Step 2 & 28.8: Validate machine config and Non-TTY Guard
+   if (!validateConfig()) {
+-    await runSetup();
++    if (!process.stdout.isTTY) {
++      process.stderr.write('ERROR: Non-TTY launch with missing/corrupt machine config (~/.mbo/config.json).\n');
++      process.exit(1);
++    }
++    await runSetup();
+   }
+ 
+   // §28.5 Step 3: Detect providers/credentials
+@@ -40,7 +42,11 @@
+   initProject(PROJECT_ROOT);
+ 
+   // §28.5 Step 5 & 6: Run/check onboarding and version re-onboard
+-  await checkOnboarding(PROJECT_ROOT);
++  const needsOnboarding = await checkOnboarding(PROJECT_ROOT);
++  if (needsOnboarding && !process.stdout.isTTY) {
++    process.stderr.write('ERROR: Non-TTY launch requires onboarding but no onboarding.json found.\n');
++    process.exit(1);
++  }
+ 
+   // §28.5 Step 7: Start operator
+   const operator = new Operator('runtime');
+--- a/src/cli/onboarding.js
++++ b/src/cli/onboarding.js
+@@ -14,13 +14,14 @@
+  * Check if the project needs onboarding or re-onboarding.
+  * @param {string} projectRoot
+  */
+ async function checkOnboarding(projectRoot) {
+   const onboardingPath = path.join(projectRoot, '.mbo', 'onboarding.json');
+   
+   if (!fs.existsSync(onboardingPath)) {
+-    await runOnboarding(projectRoot);
+-    return;
++    if (process.stdout.isTTY) await runOnboarding(projectRoot);
++    return true; // Indicates onboarding is needed/was run
+   }
+ 
+   try {
+@@ -31,11 +32,13 @@
+     if (data.onboardingVersion !== version) {
+       console.log(`[SYSTEM] Version mismatch (${data.onboardingVersion} vs ${version}). Triggering re-onboard...`);
+-      await runOnboarding(projectRoot, data);
++      if (process.stdout.isTTY) await runOnboarding(projectRoot, data);
++      return true;
+     }
+   } catch (err) {
+     console.error(`[WARN] onboarding.json corrupt: ${err.message}. Re-running...`);
+-    await runOnboarding(projectRoot);
++    if (process.stdout.isTTY) await runOnboarding(projectRoot);
++    return true;
+   }
++  return false;
+ }
+--- a/src/auth/operator.js
++++ b/src/auth/operator.js
+@@ -107,7 +107,11 @@
+     const defaultPort = this.mode === 'dev' ? 4737 : 3737;
+     this.mcpPort = parseInt(process.env.MBO_PORT || String(defaultPort), 10);
+     
++    // If port is already bound, we skip spawning and attempt to connect
++    const portBusy = spawnSync('lsof', ['-ti', `:${this.mcpPort}`]).status === 0;
++
++    if (!portBusy) {
+     // Launch using the vendor-agnostic script (or reuse existing listener on the same port).
+     this.mcpServer = spawn(scriptPath, args, { 
+       stdio: ['ignore', 'ignore', 'inherit'],
+@@ -120,6 +124,7 @@
+         console.error(`[Operator] MCP launcher exited with code=${code} signal=${signal || 'none'}. Attempting existing MCP listener reuse on port ${this.mcpPort}.`);
+       }
+     });
++    }
+ 
+     await this._initializeMCPWithRetry();
+ 
+@@ -133,14 +138,20 @@
+ 
+     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+       try {
+-        await this.sendMCPRequest('initialize', {
++        const res = await this.sendMCPRequest('initialize', {
+           protocolVersion: '2024-11-05',
+           capabilities: {},
+           clientInfo: { name: 'mbo-operator', version: '1.0.0' }
+         });
++        if (res && res.protocolVersion) return; // Successful init
+       } catch (err) {
++        // BUG-053: If already initialized, we can proceed
++        if (err.message.includes('Server already initialized')) {
++          console.error(`[Operator] MCP already initialized on port ${this.mcpPort}. Proceeding.`);
++          return;
++        }
+         lastError = err;
+         await new Promise((resolve) => setTimeout(resolve, 250));
+       }
+     }
+ 
+@@ -166,10 +177,15 @@
+     const options = {
+       hostname: '127.0.0.1',
+       port: this.mcpPort,
+       path: '/mcp',
+       method: 'POST',
+       headers: {
+-        'Content-Type': 'application/json'
++        'Content-Type': 'application/json',
++        'Accept': 'application/json, text/event-stream'
+       }
+     };
++
++    if (this.mcpSessionId) {
++      options.headers['mcp-session-id'] = this.mcpSessionId;
++    }
+ 
+     return new Promise((resolve, reject) => {
+@@ -188,6 +204,10 @@
+           res.on('end', () => {
+             try {
++              // Capture session ID for subsequent requests
++              if (res.headers['mcp-session-id']) {
++                this.mcpSessionId = res.headers['mcp-session-id'];
++              }
++
+               const events = data.split('\n\n').filter(e => e.trim());
+               let response = null;

@@ -119,6 +119,11 @@ class DBManager {
 
       CREATE INDEX IF NOT EXISTS idx_token_log_run ON token_log(run_id);
       CREATE INDEX IF NOT EXISTS idx_token_log_role ON token_log(role);
+
+      CREATE TABLE IF NOT EXISTS server_meta (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
     `);
 
     // Legacy migration: older nodes table lacks virtual coordinate columns.
@@ -264,6 +269,29 @@ class DBManager {
     return this.db.prepare(
       'SELECT role, model, SUM(input_tokens) as input, SUM(output_tokens) as output, COUNT(*) as calls FROM token_log GROUP BY role, model'
     ).all();
+  }
+
+  // ─── Server Meta (Task 1.1-10: Graph Trust Contract) ──────────────────────
+
+  getServerMeta(key, defaultValue = null) {
+    const row = this.db.prepare('SELECT value FROM server_meta WHERE key = ?').get(key);
+    return row ? row.value : defaultValue;
+  }
+
+  setServerMeta(key, value) {
+    this.db.prepare(
+      'INSERT INTO server_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    ).run(key, String(value));
+  }
+
+  // Atomically increments index_revision and updates last_indexed_at.
+  // Returns the new revision number. Called only after a successful scan completes.
+  incrementIndexRevision() {
+    const current = parseInt(this.getServerMeta('index_revision', '0'), 10);
+    const next = current + 1;
+    this.setServerMeta('index_revision', next);
+    this.setServerMeta('last_indexed_at', new Date().toISOString());
+    return next;
   }
 }
 

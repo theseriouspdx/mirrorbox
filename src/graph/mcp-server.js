@@ -5,7 +5,7 @@ process.stdout.on('error', (err) => { if (err.code !== 'EPIPE') process.exit(1);
 process.stderr.on('error', (err) => { if (err.code !== 'EPIPE') process.exit(1); });
 
 const http = require('http');
-const { randomUUID } = require('crypto');
+const { randomUUID, createHash } = require('crypto');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
 const {
@@ -24,13 +24,18 @@ const StaticScanner = require('./static-scanner.js');
 
 // ─── Argument Parsing ─────────────────────────────────────────────────────────
 
+// Project root is two levels up from this file's location (src/graph/ → root).
+// This is intentional and must not be changed to process.cwd() — the server
+// must resolve its root from its own location, not from the launch context.
+const PROJECT_ROOT = path.resolve(__dirname, '../..');
+
 function parseArgs() {
   const args = process.argv.slice(2);
   let mode = 'runtime';
-  let root = process.cwd();
+  let root = PROJECT_ROOT;
   for (const arg of args) {
     if (arg.startsWith('--mode=')) mode = arg.split('=')[1];
-    else if (arg.startsWith('--root=')) root = arg.split('=')[1];
+    else if (arg.startsWith('--root=')) root = fs.realpathSync(arg.split('=')[1]);
   }
   return { mode, root };
 }
@@ -43,6 +48,13 @@ class GraphService {
     this.root = root;
     this.isScanning = false;
 
+    // project_id: sha256 of the canonical root path (UTF-8 bytes), 16-char hex prefix.
+    // UTF-8 encoding is intentional and part of the trust contract — do not change.
+    this.projectId = createHash('sha256')
+      .update(Buffer.from(this.root, 'utf8'))
+      .digest('hex')
+      .slice(0, 16);
+
     const dbPath = mode === 'dev'
       ? path.join(root, '.dev/data/dev-graph.db')
       : path.join(root, 'data/mirrorbox.db');
@@ -54,14 +66,18 @@ class GraphService {
       scanRoots: [path.join(root, 'src')]
     });
     this._writeQueue = Promise.resolve();
+
+    // Read persisted revision from DB synchronously — not lazily — so
+    // graph_server_info returns accurate values immediately on startup.
+    this.indexRevision = parseInt(this.db.getServerMeta('index_revision', '0'), 10);
+    this.lastIndexedAt = this.db.getServerMeta('last_indexed_at', new Date(0).toISOString());
   }
 
   enqueueWrite(fn) {
-    this._writeQueue = this._writeQueue
-      .then(fn)
-      .catch((err) => {
-        console.error(`[GraphService] ${new Date().toISOString()} Write queue error: ${err.message}`);
-      });
+    this._writeQueue = this._writeQueue.then(fn).catch((err) => {
+      console.error(`[GraphService] ${new Date().toISOString()} Write queue error: ${err.message}`);
+      throw err; // re-throw — callers must see failures; queue's job is serialization, not error suppression
+    });
     return this._writeQueue;
   }
 
@@ -152,6 +168,11 @@ class GraphService {
             properties: { run_id: { type: 'string', description: 'Optional pipeline run UUID.' } },
           },
         },
+        {
+          name: 'graph_server_info',
+          description: 'Returns server identity and graph freshness metadata. Call at session start to verify the server is scanning the correct project root before issuing any graph queries.',
+          inputSchema: { type: 'object', properties: {} },
+        },
       ],
     };
   }
@@ -188,12 +209,8 @@ class GraphService {
       }
       case 'graph_update_task': {
         return this.enqueueWrite(async () => {
-          if (this.isScanning) {
-            return {
-              content: [{ type: 'text', text: 'Scan already in progress. Try again shortly.' }],
-              isError: true,
-            };
-          }
+          // No isScanning guard here — enqueueWrite serializes; the flag is never true
+          // when reached through the queue. Pre-queue guard in callTool is sufficient.
           this.isScanning = true;
           try {
             for (const file of (args.modifiedFiles || [])) {
@@ -203,6 +220,9 @@ class GraphService {
               }
             }
             await this.scanner.enrich(this.root);
+            // Increment only after successful completion — not if enrich() throws.
+            this.indexRevision = this.db.incrementIndexRevision();
+            this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
             return { content: [{ type: 'text', text: `Graph updated for ${(args.modifiedFiles || []).length} files.` }] };
           } finally {
             this.isScanning = false;
@@ -211,18 +231,17 @@ class GraphService {
       }
       case 'graph_rescan': {
         return this.enqueueWrite(async () => {
-          if (this.isScanning) {
-            return {
-              content: [{ type: 'text', text: 'Scan already in progress. Try again shortly.' }],
-              isError: true,
-            };
-          }
+          // No isScanning guard here — enqueueWrite serializes; the flag is never true
+          // when reached through the queue. Pre-queue guard in callTool is sufficient.
           this.isScanning = true;
           try {
             console.error(`[GraphService] ${new Date().toISOString()} Starting full rescan of src/...`);
             await this.scanner.scanDirectory(path.join(this.root, 'src'), this.root);
             await this.scanner.enrich(this.root);
-            console.error(`[GraphService] ${new Date().toISOString()} Rescan complete.`);
+            // Increment only after successful completion — not if scanDirectory/enrich throws.
+            this.indexRevision = this.db.incrementIndexRevision();
+            this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
+            console.error(`[GraphService] ${new Date().toISOString()} Rescan complete. index_revision=${this.indexRevision}`);
             return { content: [{ type: 'text', text: 'Full graph rescan complete.' }] };
           } finally {
             this.isScanning = false;
@@ -249,6 +268,24 @@ class GraphService {
           { input: 0, output: 0 }
         );
         return { content: [{ type: 'text', text: JSON.stringify({ rows, total }, null, 2) }] };
+      }
+      case 'graph_server_info': {
+        // node_count is the pre-scan count when is_scanning=true — correct behavior.
+        // Partial scan counts would be misleading; is_scanning=true is the authoritative signal.
+        const nodeCount = this.db.get('SELECT COUNT(*) as count FROM nodes').count;
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              project_root: this.root,
+              project_id: this.projectId,
+              index_revision: this.indexRevision,
+              last_indexed_at: this.lastIndexedAt,
+              node_count: nodeCount,
+              is_scanning: this.isScanning,
+            }, null, 2)
+          }]
+        };
       }
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);

@@ -9,6 +9,23 @@
 
 (None. Milestone 0.5 SUCCESS. Pre-0.6 Audit PASS.)
 
+### BUG-053: Runtime MCP initialize loop fails on Streamable HTTP (`Server already initialized`) | Milestone: 1.1 | COMPLETED
+- **Location:** `src/auth/operator.js` (`startMCP`, `_initializeMCPWithRetry`, `_sendMCPHttp`)
+- **Severity:** P0
+- **Status:** COMPLETED — 2026-03-12
+- **Root cause:** Three compounding defects in the MCP session lifecycle:
+  1. `mbo-start.sh` exited with code 1 on port-already-bound — every warm restart silently failed to spawn, leaving the Operator with no server to connect to.
+  2. `this.mcpSessionId` was a pure instance variable lost on every `Operator` reconstruction. On warm restart the new instance had no session ID, so `tools/list` was rejected, the catch fell through to the `initialize` loop, and the server returned `400 Server already initialized`. The error was swallowed, leaving `mcpSessionId` permanently null for the session.
+  3. `_sendMCPHttp` called `JSON.parse(responseBody)` unconditionally. When the server responded with `Content-Type: text/event-stream` (SSE framing), the body was `data: {...}\n\n` — not valid JSON — causing every call to reject with `Invalid MCP JSON response`.
+- **Fix implemented:**
+  - `mbo-start.sh`: exit 0 (not 1) when port already bound — warm restart is a valid path.
+  - `startMCP`: TCP `_isPortBound` probe gates spawn; `_waitForMCPReady` polls sentinel file (`.dev/run/mcp.ready`) then falls back to TCP rather than retry-storming `initialize`.
+  - `_sendMCPHttp`: captures `mcp-session-id` from response header and persists it to `.dev/run/mcp.session` on every successful assignment.
+  - `startMCP` reuse path: reads `.dev/run/mcp.session` and restores `this.mcpSessionId` before probing, so `tools/list` goes out with the correct header.
+  - `_initializeMCPWithRetry`: on `portBusy=true`, probes with `tools/list` instead of `initialize`. If the restored session ID is rejected, evicts the stale file, nulls the ID, and re-initializes cleanly.
+  - `_sendMCPHttp`: reads `Content-Type` header; if `text/event-stream`, parses SSE frames and extracts the first `data:` payload before JSON-parsing.
+  - `shutdown`: deletes `.dev/run/mcp.session` on clean shutdown to prevent stale ID reuse after server kill.
+
 ---
 
 ## Section 2 — P1: Must Fix Before Milestone Complete
@@ -112,6 +129,18 @@
 - **Status:** FIXED — Removed the `exec 3>&1` / `exec 1>&2` / `exec 1>&3` / `exec 3>&-` fd save-restore block. With `set -uo pipefail`, `exec 1>&3` caused a fatal exit when fd 3 was invalid in non-launchd contexts (e.g. bash tool sandbox). Since `mcp-server.js` uses stderr exclusively, stdout ownership is irrelevant and the fd dance was purely vestigial. `exec node` retained. launchd service enabled via `launchctl load -w` — MCP now auto-starts on login.
 - **Fixed:** 2026-03-11
 
+### BUG-054: Graph server has no trust contract — clients cannot verify root or freshness | Milestone: 1.1 | COMPLETED
+- **Location:** `src/graph/mcp-server.js`, `src/auth/operator.js`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-12
+- **Description:** The graph server exposes no identity or freshness metadata. All clients (Operator, Claude CLI, Gemini CLI) connect and immediately trust query results with no verification that the server is scanning the correct project root or that the graph is current. This produces silent wrong-context failures.
+- **Fix (Task 1.1-10):**
+  1. Added `graph_server_info` MCP tool returning project_root, project_id, index_revision, last_indexed_at, node_count, is_scanning.
+  2. Server root derived from `__dirname` by default — eliminates cwd dependency.
+  3. index_revision and last_indexed_at persisted in DB.
+  4. Operator asserts project_id on every connect; hard fails on mismatch.
+  5. Documented explicit rescan contract.
+
 ### BUG-050: Validator failure does not halt pipeline | Milestone: 1.1 | OPEN
 - **Location:** `src/auth/operator.js` — `runStage6`
 - **Severity:** P1
@@ -137,4 +166,4 @@
 
 ---
 
-*Last updated: 2026-03-11*
+*Last updated: 2026-03-12*

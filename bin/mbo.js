@@ -12,16 +12,32 @@
 
 const path = require('path');
 const { spawn } = require('child_process');
+const { findProjectRoot } = require('../src/utils/root');
+const { isSelfRunDisallowed, selfRunGuardMessage } = require('../src/cli/startup-checks');
 
+const PACKAGE_ROOT = path.resolve(__dirname, '..');
+const INVOCATION_CWD = process.cwd();
+const PROJECT_ROOT = process.env.MBO_PROJECT_ROOT || findProjectRoot(INVOCATION_CWD);
 const entry = path.join(__dirname, '..', 'src', 'index.js');
 
 if (process.argv[2] === 'setup') {
   require('../src/cli/setup').runSetup().catch(err => { console.error(err); process.exit(1); });
+} else if (process.argv[2] === 'init') {
+  if (isSelfRunDisallowed(INVOCATION_CWD, PACKAGE_ROOT)) {
+    process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
+    process.exit(2);
+  }
+  const { initProject } = require('../src/cli/init-project');
+  initProject(INVOCATION_CWD);
 } else {
+  if (isSelfRunDisallowed(INVOCATION_CWD, PACKAGE_ROOT)) {
+    process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
+    process.exit(2);
+  }
   const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
     stdio: 'inherit',
-    env: process.env,
-    cwd: process.cwd(),
+    env: { ...process.env, MBO_PROJECT_ROOT: PROJECT_ROOT },
+    cwd: PROJECT_ROOT,
   });
   child.on('exit', (code) => process.exit(code ?? 0));
 }

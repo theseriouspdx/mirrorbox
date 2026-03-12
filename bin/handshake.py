@@ -129,25 +129,25 @@ def handshake(cell_name):
 DENY_SENTINEL = MBO_ROOT / ".dev" / "run" / "write.deny"
 
 HELP_TEXT = """
-mbo — MBO Sovereign Factory handshake tool
+mboauth — MBO Sovereign Factory handshake tool
 
 USAGE (human):
-  mbo auth <scope>    Grant write access to src/<scope> (requires MBO_HUMAN_TOKEN)
-  mbo revoke          End session, lock src/, generate handoff (requires MBO_HUMAN_TOKEN)
-  mbo reset           Rebaseline Merkle root after commits to src/ (git must be clean)
+  mboauth auth <scope>    Grant write access to src/<scope> (requires MBO_HUMAN_TOKEN)
+  mboauth revoke          End session, lock src/, generate handoff (requires MBO_HUMAN_TOKEN)
+  mboauth reset           Rebaseline Merkle root after commits to src/ (git must be clean)
 
 USAGE (agent-safe, no token required):
-  mbo status          Show active session scope and expiry
-  mbo pulse           Integrity check — verify src/ matches baseline
-  mbo --help          Show this message
+  mboauth status          Show active session scope and expiry
+  mboauth pulse           Integrity check — verify src/ matches baseline
+  mboauth --help          Show this message
 
 SCOPE EXAMPLES:
-  mbo auth relay
-  mbo auth auth/operator
-  mbo auth index.js
+  mboauth auth relay
+  mboauth auth auth/operator
+  mboauth auth index.js
 
 NOTES:
-  - alias mbo='MBO_HUMAN_TOKEN=1 python3 ~/MBO/bin/handshake.py'
+  - alias mboauth='MBO_HUMAN_TOKEN=1 python3 ~/MBO/bin/handshake.py'
   - src/ is locked (555) when no session is active; writes are blocked
   - Session TTL: 30 minutes
 """

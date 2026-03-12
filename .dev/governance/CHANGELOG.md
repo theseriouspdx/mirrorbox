@@ -1,6 +1,43 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.5] — 2026-03-12
+#### Added
+- **Graph Server Trust Contract (Task 1.1-10):**
+  - Added `graph_server_info` MCP tool returning canonical root, project ID hash, index revision, and scan metadata.
+  - Fixed server root resolution to derive from `__dirname` by default, eliminating `cwd` dependency.
+  - Implemented client-side trust assertion in `Operator`: hard-fails on project ID mismatch and waits for active scans to complete.
+  - Persisted index revision and last scan timestamp in the graph database.
+- **Authoritative launch sequence implemented (Task 1.1-05):** `src/index.js` now enforces Step 1-7 boot order (Section 28.7).
+- **Non-TTY Guards (Section 28.8):** Added strict exits for non-interactive environments when setup or onboarding is required.
+- **Robust MCP Startup:** `src/auth/operator.js` now uses TCP probing (`_isPortBound`) and sentinel monitoring (`_waitForMCPReady`) to avoid race conditions.
+- **Graceful Warm-Restart:** `scripts/mbo-start.sh` now exits with code 0 on port conflict, allowing session reuse.
+- **MCP Session ID persistence:** `_sendMCPHttp` writes `mcp-session-id` to `.dev/run/mcp.session` on every assignment. `startMCP` restores it from disk on the warm-restart path before probing, so `tools/list` goes out with the correct header.
+- **Stale session eviction:** `_initializeMCPWithRetry` detects when a restored session ID is rejected by the server (server restarted with new session), evicts `.dev/run/mcp.session`, nulls the ID, and falls through to a clean `initialize`.
+- **SSE response parsing:** `_sendMCPHttp` now reads `Content-Type` from the response and, when `text/event-stream`, extracts the first `data:` payload from SSE frames before JSON-parsing. Fixes silent rejection of all `tools/call` and `initialize` responses when the server chose SSE framing.
+- **Session file cleanup on shutdown:** `Operator.shutdown()` now deletes `.dev/run/mcp.session` to prevent a killed server's session ID from being mistakenly restored on the next cold start.
+#### Fixed
+- **BUG-053 (P0) — fully resolved:** Three root defects corrected: (1) `mbo-start.sh` exit-1 on warm restart, (2) ephemeral `mcpSessionId` lost across Operator reconstructions, (3) SSE-framed responses rejected by bare `JSON.parse`. All three failure modes now handled.
+- **Onboarding Logic:** `checkOnboarding` now correctly returns status to `index.js` to handle TTY-specific onboarding triggers.
+#### Changed
+- **Milestone tracking updated:** Task `1.1-05` marked `COMPLETED`. BUG-053 marked `COMPLETED`.
+
+
+
+### [1.1.4] — 2026-03-11
+#### Added
+- **Task 1.1-04 (`.mbo` init) operationalized:** `mbo init` wired in `bin/mbo.js`, invoking `src/cli/init-project.js` from invocation cwd.
+- **Project scaffolding path active:** `.mbo/` + governance stubs + `.gitignore` policy generation now reachable through CLI subcommand.
+- **Spec recovery completed:** `SPEC.md` reconstructed from `3be31ae` baseline and merged with Milestone 1.1 hardening contract sections.
+- **Spec backups created:** `SPEC.corrupt.20260311182000.md` and `SPEC.v1.from-3be31ae.md` for audit trail.
+#### Changed
+- **Milestone tracking updated:** Task `1.1-04` marked `COMPLETED`; next action set to `1.1-05`.
+- **Hardening line item adjusted:** `1.1-H05` set to `IN REVIEW` pending launch-sequence final verification with non-placeholder onboarding behavior.
+#### Notes
+- Branch includes side-project hardening changes (`mbo` launch guard, `mboauth` split command, startup port safety) for later reconciliation after 1.1 core milestones.
+
+---
+
 ---
 
 ### [1.0-hardening] — 2026-03-11

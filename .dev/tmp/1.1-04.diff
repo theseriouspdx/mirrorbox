@@ -1,0 +1,137 @@
+--- /dev/null
++++ b/src/cli/project-init.js
+@@ -0,0 +1,95 @@
++'use strict';
++
++const fs   = require('fs');
++const path = require('path');
++const { execSync } = require('child_process');
++
++const GITIGNORE_BLOCK = [
++  '',
++  '# MBO — per-user data (not committed)',
++  '.mbo/',
++  '!.mbo/onboarding.json',
++  '!.mbo/AGENTS.md',
++  '!.mbo/BUGS.md',
++  '!.mbo/CHANGELOG.md',
++  '',
++].join('\n');
++
++const NEGATION_LINES = [
++  '!.mbo/onboarding.json',
++  '!.mbo/AGENTS.md',
++  '!.mbo/BUGS.md',
++  '!.mbo/CHANGELOG.md',
++];
++
++function findProjectRoot(startDir) {
++  let dir = startDir;
++  while (true) {
++    if (fs.existsSync(path.join(dir, '.mbo'))) return dir;
++    const parent = path.dirname(dir);
++    if (parent === dir) return null;
++    dir = parent;
++  }
++}
++
++function isGitRepo(dir) {
++  return fs.existsSync(path.join(dir, '.git'));
++}
++
++function updateGitignore(projectRoot) {
++  const gitignorePath = path.join(projectRoot, '.gitignore');
++  const existing = fs.existsSync(gitignorePath)
++    ? fs.readFileSync(gitignorePath, 'utf8')
++    : '';
++  const lines = existing.split('\n');
++  const hasMboIgnore = lines.some(l => l.trim() === '.mbo/');
++
++  if (!hasMboIgnore) {
++    const toAppend = existing.endsWith('\n') || existing === ''
++      ? GITIGNORE_BLOCK
++      : '\n' + GITIGNORE_BLOCK;
++    fs.writeFileSync(gitignorePath, existing + toAppend, 'utf8');
++    return 'created';
++  }
++
++  const missing = NEGATION_LINES.filter(l => !lines.some(line => line.trim() === l));
++  if (missing.length > 0) {
++    fs.appendFileSync(gitignorePath, '\n' + missing.join('\n') + '\n', 'utf8');
++    return 'updated';
++  }
++  return 'unchanged';
++}
++
++function isDbTracked(projectRoot) {
++  try {
++    execSync('git ls-files --error-unmatch .mbo/mirrorbox.db', {
++      cwd: projectRoot, stdio: 'pipe',
++    });
++    return true;
++  } catch { return false; }
++}
++
++function runInit(projectRoot) {
++  const mboDir  = path.join(projectRoot, '.mbo');
++  const existed = fs.existsSync(mboDir);
++
++  if (!existed) {
++    fs.mkdirSync(mboDir, { recursive: true });
++    fs.mkdirSync(path.join(mboDir, 'logs'),     { recursive: true });
++    fs.mkdirSync(path.join(mboDir, 'sessions'), { recursive: true });
++    console.log(`  Created .mbo/ at ${projectRoot}`);
++  } else {
++    console.log(`  .mbo/ already exists at ${projectRoot}`);
++  }
++
++  const onboardingPath = path.join(mboDir, 'onboarding.json');
++  if (!fs.existsSync(onboardingPath)) {
++    const now = new Date().toISOString();
++    fs.writeFileSync(onboardingPath, JSON.stringify(
++      { onboardingVersion: 0, createdAt: now, updatedAt: now }, null, 2
++    ), 'utf8');
++    console.log('  Created .mbo/onboarding.json');
++  }
++
++  const stubs = [
++    ['AGENTS.md',    '# AGENTS.md\n<!-- MBO agent rules for this project. -->\n'],
++    ['BUGS.md',      '# BUGS.md\n## Active Bugs\n\n(none)\n'],
++    ['CHANGELOG.md', '# CHANGELOG.md\n\n(no changes yet)\n'],
++  ];
++  for (const [name, content] of stubs) {
++    const p = path.join(mboDir, name);
++    if (!fs.existsSync(p)) {
++      fs.writeFileSync(p, content, 'utf8');
++      console.log(`  Created .mbo/${name}`);
++    }
++  }
++
++  if (!isGitRepo(projectRoot)) {
++    console.warn('  WARNING: Not a git repo — skipping .gitignore update.');
++  } else {
++    const result = updateGitignore(projectRoot);
++    if (result === 'created')   console.log('  Updated .gitignore — added .mbo/ block.');
++    else if (result === 'updated') console.log('  Updated .gitignore — added missing negation entries.');
++    else                           console.log('  .gitignore already up to date.');
++
++    if (isDbTracked(projectRoot)) {
++      console.warn('  WARNING: .mbo/mirrorbox.db is tracked by git.');
++      console.warn('  To untrack: git rm --cached .mbo/mirrorbox.db');
++    }
++  }
++
++  return { projectRoot, existed };
++}
++
++module.exports = { runInit, findProjectRoot };
+--- a/bin/mbo.js
++++ b/bin/mbo.js
+@@ -17,6 +17,9 @@ const entry = path.join(__dirname, '..', 'src', 'index.js');
+ if (process.argv[2] === 'setup') {
+   require('../src/cli/setup').runSetup().catch(err => { console.error(err); process.exit(1); });
++} else if (process.argv[2] === 'init') {
++  const { runInit } = require('../src/cli/project-init');
++  runInit(process.cwd());
+ } else {
+   const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {

@@ -12,7 +12,7 @@ Every development session begins in this order. No exceptions.
 1. Read this file (`.dev/governance/AGENTS.md`)
 2. Read `.dev/governance/projecttracking.md` — identify current milestone and active task
 3. Read `.dev/governance/BUGS.md` — check for anything P0 blocking current milestone
-4. Load SPEC.md context per **Section 11** — graph-first if MCP reachable, full load if not
+4. Read `.dev/sessions/NEXT_SESSION.md` — orientation and handoff
 
 No code is written before this sequence completes.
 
@@ -187,7 +187,12 @@ Base nhash: (X+Y+Z) × 3 = [Base Result]
 
 I am ready for the verification salt."
 
-Wait for the human. The human will provide a multiplier. You must calculate (Base nhash × multiplier) and output the final result. Only after the human confirms the math may the session proceed.
+Wait for the human. The human will provide a multiplier. You must:
+1. Calculate (Base nhash × multiplier) and output the final result.
+2. State: "I will not make assumptions about the intentions of the human at any time. This means technical blockers (port conflicts, stale indices, tool failures) are findings to be reported, never bugs to be 'fixed' autonomously."
+3. Pull up the instructions for the next OPEN task in `projecttracking.md`.
+4. State: "This is the active task: [Task ID - Name]. Is this what you want to work on?"
+5. **STOP.** Do not proceed until the human confirms the task.
 
 ### Section 8.1 — Secrecy of State
 The `nhash` calculation and the resulting **Hard State Anchor** are transient secrets. 
@@ -207,6 +212,7 @@ When proposing or writing code, agents must operate in Strict Mode:
 4. If no functional logic needs changing, return "NO_CHANGE" instead of rewriting.
 5. Never remove variable data from error strings (e.g., do not replace `${body}` with `'Unknown error'` unless the original caused a functional bug).
 6. No file of any kind — source, config, governance, scripts — is written, created, or modified without explicit human approval. Propose the change and wait. Do not proceed until the human approves. No exceptions.
+7. **No Autonomous Problem Solving:** I will not make assumptions about the intentions of the human at any time. This means technical blockers (e.g., port conflicts, stale indices, tool failures) are findings to be reported, never bugs to be 'fixed' autonomously. Agents MUST NOT attempt to resolve environment or configuration issues without an explicit task and human "go".
 
 ---
 

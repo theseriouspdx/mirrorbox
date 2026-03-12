@@ -116,9 +116,27 @@ async function pickRole(rl, role, defaultVal, d) {
   return { provider: opts[idx].provider, model: opts[idx].model };
 }
 
+function validateConfig() {
+  if (!fs.existsSync(CONFIG_PATH)) return false;
+  try {
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+    JSON.parse(raw);
+    return true;
+  } catch (err) {
+    const corruptPath = `${CONFIG_PATH}.corrupt.${Date.now()}`;
+    process.stderr.write(`[WARN] Config corrupt: ${err.message}. Renaming to ${path.basename(corruptPath)}\n`);
+    fs.renameSync(CONFIG_PATH, corruptPath);
+    return false;
+  }
+}
+
 async function runSetup() {
   if (!process.stdout.isTTY) {
-    process.stderr.write('ERROR: mbo setup requires a TTY. Missing ~/.mbo/config.json — set it up in a terminal.\n');
+    process.stderr.write('ERROR: mbo setup requires a TTY. Missing ~/.mbo/config.json.\n');
+    process.stderr.write('\nConfigure your CI/CD environment with these variables:\n');
+    process.stderr.write('  export OPENROUTER_API_KEY="your_key"\n');
+    process.stderr.write('  export ANTHROPIC_API_KEY="your_key"\n');
+    process.stderr.write('\nAlternatively, mount a valid config to ~/.mbo/config.json.\n');
     process.exit(1);
   }
 
@@ -208,4 +226,4 @@ async function runSetup() {
   }
 }
 
-module.exports = { runSetup, CONFIG_PATH };
+module.exports = { runSetup, validateConfig, CONFIG_PATH };
