@@ -2,41 +2,63 @@
 
 **Phase 3: Supervised Self-Development (Milestone 1.1+)**
 
-The Mirror Box Orchestrator is a self-referential development environment. It uses a high-integrity, 11-stage pipeline to patch its own codebase and external target worlds.
+The Mirror Box Orchestrator is a self-referential development environment. It uses a high-integrity pipeline to patch its own codebase and target projects.
 
-## Current Status: Milestone 1.1 — Expanding the Sovereign Loop
+## Current Status
 
-- **Phase 1 (Foundations)**: COMPLETED.
-- **Phase 2 (Sovereign Factory)**: COMPLETED. Milestone 1.0 closed on 2026-03-11.
-- **Sovereign Loop**: Active. MBO now patches itself and promotes changes to the Subject World (`MBO_Alpha`).
-- **Assumption Ledger**: Active. Section 27 uncertainty audits are enforced for all Tier 1+ tasks.
-
-## High-Integrity Pipeline
-
-1. **Classification**: Request parsed and risk-assessed.
-2. **Assumption Ledger (Stage 1.5)**: Silent assumptions audited, entropy scored, blockers identified.
-3. **Architecture Query**: Intelligence Graph queried for blast radius.
-4. **Blind Derivation**: Independent planning and code generation (Dual Independent Derivation).
-5. **Consensus & Audit**: Automated comparison and human approval gate.
-6. **Execution**: Atomic patch generation and structural verification.
-7. **Promotion**: Merkle-validated Mirror → Subject world sync (The Pile).
+- **Phase 1 (Foundations):** Completed
+- **Phase 2 (Sovereign Factory):** Completed
+- **Sovereign Loop:** Active
+- **Runtime Stability Hardening:** Active (session-close and stale helper recovery)
+- **Project-Scoped MCP Endpoint:** Active for runtime mode
 
 ## Usage
 
 ```bash
-# Start the MBO Engine
-npm start
+# Reinstall global CLI from local repo
+cd /Users/johnserious/MBO
+npm install -g .
 
-# In the MBO REPL:
-MBO> "Add a new SSE endpoint to the graph server"
+# Run from a target project (not from /Users/johnserious/MBO)
+cd /path/to/project
+mbo
 ```
+
+## Runtime MCP Discovery
+
+Runtime MCP no longer relies on a fixed global port contract in helper scripts.
+
+When `mbo` starts in a target project, it writes a project-local manifest:
+
+- `/.mbo/run/mcp.json`
+
+Example:
+
+```json
+{
+  "url": "http://127.0.0.1:<port>/mcp",
+  "port": 12345,
+  "pid": 99999,
+  "mode": "runtime",
+  "project_root": "/abs/project/root",
+  "project_id": "<sha16>",
+  "started_at": "2026-03-12T12:00:00.000Z"
+}
+```
+
+The local helpers (`mcp_query.js`, `mcp_http_query.js`) now read this manifest to resolve endpoint/port.
+
+## Notes
+
+- Do not run runtime `mbo` from `/Users/johnserious/MBO` (controller repo guard).
+- If a session appears stale, simply run `mbo` again from the target project; startup now includes stale-helper recovery.
 
 ## Governance
 
-- **AGENTS.md**: Binding protocol for agent behavior.
-- **SPEC.md**: The implementation contract.
-- **projecttracking.md**: The authoritative task queue.
+- `AGENTS.md`: Binding protocol for agent behavior
+- `.dev/governance/projecttracking.md`: Authoritative task queue
+- `.dev/governance/CHANGELOG.md`: Historical change log
 
 ---
 
-*“Stay Vigilant.”*
+*Stay Vigilant.*

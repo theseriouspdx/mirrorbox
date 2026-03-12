@@ -1,6 +1,23 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.6] — 2026-03-12
+#### Added
+- **Runtime stability hardening:**
+  - `bin/handshake.py` revoke path now bounds session-close execution with timeout and logs `SESSION_CLOSE_TIMEOUT` on overrun.
+  - `scripts/mbo-session-close.sh` now bounds rebuild execution with watchdog timeout and returns control instead of hanging indefinitely.
+  - `scripts/rebuild-mirror.js` defaults to static rebuild path; LSP enrichment is opt-in via `MBO_REBUILD_WITH_LSP=1` and bounded by timeout.
+- **Startup stale-helper recovery:** `bin/mbo.js` now performs guarded stale helper cleanup (age threshold + session PID protection) so users do not need manual `pkill` for common lockup states.
+- **Project-scoped runtime endpoint manifest:** Runtime MCP now writes `/.mbo/run/mcp.json` with endpoint metadata (`url`, `port`, `pid`, `mode`, `project_root`, `project_id`, `started_at`).
+
+#### Changed
+- **Runtime endpoint discovery:** `mcp_query.js` and `mcp_http_query.js` now read `./.mbo/run/mcp.json` instead of assuming fixed port `3737`.
+- **Runtime DB path:** `src/graph/mcp-server.js` runtime DB target is now `/.mbo/mirrorbox.db` for project-local state.
+- **Launcher root behavior:** `scripts/mbo-start.sh` now uses `MBO_PROJECT_ROOT` for runtime root/db/run paths and passes `--root=<project_root>` to MCP server.
+
+#### Notes
+- Dev-mode internals still use `.dev/run/*`; runtime multi-project path is `/.mbo/run/*`.
+
 ### [1.1.5] — 2026-03-12
 #### Added
 - **Graph Server Trust Contract (Task 1.1-10):**
@@ -396,4 +413,3 @@
   for autonomous querying. Gate 0 bottleneck identified and fixed.
 #### Changed
 - **`NEXT_SESSION.md`**: Removed experiment references. Points cleanly at 0.6-02.
-
