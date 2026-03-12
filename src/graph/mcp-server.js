@@ -17,6 +17,200 @@ const {
 const path = require('path');
 const fs = require('fs');
 
+const MCP_MANIFEST_VERSION = 3;
+const MCP_LOCK_STALE_MS = 15000;
+
+function getRunDir(mode, root) {
+  return mode === 'dev' ? path.join(root, '.dev/run') : path.join(root, '.mbo/run');
+}
+
+function getManifestPath(mode, root) {
+  return path.join(getRunDir(mode, root), 'mcp.json');
+}
+
+function getLockPath(mode, root) {
+  return path.join(getRunDir(mode, root), 'mcp.lock');
+}
+
+function getInstanceFilePath(mode, root) {
+  return path.join(getRunDir(mode, root), 'mcp.instance');
+}
+
+function canonicalizeJSON(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((v) => canonicalizeJSON(v)).join(',')}]`;
+  const keys = Object.keys(value).sort();
+  const entries = keys.map((k) => `${JSON.stringify(k)}:${canonicalizeJSON(value[k])}`);
+  return `{${entries.join(',')}}`;
+}
+
+function buildManifestChecksum(manifestWithoutChecksum) {
+  return createHash('sha256')
+    .update(Buffer.from(canonicalizeJSON(manifestWithoutChecksum), 'utf8'))
+    .digest('hex');
+}
+
+function safeReadJSON(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function writeFileAtomic(filePath, content) {
+  const dir = path.dirname(filePath);
+  const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
+  fs.mkdirSync(dir, { recursive: true });
+  const fd = fs.openSync(tmpPath, 'w');
+  try {
+    fs.writeFileSync(fd, content, 'utf8');
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmpPath, filePath);
+  const dirFd = fs.openSync(dir, 'r');
+  try {
+    fs.fsyncSync(dirFd);
+  } finally {
+    fs.closeSync(dirFd);
+  }
+}
+
+function readProcessStartMs(pid) {
+  try {
+    const out = require('child_process').execSync(`ps -o lstart= -p ${pid}`, { encoding: 'utf8' }).trim();
+    if (!out) return null;
+    const ms = Date.parse(out);
+    return Number.isFinite(ms) ? Math.floor(ms / 1000) * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function isLiveProcess(pid, startMs) {
+  if (!Number.isInteger(pid) || pid <= 1) return false;
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  if (!Number.isInteger(startMs) || startMs <= 0) return true;
+  const actual = readProcessStartMs(pid);
+  return Number.isInteger(actual) && actual === startMs;
+}
+
+function releaseLock(lockPath, ownerNonce) {
+  const lock = safeReadJSON(lockPath);
+  if (!lock || lock.nonce !== ownerNonce) return;
+  try {
+    fs.unlinkSync(lockPath);
+  } catch {}
+}
+
+function acquireStartupLock(mode, root) {
+  const lockPath = getLockPath(mode, root);
+  const now = Date.now();
+  const processStartMs = readProcessStartMs(process.pid) || now;
+  const lock = {
+    pid: process.pid,
+    process_start_ms: processStartMs,
+    nonce: randomUUID(),
+    acquired_at: new Date(now).toISOString(),
+  };
+
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+
+  for (let attempt = 0; attempt < 40; attempt++) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx', 0o600);
+      fs.writeFileSync(fd, JSON.stringify(lock, null, 2), 'utf8');
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);
+      return lock;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+
+      const existing = safeReadJSON(lockPath);
+      const acquiredMs = existing && existing.acquired_at ? Date.parse(existing.acquired_at) : 0;
+      const staleByAge = !Number.isFinite(acquiredMs) || (Date.now() - acquiredMs > MCP_LOCK_STALE_MS);
+      const staleByLiveness = !existing || !isLiveProcess(existing.pid, existing.process_start_ms);
+
+      if (staleByAge || staleByLiveness) {
+        try {
+          fs.unlinkSync(lockPath);
+        } catch {}
+        continue;
+      }
+
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    }
+  }
+
+  throw new Error(`Failed to acquire MCP startup lock at ${lockPath}`);
+}
+
+function validateManifestSchema(manifest) {
+  if (!manifest || typeof manifest !== 'object') return false;
+  const required = [
+    'manifest_version', 'checksum', 'project_root', 'project_id', 'pid', 'process_start_ms',
+    'port', 'mode', 'epoch', 'instance_id', 'started_at', 'last_verified_at', 'status',
+    'restart_count', 'incident_reason'
+  ];
+  for (const key of required) {
+    if (!(key in manifest)) return false;
+  }
+  if (manifest.manifest_version !== MCP_MANIFEST_VERSION) return false;
+  if (!Number.isInteger(manifest.pid) || manifest.pid <= 0) return false;
+  if (!Number.isInteger(manifest.process_start_ms) || manifest.process_start_ms <= 0) return false;
+  if (!Number.isInteger(manifest.port) || manifest.port <= 0) return false;
+  if (!Number.isInteger(manifest.epoch) || manifest.epoch < 0) return false;
+  if (!Number.isInteger(manifest.restart_count) || manifest.restart_count < 0) return false;
+  if (!['starting', 'ready', 'incident', 'stopped'].includes(manifest.status)) return false;
+  if (typeof manifest.instance_id !== 'string' || manifest.instance_id.length < 8) return false;
+  if (typeof manifest.project_root !== 'string' || !path.isAbsolute(manifest.project_root)) return false;
+  if (typeof manifest.started_at !== 'string' || !Number.isFinite(Date.parse(manifest.started_at))) return false;
+  if (typeof manifest.last_verified_at !== 'string' || !Number.isFinite(Date.parse(manifest.last_verified_at))) return false;
+  return true;
+}
+
+function validateManifestChecksum(manifest) {
+  if (!validateManifestSchema(manifest)) return false;
+  const { checksum, ...withoutChecksum } = manifest;
+  return checksum === buildManifestChecksum(withoutChecksum);
+}
+
+function buildManifest({ mode, root, port, projectId, pid, processStartMs, epoch, instanceId, status, restartCount, incidentReason, startedAt }) {
+  const now = new Date().toISOString();
+  const manifestWithoutChecksum = {
+    manifest_version: MCP_MANIFEST_VERSION,
+    url: `http://127.0.0.1:${port}/mcp`,
+    project_root: root,
+    project_id: projectId,
+    pid,
+    process_start_ms: processStartMs,
+    port,
+    mode,
+    epoch,
+    instance_id: instanceId,
+    started_at: startedAt,
+    last_verified_at: now,
+    status,
+    restart_count: restartCount,
+    incident_reason: incidentReason,
+  };
+  return {
+    ...manifestWithoutChecksum,
+    checksum: buildManifestChecksum(manifestWithoutChecksum),
+  };
+}
+
+function writeManifestAtomic(mode, root, manifest) {
+  const manifestPath = getManifestPath(mode, root);
+  writeFileAtomic(manifestPath, JSON.stringify(manifest, null, 2));
+}
+
 const eventStore = require('../state/event-store');
 const { DBManager } = require('../state/db-manager.js');
 const GraphStore = require('./graph-store.js');
@@ -548,11 +742,46 @@ async function createSession(graphService, mode, sessions) {
 async function main() {
   const { mode, root } = parseArgs();
   const PORT = parseInt(process.env.MBO_PORT || '3737', 10);
-  const runDir = mode === 'dev' ? path.join(root, '.dev/run') : path.join(root, '.mbo/run');
+  const runDir = getRunDir(mode, root);
+  const manifestPath = getManifestPath(mode, root);
+  const lockPath = getLockPath(mode, root);
+  const instanceFilePath = getInstanceFilePath(mode, root);
+  const processStartMs = readProcessStartMs(process.pid) || Math.floor(Date.now() / 1000) * 1000;
+  const startedAt = new Date(processStartMs).toISOString();
+  const startupLock = acquireStartupLock(mode, root);
+
+  const previousManifest = safeReadJSON(manifestPath);
+  const hasValidPrevious = validateManifestChecksum(previousManifest);
+  const previousEpoch = hasValidPrevious ? Number(previousManifest.epoch || 0) : 0;
+  const previousRestartCount = hasValidPrevious ? Number(previousManifest.restart_count || 0) : 0;
+  const epoch = previousEpoch + 1;
+  const instanceId = randomUUID();
+
   console.error(`[MCP] ${new Date().toISOString()} Starting Graph MCP Server (${mode}) on port ${PORT}...`);
 
   const graphService = new GraphService(mode, root);
   const sessions = new Map();
+
+  const writeManifest = (status, incidentReason = null, restartCount = previousRestartCount + 1) => {
+    const manifest = buildManifest({
+      mode,
+      root,
+      port: PORT,
+      projectId: graphService.projectId,
+      pid: process.pid,
+      processStartMs,
+      epoch,
+      instanceId,
+      startedAt,
+      status,
+      restartCount,
+      incidentReason,
+    });
+    writeManifestAtomic(mode, root, manifest);
+    return manifest;
+  };
+
+  writeManifest('starting', null, 0);
 
   const httpServer = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
@@ -640,16 +869,9 @@ async function main() {
       fs.mkdirSync(runDir, { recursive: true });
       const sentinelPath = path.join(runDir, 'mcp.ready');
       fs.writeFileSync(sentinelPath, new Date().toISOString());
-      const manifest = {
-        url: `http://127.0.0.1:${PORT}/mcp`,
-        port: PORT,
-        pid: process.pid,
-        mode,
-        project_root: root,
-        project_id: graphService.projectId,
-        started_at: new Date().toISOString(),
-      };
-      fs.writeFileSync(path.join(runDir, 'mcp.json'), JSON.stringify(manifest, null, 2));
+      writeManifest('ready', null, 0);
+      releaseLock(lockPath, startupLock.nonce);
+      writeFileAtomic(instanceFilePath, `${instanceId}\n`);
     } catch (e) {
       console.error(`[MCP] ${new Date().toISOString()} WARN: Could not write sentinel file: ${e.message}`);
     }
@@ -661,23 +883,30 @@ async function main() {
     }
   });
 
-  const shutdown = async () => {
+  const shutdown = async (reason = null) => {
     console.error(`[MCP] ${new Date().toISOString()} Shutting down graph server...`);
     for (const transport of sessions.values()) {
       try { await transport.close(); } catch (_) {}
     }
+    try {
+      writeManifest(reason ? 'incident' : 'stopped', reason, 0);
+    } catch (e) {
+      console.error(`[MCP] ${new Date().toISOString()} WARN: Failed to persist shutdown manifest: ${e.message}`);
+    }
     await graphService.shutdown();
     httpServer.close(() => {
+      releaseLock(lockPath, startupLock.nonce);
+      try { fs.unlinkSync(instanceFilePath); } catch (_) {}
       console.error(`[MCP] ${new Date().toISOString()} HTTP server closed.`);
       process.exit(0);
     });
   };
 
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', () => shutdown());
+  process.on('SIGTERM', () => shutdown());
   process.on('uncaughtException', (error) => {
     console.error(`[CRITICAL] ${new Date().toISOString()} Uncaught Exception:`, error);
-    shutdown();
+    shutdown(error.message || 'uncaught_exception');
   });
 }
 

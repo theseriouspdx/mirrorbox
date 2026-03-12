@@ -2197,3 +2197,113 @@ On validator failure:
 6. Version mismatch triggers re-onboard with prefilled defaults.
 7. Validator failure performs Stage 3A re-entry with log injection.
 8. All behavior covered by automated tests for happy path + failure path.
+
+## Section 32 — MCP Runtime Contract v3 (99/1 Reliability)
+
+### 32.1 Goal
+Eliminate recurrent MCP instability by enforcing a deterministic, project-scoped runtime contract for startup, validation, and recovery.
+
+### 32.2 Scope
+1. Runtime authority file: `.mbo/run/mcp.json`.
+2. Concurrency control: `.mbo/run/mcp.lock` (CAS lock semantics).
+3. Deterministic validation before client trust.
+4. Explicit incident state and restart circuit breaker.
+
+### 32.3 Manifest Schema (Authoritative)
+`mcp.json` MUST include:
+- `manifest_version` (integer)
+- `checksum` (sha256 of canonical JSON payload excluding checksum field)
+- `project_root` (absolute, canonical path)
+- `project_id` (stable identity hash from canonical root + repo identity when available)
+- `pid` (integer)
+- `process_start_ms` (integer)
+- `port` (integer)
+- `mode` (`dev` or `runtime`)
+- `epoch` (integer; monotonic increment on each successful server start)
+- `instance_id` (uuidv4 per live MCP process)
+- `started_at` (ISO 8601 UTC)
+- `last_verified_at` (ISO 8601 UTC)
+- `status` (`starting` | `ready` | `incident` | `stopped`)
+- `restart_count` (integer)
+- `incident_reason` (nullable string)
+
+### 32.4 Atomic Write Contract
+All writes to `.mbo/run/mcp.json` MUST be atomic:
+1. Write complete JSON to temp file in same directory.
+2. `fsync` temp file.
+3. Atomic rename temp -> target.
+4. `fsync` parent directory.
+
+On read failure (parse/schema/checksum mismatch), consumers MUST fail closed and enter recovery path.
+
+### 32.5 Lock Contract (Split-Brain Prevention)
+`mcp.lock` MUST be acquired before any start/reclaim operation.
+
+Lock owner payload MUST include:
+- `pid`
+- `process_start_ms`
+- `nonce`
+- `acquired_at`
+
+Rules:
+1. Lock acquisition uses compare-and-swap semantics.
+2. If lock exists, validate owner liveness and age.
+3. Stale lock may be reclaimed only if owner is non-live or lock age exceeds timeout.
+4. Startup/reclaim without lock is forbidden.
+
+### 32.6 Client Trust Algorithm (Deterministic)
+Before trusting manifest, client MUST validate all of:
+1. Manifest schema + checksum.
+2. `project_id` matches current project.
+3. PID liveness and process fingerprint:
+   - pid exists
+   - process start time matches `process_start_ms`
+   - command/root fingerprint matches MCP server for this project.
+4. MCP protocol health:
+   - `initialize` succeeds.
+   - `graph_server_info` succeeds and returns matching `project_id`.
+
+If any check fails, client MUST enter scoped recovery.
+
+### 32.7 Recovery Contract
+Recovery tiers:
+1. Reconnect using current manifest.
+2. Full revalidation (32.6).
+3. Scoped restart under lock.
+4. Incident fail-fast.
+
+Constraints:
+- No broad process kill patterns.
+- No destructive cleanup (`rm -f` and delete/recreate patterns prohibited).
+- Recovery must be project-scoped and auditable.
+
+### 32.8 Epoch and Instance Semantics
+1. `epoch` increments exactly once per successful start transition to `ready`.
+2. `instance_id` uniquely identifies live process lifetime.
+3. Mid-session `instance_id` change is a hard reconnect boundary for clients.
+4. Highest valid `epoch` under lock is canonical.
+
+### 32.9 Circuit Breaker and Incident State
+If restart attempts exceed configured threshold within recovery window:
+1. Set manifest `status = incident`.
+2. Populate `incident_reason`.
+3. Halt automatic restart loop.
+4. Surface explicit operator error with incident metadata.
+
+Silent retry loops are forbidden.
+
+### 32.10 Acceptance Tests (Mandatory)
+1. Concurrent cold starts (>=50) in one project produce exactly one active MCP instance.
+2. Corrupt/partial manifest is rejected and recovered through fresh atomic write.
+3. PID reuse simulation is rejected by process fingerprint checks.
+4. Crash loop triggers circuit breaker and incident state.
+5. Cross-project concurrent starts remain isolated by project identity and runtime files.
+6. Mid-session server replacement triggers `instance_id` mismatch handling and clean reconnect.
+
+### 32.11 Governance Alignment
+This section operationalizes:
+- Non-destructive recovery requirements.
+- Two-world and project identity isolation.
+- Deterministic, auditable runtime state transitions.
+
+All implementation under this section is Tier 2+ and requires human reconciliation protocol before mutation in guarded scopes.

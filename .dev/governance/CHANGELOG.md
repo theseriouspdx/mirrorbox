@@ -1,6 +1,28 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.7] — 2026-03-12
+#### Added
+- **Task 1.1-H08 (MCP Runtime Contract v3) implementation pass:**
+  - `src/graph/mcp-server.js` now writes manifest v3 with `manifest_version`, `checksum`, `epoch`, `instance_id`, `process_start_ms`, `status`, `restart_count`, and `incident_reason`.
+  - Atomic manifest write contract added (temp file + fsync + atomic rename + directory fsync).
+  - Startup split-brain guard added via CAS lock (`.dev/run/mcp.lock` / `.mbo/run/mcp.lock`) with stale-lock reclaim based on liveness + age.
+  - Server lifecycle now persists deterministic `starting -> ready -> stopped|incident` transitions and per-process `instance_id` marker file.
+  - Added integration smoke test `scripts/test-mcp-contract-v3.js` covering manifest validity, checksum, epoch increment, instance rollover, and corrupt-manifest recovery.
+
+#### Changed
+- **Operator trust/recovery enforcement (`src/auth/operator.js`):**
+  - Added manifest v3 schema/checksum validation before trust.
+  - Added process fingerprint checks (pid start time + command/root) before attach.
+  - Added restart circuit breaker with explicit incident state: **3 restart failures within 30 seconds**.
+  - Incident transition now writes manifest atomically with explicit `incident_reason`.
+
+#### Validation
+- `node -c src/graph/mcp-server.js`
+- `node -c src/auth/operator.js`
+- `node -c scripts/test-mcp-contract-v3.js`
+- `node scripts/test-mcp-contract-v3.js` → `PASS mcp-contract-v3`
+
 ### [1.1.6] — 2026-03-12
 #### Added
 - **Runtime stability hardening:**

@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "url": "http://127.0.0.1:62103/mcp",
+  "project_root": "/Users/johnserious/MBO",
+  "project_id": "30f5c13698acba0f",
+  "pid": 24792,
+  "process_start_ms": 1773323160000,
+  "port": 62103,
+  "mode": "dev",
+  "epoch": 1,
+  "instance_id": "4aaf2363-ee41-4b44-8499-c4de53f21767",
+  "started_at": "2026-03-12T13:46:00.000Z",
+  "last_verified_at": "2026-03-12T13:46:00.909Z",
+  "status": "stopped",
+  "restart_count": 0,
+  "incident_reason": null,
+  "checksum": "01d84ed61a802c8221c533a0236abd1b807cb5b99589f477288e0ab40bc569f0"
+}

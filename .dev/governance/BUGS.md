@@ -141,6 +141,19 @@
   4. Operator asserts project_id on every connect; hard fails on mismatch.
   5. Documented explicit rescan contract.
 
+### BUG-055: MCP runtime contract v3 not enforced (manifest atomicity, lock, fingerprint, incident breaker) | Milestone: 1.1 | COMPLETED
+- **Location:** `src/graph/mcp-server.js`, `src/auth/operator.js`, `scripts/test-mcp-contract-v3.js`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-12
+- **Description:** MCP startup/recovery behavior lacked the deterministic contract required by Section 32 (manifest v3 fields + checksum, CAS startup lock, process fingerprint verification, explicit incident breaker behavior). This left split-brain and silent retry-loop risk under concurrent starts and crash conditions.
+- **Fix (Task 1.1-H08):**
+  1. Added manifest v3 schema + checksum and atomic write semantics in server runtime manifest handling.
+  2. Added CAS startup lock (`mcp.lock`) with stale owner reclaim by liveness/age.
+  3. Added `epoch`/`instance_id` lifecycle transitions across startup/shutdown.
+  4. Added operator-side process fingerprint validation (pid start time + command/root) before trust.
+  5. Added operator circuit breaker: `3` restart failures within `30s` opens incident and writes explicit `incident_reason`.
+  6. Added integration smoke test for manifest validity, restart rollover, and corrupt-manifest recovery.
+
 ### BUG-050: Validator failure does not halt pipeline | Milestone: 1.1 | COMPLETED
 - **Location:** `src/auth/operator.js` — `runStage6`, `handleApproval`, `runStage3`
 - **Severity:** P1

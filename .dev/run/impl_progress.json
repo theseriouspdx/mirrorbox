@@ -1,5 +1,5 @@
 {
-  "task_id": "1.0-10",
+  "task_id": "1.1-H08",
   "steps": [
     {
       "file": "src/state/event-store.js",
@@ -34,6 +34,21 @@
     {
       "file": ".dev/governance/projecttracking.md",
       "ts": "2026-03-11T22:02:42Z",
+      "status": "written"
+    },
+    {
+      "file": ".dev/governance/projecttracking.md",
+      "ts": "2026-03-12T13:31:28Z",
+      "status": "written"
+    },
+    {
+      "file": ".dev/sessions/NEXT_SESSION.md",
+      "ts": "2026-03-12T13:31:28Z",
+      "status": "written"
+    },
+    {
+      "file": ".dev/spec/SPEC.md",
+      "ts": "2026-03-12T13:31:50Z",
       "status": "written"
     }
   ]

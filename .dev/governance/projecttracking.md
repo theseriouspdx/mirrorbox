@@ -2,22 +2,23 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Tokenizer [IN PROGRESS]
-**Next Action:** 1.1-06 — Fix BUG-050: Validator failure halts pipeline (Section 28)
+**Next Action:** 1.1-H08 — MCP Runtime Contract v3 (99/1 Reliability)
 
 ---
 
 ## NEXT ACTION
 
-**Task 1.1-06 — Fix BUG-050: Validator failure halts pipeline**
+**Task 1.1-H08 — MCP Runtime Contract v3 (99/1 Reliability)**
 
-Goal: Ensure that validator failures during the execution pipeline correctly halt
-the process and trigger a re-entry into the planning stage.
+Goal: Make MCP startup/connect/recovery deterministic under concurrency and crash conditions while preserving governance-safe recovery.
 
 Scope:
-1. Modify `src/auth/operator.js` — `runStage6`.
-2. When `validatorPassed === false`, halt before Stage 7.
-3. Inject validator output into `executorLogs`.
-4. Re-enter Stage 3A (implementation planning).
+1. Add atomic manifest contract (`manifest_version`, `checksum`, `epoch`, `instance_id`).
+2. Add MCP-protocol health validation (`initialize` + `graph_server_info`) before trust.
+3. Add CAS startup lock to prevent dual-start split-brain.
+4. Add process fingerprint validation (pid + start time + command/root).
+5. Add restart circuit breaker + explicit incident state (no silent retry loops).
+6. Add acceptance tests for concurrency, stale/corrupt state, crash loops, and cross-project isolation.
 
 ---
 
@@ -48,3 +49,4 @@ Scope:
 | 1.1-H05 | Implement Authoritative Launch Sequence (Step 1-7) | IN REVIEW |
 | 1.1-H06 | Implement Tokenizer Baseline & Current-Raw scan hooks | OPEN |
 | 1.1-H07 | Implement TOKEN_USAGE event emission in call-model.js | OPEN |
+| 1.1-H08 | Implement MCP Runtime Contract v3 (99/1 Reliability) | COMPLETED |

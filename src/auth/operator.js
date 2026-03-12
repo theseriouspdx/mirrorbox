@@ -26,6 +26,59 @@ function readManifest() {
   }
 }
 
+function writeManifestAtomic(filePath, manifest) {
+  const dir = path.dirname(filePath);
+  const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
+  fs.mkdirSync(dir, { recursive: true });
+  const fd = fs.openSync(tmpPath, 'w');
+  try {
+    fs.writeFileSync(fd, JSON.stringify(manifest, null, 2), 'utf8');
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmpPath, filePath);
+  const dirFd = fs.openSync(dir, 'r');
+  try {
+    fs.fsyncSync(dirFd);
+  } finally {
+    fs.closeSync(dirFd);
+  }
+}
+
+function canonicalizeJSON(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((v) => canonicalizeJSON(v)).join(',')}]`;
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalizeJSON(value[k])}`).join(',')}}`;
+}
+
+function computeManifestChecksum(withoutChecksum) {
+  const { createHash } = require('crypto');
+  return createHash('sha256')
+    .update(Buffer.from(canonicalizeJSON(withoutChecksum), 'utf8'))
+    .digest('hex');
+}
+
+function readProcessStartMs(pid) {
+  try {
+    const out = execSync(`ps -o lstart= -p ${pid}`, { encoding: 'utf8' }).trim();
+    if (!out) return null;
+    const ms = Date.parse(out);
+    return Number.isFinite(ms) ? Math.floor(ms / 1000) * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function readProcessCommand(pid) {
+  try {
+    return execSync(`ps -o command= -p ${pid}`, { encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+}
+
 function getExpectedProjectRoot() {
   return fs.realpathSync(process.env.MBO_PROJECT_ROOT || process.cwd());
 }
@@ -71,6 +124,102 @@ class Operator {
     this.contextThreshold = 0.8;      // Section 8: configurable via operatorContextThreshold
     this.activeModelWindow = null;    // set after routeModels() resolves, see _loadModelWindow()
     this.sandboxFocus = false;        // BUG-013: Sandbox interaction state
+    this.mcpRestartHistory = [];
+    this.mcpCircuitThreshold = 3;
+    this.mcpCircuitWindowMs = 30000;
+  }
+
+  _registerMCPRestartFailure(reason = 'unknown') {
+    const now = Date.now();
+    this.mcpRestartHistory = this.mcpRestartHistory
+      .filter((entry) => now - entry.ts <= this.mcpCircuitWindowMs);
+    this.mcpRestartHistory.push({ ts: now, reason });
+
+    if (this.mcpRestartHistory.length >= this.mcpCircuitThreshold) {
+      const incident = {
+        status: 'incident',
+        incident_reason: `circuit_breaker_open: ${this.mcpRestartHistory.length} restart failures within ${Math.floor(this.mcpCircuitWindowMs / 1000)}s`,
+      };
+      try {
+        const manifestPath = getManifestPath();
+        const current = readManifest() || {};
+        const payload = {
+          ...current,
+          status: incident.status,
+          incident_reason: incident.incident_reason,
+          restart_count: this.mcpRestartHistory.length,
+          last_verified_at: new Date().toISOString(),
+        };
+        if (payload.checksum) {
+          const { checksum, ...withoutChecksum } = payload;
+          payload.checksum = computeManifestChecksum(withoutChecksum);
+        }
+        writeManifestAtomic(manifestPath, payload);
+      } catch (_) {}
+      throw new Error(`[Operator] MCP incident: ${incident.incident_reason}`);
+    }
+  }
+
+  _validateManifestV3(manifest) {
+    if (!manifest || typeof manifest !== 'object') {
+      throw new Error('[Operator] MCP manifest missing or invalid JSON.');
+    }
+
+    const required = [
+      'manifest_version', 'checksum', 'project_root', 'project_id', 'pid', 'process_start_ms',
+      'port', 'mode', 'epoch', 'instance_id', 'started_at', 'last_verified_at', 'status',
+      'restart_count', 'incident_reason'
+    ];
+
+    for (const key of required) {
+      if (!(key in manifest)) {
+        throw new Error(`[Operator] MCP manifest missing required field: ${key}`);
+      }
+    }
+
+    if (manifest.manifest_version !== 3) {
+      throw new Error(`[Operator] MCP manifest version mismatch. Expected 3, got ${manifest.manifest_version}`);
+    }
+
+    if (typeof manifest.instance_id !== 'string' || manifest.instance_id.length < 8) {
+      throw new Error('[Operator] MCP manifest has invalid instance_id.');
+    }
+
+    if (!Number.isInteger(Number(manifest.epoch)) || Number(manifest.epoch) < 1) {
+      throw new Error('[Operator] MCP manifest has invalid epoch.');
+    }
+
+    const { checksum, ...withoutChecksum } = manifest;
+    const computed = computeManifestChecksum(withoutChecksum);
+    if (checksum !== computed) {
+      throw new Error('[Operator] MCP manifest checksum mismatch.');
+    }
+
+    if (manifest.status === 'incident') {
+      throw new Error(`[Operator] MCP manifest in incident state: ${manifest.incident_reason || 'unspecified'}`);
+    }
+
+    const expectedRoot = getExpectedProjectRoot();
+    if (manifest.project_root !== expectedRoot) {
+      throw new Error(`[Operator] MCP project_root mismatch. expected=${expectedRoot} got=${manifest.project_root}`);
+    }
+
+    if (!Number.isInteger(Number(manifest.restart_count)) || Number(manifest.restart_count) < 0) {
+      throw new Error('[Operator] MCP manifest has invalid restart_count.');
+    }
+
+    const startMs = readProcessStartMs(Number(manifest.pid));
+    const manifestStartMs = Math.floor(Number(manifest.process_start_ms) / 1000) * 1000;
+    if (!startMs || startMs !== manifestStartMs) {
+      throw new Error('[Operator] MCP process fingerprint mismatch (pid/start time).');
+    }
+
+    const cmd = readProcessCommand(Number(manifest.pid));
+    if (!cmd || !cmd.includes('mcp-server.js') || !cmd.includes(expectedRoot)) {
+      throw new Error('[Operator] MCP process fingerprint mismatch (command/root).');
+    }
+
+    return manifest;
   }
 
   /**
@@ -111,16 +260,28 @@ class Operator {
     const scriptPath = path.join(__dirname, '../../scripts/mbo-start.sh');
     const args = this.mode === 'dev' ? ['--mode=dev'] : [];
     const manifest = readManifest();
+    if (manifest) {
+      try {
+        this._validateManifestV3(manifest);
+      } catch (err) {
+        console.error(`[Operator] Existing MCP manifest invalid: ${err.message}. Attempting scoped restart path.`);
+      }
+    }
     this.mcpPort = manifest && Number.isFinite(Number(manifest.port)) ? Number(manifest.port) : null;
     
     const portBusy = this.mcpPort ? await this._isPortBound(this.mcpPort) : false;
 
     if (!portBusy) {
       // Port is free — spawn the MCP server process.
-      await this._spawnMCPServer(scriptPath, args);
-      // Wait for the sentinel file the server writes on successful bind,
-      // rather than polling TCP — avoids ECONNREFUSED retry storms.
-      await this._waitForMCPReady();
+      try {
+        await this._spawnMCPServer(scriptPath, args);
+        // Wait for the sentinel file the server writes on successful bind,
+        // rather than polling TCP — avoids ECONNREFUSED retry storms.
+        await this._waitForMCPReady();
+      } catch (err) {
+        this._registerMCPRestartFailure(err.message);
+        throw err;
+      }
     } else {
       console.error(`[Operator] MCP port ${this.mcpPort} already bound — reusing existing server.`);
       // Restore persisted session ID so subsequent requests carry the correct header.
@@ -137,7 +298,12 @@ class Operator {
       }
     }
 
-    await this._initializeMCPWithRetry(portBusy);
+    try {
+      await this._initializeMCPWithRetry(portBusy);
+    } catch (err) {
+      this._registerMCPRestartFailure(err.message);
+      throw err;
+    }
 
     // Task 1.1-10: Assert the server is serving the correct project root.
     // Hard fails with an actionable message if project_id mismatches.
