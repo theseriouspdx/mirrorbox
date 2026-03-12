@@ -154,6 +154,13 @@
   5. Added operator circuit breaker: `3` restart failures within `30s` opens incident and writes explicit `incident_reason`.
   6. Added integration smoke test for manifest validity, restart rollover, and corrupt-manifest recovery.
 
+### BUG-056: Tokenmiser dashboard using NaN placeholders for tokenizer/pricing data | Milestone: 1.1 | OPEN
+- **Location:** `src/state/stats-manager.js`, `src/cli/tokenmiser-dashboard.js`
+- **Severity:** P1
+- **Status:** OPEN
+- **Description:** The TOKENMISER dashboard currently displays `NaN` for "not optimized" tokens, "raw cost" estimates, and "carbon impact". This is intentional to prevent false data before the `cl100k_base` tokenizer and dynamic pricing integration are complete.
+- **Fix Required:** Implement `src/utils/tokenizer.js` (cl100k_base) and wire it into `call-model.js` raw estimate calculation. Update `stats-manager.js` to use real baseline for carbon impact.
+
 ### BUG-050: Validator failure does not halt pipeline | Milestone: 1.1 | COMPLETED
 - **Location:** `src/auth/operator.js` — `runStage6`, `handleApproval`, `runStage3`
 - **Severity:** P1

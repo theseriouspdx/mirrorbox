@@ -3,6 +3,12 @@
 
 ### [1.1.7] — 2026-03-12
 #### Added
+- **TOKENMISER Dashboard and StatsManager refactor (Task 1.1-07, 1.1-08):**
+  - Implemented per-model session and lifetime tracking for optimized vs not optimized tokens in `src/state/stats-manager.js`.
+  - Added `getTotals()` and `getCarbonImpact()` (NaN placeholders pending cl100k_base integration).
+  - Rewrote `src/cli/tokenmiser-dashboard.js` TUI with specified model-centric table layout, including "Total Session", "Total Lifetime", and "Project Carbon impact".
+  - Updated `src/auth/call-model.js` to pass model identity to stats tracking.
+  - Logged **BUG-056** to track `NaN` data source integration.
 - **Task 1.1-H08 (MCP Runtime Contract v3) implementation pass:**
   - `src/graph/mcp-server.js` now writes manifest v3 with `manifest_version`, `checksum`, `epoch`, `instance_id`, `process_start_ms`, `status`, `restart_count`, and `incident_reason`.
   - Atomic manifest write contract added (temp file + fsync + atomic rename + directory fsync).

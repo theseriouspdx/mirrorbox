@@ -1,7 +1,7 @@
 # projecttracking.md
 ## Mirror Box Orchestrator — Build Tracking
 
-**Current Milestone:** 1.1 — Portability & Tokenizer [IN PROGRESS]
+**Current Milestone:** 1.1 — Portability & Tokenmiser [IN PROGRESS]
 **Next Action:** 1.1-H08 — MCP Runtime Contract v3 (99/1 Reliability)
 
 ---
@@ -22,7 +22,7 @@ Scope:
 
 ---
 
-## MILESTONE 1.1 — Portability & Tokenizer [IN PROGRESS]
+## MILESTONE 1.1 — Portability & Tokenmiser [IN PROGRESS]
 | Task ID | Task Description | Status |
 |---------|------------------|--------|
 | 1.1-01 | Fix BUG-051: DBManager DB path resolution (Section 28.8) | COMPLETED |
@@ -32,9 +32,9 @@ Scope:
 | 1.1-05 | Implement launch sequence — version check, re-onboard trigger (Section 28.5) | COMPLETED |
 | 1.1-10 | Graph Server Trust Contract — server identity + client assertion | COMPLETED |
 | 1.1-06 | Fix BUG-050: Validator failure halts pipeline, re-enters Stage 3A (Section 28) | COMPLETED |
-| 1.1-07 | Implement Tokenizer module — scan, onboard, track (Section 29) | OPEN |
-| 1.1-08 | Implement token accounting — event schema, live tally, session summary (Section 30) | OPEN |
-| 1.1-09 | Wire Tokenizer into MBO launch sequence as onboarding engine | OPEN |
+| 1.1-07 | Implement Tokenizer module — scan, onboard, track (Section 29) | COMPLETED |
+| 1.1-08 | Implement token accounting — event schema, live tally, session summary (Section 30) | COMPLETED |
+| 1.1-09 | Wire Tokenmiser into MBO launch sequence as onboarding engine | COMPLETED |
 | 1.1-11 | Implement MBO Handshake & 'No Assumptions' mandate | COMPLETED |
 
 ---
@@ -47,6 +47,9 @@ Scope:
 | 1.1-H03 | Implement Non-TTY Guard & Env-Var output for CI | COMPLETED |
 | 1.1-H04 | Implement .mbo/ Scaffolding and .gitignore Automator | COMPLETED |
 | 1.1-H05 | Implement Authoritative Launch Sequence (Step 1-7) | IN REVIEW |
-| 1.1-H06 | Implement Tokenizer Baseline & Current-Raw scan hooks | OPEN |
-| 1.1-H07 | Implement TOKEN_USAGE event emission in call-model.js | OPEN |
+| 1.1-H06 | Implement Tokenmiser Baseline & Current-Raw scan hooks | COMPLETED |
+| 1.1-H07 | Implement TOKEN_USAGE event emission in call-model.js | COMPLETED |
 | 1.1-H08 | Implement MCP Runtime Contract v3 (99/1 Reliability) | COMPLETED |
+| 1.1-H09 | Implement Tokenmiser Value-Tracking ($chars/4 baseline) | COMPLETED |
+| 1.1-H10 | Implement SHIFT+T Stats Overlay & Persistence (.mbo/stats.json) | COMPLETED |
+| 1.1-H11 | Implement Agent Header status bar (Green/Red metrics) | COMPLETED |
