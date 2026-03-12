@@ -161,6 +161,7 @@ class Operator {
       const body = JSON.stringify(payload);
       const headers = {
         'Content-Type': 'application/json',
+        'Accept': 'application/json, text/event-stream',
         'Content-Length': Buffer.byteLength(body),
       };
       if (this.mcpSessionId) {
