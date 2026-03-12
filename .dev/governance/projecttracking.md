@@ -22,7 +22,14 @@ Scope:
 
 ---
 
-## MILESTONE 1.1 — Portability & Tokenmiser [IN PROGRESS]
+## MILESTONE 1.0 — Sovereign Loop [IN PROGRESS]
+| Task ID | Task Description | Status |
+|---------|------------------|--------|
+| 1.0-03 | Implement The Relay (Cross-World Telemetry) — UDS + Guard + Pile | COMPLETED |
+| 1.0-04 | Implement The Pile (Promotion Engine) | COMPLETED |
+| 1.0-05 | Implement The Guard (Integrity Gatekeeper) | COMPLETED |
+| 1.0-09 | Implement Sovereign Loop (Self-Patching Validation) | IN PROGRESS |
+
 | Task ID | Task Description | Status |
 |---------|------------------|--------|
 | 1.1-01 | Fix BUG-051: DBManager DB path resolution (Section 28.8) | COMPLETED |

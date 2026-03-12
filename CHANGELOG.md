@@ -3,6 +3,17 @@
 
 ---
 
+### [1.1.5] — 2026-03-12
+#### Added
+- **1.1-07 Tokenmiser Value-Tracking**: Real-time token and cost attribution for all model calls.
+- **1.1-08 SHIFT+T Stats Overlay**: Persistent global dashboard showing Project Lifetime Savings, Average Session, and Carbon Impact.
+- **1.1-11 Agent Header Status Bar**: Real-time Green (Actual) / Red (Baseline) cost metrics on every agent panel.
+- **1.1-09 Immutable Baseline**: Automated project scan during onboarding to anchor cost-savings math.
+- **1.1-H09 Pricing Persistence**: Local cache of OpenRouter model rates with static fallback in `.mbo/pricing_cache.json`.
+- **`src/utils/pricing.js`**: OpenRouter model pricing fetcher and cache.
+- **`src/state/stats-manager.js`**: Lifetime savings and session metrics persistence in `.mbo/stats.json`.
+- **`src/cli/tokenmiser-dashboard.js`**: TUI rendering logic for Agent Header and SHIFT+T Overlay.
+
 ### [1.1.4] — 2026-03-12
 #### Fixed
 - **1.1-06 Validator failure recovery**: Implemented pipeline halt on `validator.py` failure in `operator.js`. Validator logs are now captured and injected into `this.stateSummary.executorLogs`, triggering a re-entry to the Stage 3 planning stage (up to 3 attempts). Ensures implementation correctness via automated feedback loop.
