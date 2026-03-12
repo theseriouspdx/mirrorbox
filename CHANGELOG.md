@@ -3,6 +3,14 @@
 
 ---
 
+### [1.1.3] — 2026-03-11
+#### Added
+- **1.1-03 mbo setup wizard**: Interactive first-run wizard (`src/cli/setup.js`). Detects CLI tools (claude/gemini/codex), queries Ollama for local models, reads/collects API keys, builds recommended config, supports manual role assignment. Saves to `~/.mbo/config.json`. Non-TTY guard for CI/Docker.
+- **`src/cli/detect-providers.js`**: CLI detection via `which`, Ollama model name query (2s timeout), env key reads.
+- **`src/cli/shell-profile.js`**: Shell profile detection and idempotent `export KEY=` append.
+- **`bin/mbo.js`**: `mbo setup` subcommand routes directly to wizard and exits.
+- **`src/index.js`**: Config existence check at `main()` entry — triggers wizard inline if `~/.mbo/config.json` missing.
+
 ### [1.0.0] — 2026-03-11
 #### Added
 - **1.0-09 Sovereign Loop**: MBO successfully patches its own codebase and promotes changes from Mirror to Subject World (`MBO_Alpha`). Verified via Relay listener and Audit Gate in `index.js`.

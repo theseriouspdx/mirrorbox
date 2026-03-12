@@ -1,0 +1,211 @@
+'use strict';
+
+const fs   = require('fs');
+const os   = require('os');
+const path = require('path');
+const rl_  = require('readline');
+
+const { detectProviders }           = require('./detect-providers');
+const { detectShell, appendExportIfMissing } = require('./shell-profile');
+
+const CONFIG_DIR  = path.join(os.homedir(), '.mbo');
+const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
+
+// ANSI helpers
+const R   = '\x1b[0m';
+const m   = s => `\x1b[35m${s}${R}`;
+const cy  = s => `\x1b[1m\x1b[36m${s}${R}`;
+const dim = s => `\x1b[2m${s}${R}`;
+const wb  = s => `\x1b[1m${s}${R}`;
+const red = s => `\x1b[31m${s}${R}`;
+
+function buildDefaultConfig(d) {
+  const operator = d.geminiCLI
+    ? { provider: 'google',     model: 'gemini-2.5-flash' }
+    : d.anthropicKey
+    ? { provider: 'anthropic',  model: 'claude-haiku-4-5-20251001' }
+    : { provider: 'google',     model: 'gemini-2.5-flash' };
+
+  const largeR  = d.ollamaModels.find(n => /70b|72b|reasoning|qwq|deepseek-r/i.test(n));
+  const planner = largeR
+    ? { provider: 'ollama',     model: largeR }
+    : d.geminiCLI
+    ? { provider: 'google',     model: 'gemini-2.5-flash' }
+    : d.claudeCLI
+    ? { provider: 'claude-cli', model: 'claude-sonnet-4-6' }
+    : { provider: 'google',     model: 'gemini-2.5-flash' };
+
+  const largeC   = d.ollamaModels.find(n => /30b|34b|coder|codestral|deepseek.*coder/i.test(n));
+  const reviewer = largeC
+    ? { provider: 'ollama',     model: largeC }
+    : d.claudeCLI
+    ? { provider: 'claude-cli', model: 'claude-sonnet-4-6' }
+    : { provider: 'google',     model: 'gemini-2.5-pro' };
+
+  const tiebreaker = d.claudeCLI
+    ? { provider: 'claude-cli', model: 'claude-opus-4-6' }
+    : d.anthropicKey
+    ? { provider: 'anthropic',  model: 'claude-opus-4-6' }
+    : d.openrouterKey
+    ? { provider: 'openrouter', model: 'anthropic/claude-opus-4-6' }
+    : { provider: 'google',     model: 'gemini-2.5-pro' };
+
+  const cli = d.claudeCLI ? 'claude' : d.codexCLI ? 'codex' : 'gemini';
+
+  return {
+    operator, planner, reviewer, tiebreaker,
+    executor:  { cli },
+    devServer: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function getRoleOptions(role, d) {
+  const opts = [];
+  const push = (label, provider, model) => opts.push({ label, provider, model });
+
+  if (role === 'operator') {
+    if (d.geminiCLI)     push('gemini CLI → gemini-2.5-flash  ★',           'google',     'gemini-2.5-flash');
+    if (d.claudeCLI)     push('claude CLI → claude-haiku-4-5',               'claude-cli', 'claude-haiku-4-5-20251001');
+    if (d.openrouterKey) push('OpenRouter → google/gemini-2.5-flash',        'openrouter', 'google/gemini-2.5-flash');
+  }
+  if (role === 'planner') {
+    d.ollamaModels.filter(n => /70b|72b|reasoning|qwq/i.test(n)).slice(0, 2)
+      .forEach(n => push(`Ollama → ${n}`, 'ollama', n));
+    if (d.geminiCLI)     push('gemini CLI → gemini-2.5-pro  ★',             'google',     'gemini-2.5-pro');
+    if (d.claudeCLI)     push('claude CLI → claude-sonnet-4-6',              'claude-cli', 'claude-sonnet-4-6');
+    if (d.openrouterKey) push('OpenRouter → google/gemini-2.5-pro',          'openrouter', 'google/gemini-2.5-pro');
+  }
+  if (role === 'reviewer') {
+    d.ollamaModels.filter(n => /coder|codestral|deepseek.*coder/i.test(n)).slice(0, 2)
+      .forEach(n => push(`Ollama → ${n}`, 'ollama', n));
+    if (d.claudeCLI)     push('claude CLI → claude-sonnet-4-6  ★',          'claude-cli', 'claude-sonnet-4-6');
+    if (d.geminiCLI)     push('gemini CLI → gemini-2.5-pro',                 'google',     'gemini-2.5-pro');
+    if (d.openrouterKey) push('OpenRouter → anthropic/claude-sonnet-4-6',    'openrouter', 'anthropic/claude-sonnet-4-6');
+  }
+  if (role === 'tiebreaker') {
+    if (d.claudeCLI)     push('claude CLI → claude-opus-4-6  ★',            'claude-cli', 'claude-opus-4-6');
+    if (d.anthropicKey)  push('Anthropic API → claude-opus-4-6',             'anthropic',  'claude-opus-4-6');
+    if (d.openrouterKey) push('OpenRouter → anthropic/claude-opus-4-6',      'openrouter', 'anthropic/claude-opus-4-6');
+    if (d.geminiCLI)     push('gemini CLI → gemini-2.5-pro',                 'google',     'gemini-2.5-pro');
+  }
+  push('Custom slug (openrouter.ai/models)', 'openrouter', '__custom__');
+  return opts;
+}
+
+function ask(rl, question) {
+  return new Promise(resolve => rl.question(question, a => resolve(a.trim())));
+}
+
+async function pickRole(rl, role, defaultVal, d) {
+  const opts = getRoleOptions(role, d);
+  const desc = { operator: 'fast classifier', planner: 'reasoning/plan', reviewer: 'code critic', tiebreaker: 'final arbiter' };
+  console.log(`\n  ${m(role)} — ${dim(desc[role])}`);
+  opts.forEach((o, i) => {
+    const mark = o.model === defaultVal.model ? dim(' ← default') : '';
+    console.log(`    ${m(String(i + 1) + '.')} ${o.label}${mark}`);
+  });
+  const choice = await ask(rl, wb(`  Select [1-${opts.length}] or Enter for default: `));
+  const idx = parseInt(choice, 10) - 1;
+  if (idx < 0 || idx >= opts.length) return defaultVal;
+  if (opts[idx].model === '__custom__') {
+    const slug = await ask(rl, '  Enter model slug (e.g. anthropic/claude-sonnet-4-6): ');
+    return slug ? { provider: 'openrouter', model: slug } : defaultVal;
+  }
+  return { provider: opts[idx].provider, model: opts[idx].model };
+}
+
+async function runSetup() {
+  if (!process.stdout.isTTY) {
+    process.stderr.write('ERROR: mbo setup requires a TTY. Missing ~/.mbo/config.json — set it up in a terminal.\n');
+    process.exit(1);
+  }
+
+  console.log('');
+  console.log(m('╔════════════════════════════════════════╗'));
+  console.log(m('║') + wb('  Mirror Box Orchestrator — Setup      ') + m('║'));
+  console.log(m('╚════════════════════════════════════════╝'));
+  console.log(dim('\nScanning your system...\n'));
+
+  const d = await detectProviders();
+
+  console.log(cy('── CLI Tools ──────────────────────────────────────────────'));
+  console.log(`  claude  ${d.claudeCLI ? cy('✓ found') : red('✗ not found')}`);
+  console.log(`  gemini  ${d.geminiCLI ? cy('✓ found') : red('✗ not found')}`);
+  console.log(`  codex   ${d.codexCLI  ? cy('✓ found') : red('✗ not found')}`);
+  console.log(cy('\n── Local Models (Ollama) ──────────────────────────────────'));
+  if (d.ollamaModels.length === 0) {
+    console.log(dim('  No Ollama instance found (or no models loaded)'));
+  } else {
+    d.ollamaModels.slice(0, 8).forEach(n => console.log(`  ${m('•')} ${n}`));
+    if (d.ollamaModels.length > 8) console.log(dim(`  ... and ${d.ollamaModels.length - 8} more`));
+  }
+  console.log(cy('\n── API Keys ───────────────────────────────────────────────'));
+  console.log(`  OPENROUTER_API_KEY  ${d.openrouterKey ? cy('✓ set') : dim('○ not set')}`);
+  console.log(`  ANTHROPIC_API_KEY   ${d.anthropicKey  ? cy('✓ set') : dim('○ not set')}`);
+  console.log('');
+
+  if (!d.claudeCLI && !d.geminiCLI && !d.codexCLI) {
+    process.stderr.write('✗ No CLI tool found. Install claude, gemini, or codex and re-run: mbo setup\n');
+    process.exit(1);
+  }
+
+  const rl = rl_.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    if (!d.openrouterKey) {
+      const key = await ask(rl, 'OpenRouter API key (Enter to skip): ');
+      if (key) {
+        d.openrouterKey = key;
+        process.env.OPENROUTER_API_KEY = key;
+        appendExportIfMissing(detectShell(), 'OPENROUTER_API_KEY', key);
+        console.log(dim('  → Saved to shell profile.'));
+      }
+    }
+    if (!d.anthropicKey) {
+      const key = await ask(rl, 'Anthropic API key (Enter to skip): ');
+      if (key) {
+        d.anthropicKey = key;
+        process.env.ANTHROPIC_API_KEY = key;
+        appendExportIfMissing(detectShell(), 'ANTHROPIC_API_KEY', key);
+        console.log(dim('  → Saved to shell profile.'));
+      }
+    }
+
+    const defaults = buildDefaultConfig(d);
+    console.log(cy('\n── Recommended Config ─────────────────────────────────────'));
+    console.log(`  ${m('Stage 1')} Operator:    ${wb(defaults.operator.provider   + ' / ' + defaults.operator.model)}`);
+    console.log(`  ${m('Stage 2')} Planner:     ${wb(defaults.planner.provider    + ' / ' + defaults.planner.model)}`);
+    console.log(`  ${m('Stage 3')} Reviewer:    ${wb(defaults.reviewer.provider   + ' / ' + defaults.reviewer.model)}`);
+    console.log(`  ${m('Stage 4')} Tiebreaker:  ${wb(defaults.tiebreaker.provider + ' / ' + defaults.tiebreaker.model)}`);
+    console.log(`  ${m('Stage 5')} Executor:    ${wb(defaults.executor.cli + ' (local CLI)')}`);
+    console.log('');
+
+    const accept = await ask(rl, wb('Use this config? [Y/n]: '));
+    const cfg = { ...defaults, updatedAt: new Date().toISOString() };
+
+    if (accept.toLowerCase() === 'n' || accept.toLowerCase() === 'no') {
+      console.log(cy('\n── Manual Role Assignment ──────────────────────────────────'));
+      cfg.operator   = await pickRole(rl, 'operator',   defaults.operator,   d);
+      cfg.planner    = await pickRole(rl, 'planner',    defaults.planner,    d);
+      cfg.reviewer   = await pickRole(rl, 'reviewer',   defaults.reviewer,   d);
+      cfg.tiebreaker = await pickRole(rl, 'tiebreaker', defaults.tiebreaker, d);
+    }
+
+    const devCmd = await ask(rl, `${m('Dev server command')} ${dim('(e.g. "npm run dev", Enter to skip): ')}`);
+    if (devCmd) cfg.devServer = devCmd;
+
+    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
+
+    console.log('');
+    console.log(cy(`✓ Config saved to ${CONFIG_PATH}`));
+    console.log(dim('  Run "mbo" from your project directory to start.'));
+    console.log('');
+    return cfg;
+  } finally {
+    rl.close();
+  }
+}
+
+module.exports = { runSetup, CONFIG_PATH };

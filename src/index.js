@@ -1,9 +1,17 @@
 // Sovereign Loop v1.0-09
 const readline = require('readline');
+const fs   = require('fs');
+const os   = require('os');
+const path = require('path');
 const { Operator } = require('./auth/operator');
 const relay = require('./relay/relay-listener');
 
 async function main() {
+  const configPath = path.join(os.homedir(), '.mbo', 'config.json');
+  if (!fs.existsSync(configPath)) {
+    await require('./cli/setup').runSetup();
+  }
+
   const operator = new Operator('runtime');
   await operator.startMCP();
 

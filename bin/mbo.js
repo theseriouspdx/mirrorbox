@@ -15,10 +15,13 @@ const { spawn } = require('child_process');
 
 const entry = path.join(__dirname, '..', 'src', 'index.js');
 
-const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
-  stdio: 'inherit',
-  env: process.env,
-  cwd: process.cwd(),
-});
-
-child.on('exit', (code) => process.exit(code ?? 0));
+if (process.argv[2] === 'setup') {
+  require('../src/cli/setup').runSetup().catch(err => { console.error(err); process.exit(1); });
+} else {
+  const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
+    stdio: 'inherit',
+    env: process.env,
+    cwd: process.cwd(),
+  });
+  child.on('exit', (code) => process.exit(code ?? 0));
+}

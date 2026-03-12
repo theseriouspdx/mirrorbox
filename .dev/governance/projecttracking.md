@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Tokenizer [IN PROGRESS]
-**Next Action:** 1.1-03 — Implement mbo setup wizard
+**Next Action:** 1.1-04 — Implement .mbo/ project init
 
 ---
 
@@ -109,7 +109,7 @@ Show plan before writing any code.
 |---------|------------------|--------|
 | 1.1-01 | Fix BUG-051: DBManager DB path resolution (Section 28.8) | COMPLETED |
 | 1.1-02 | Fix BUG-052: Create bin/mbo.js launcher + package.json bin entries (Section 28.1) | COMPLETED |
-| 1.1-03 | Implement mbo setup wizard — ~/.mbo/config.json, provider detection (Section 28.6) | OPEN |
+| 1.1-03 | Implement mbo setup wizard — ~/.mbo/config.json, provider detection (Section 28.6) | COMPLETED |
 | 1.1-04 | Implement .mbo/ project init — directory walk, .gitignore guard (Section 28.3) | OPEN |
 | 1.1-05 | Implement launch sequence — version check, re-onboard trigger (Section 28.5) | OPEN |
 | 1.1-06 | Fix BUG-050: Validator failure halts pipeline, re-enters Stage 3A (Section 28) | OPEN |
