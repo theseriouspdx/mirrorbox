@@ -177,8 +177,6 @@ class StaticScanner {
       this.graphStore.db.run("DELETE FROM nodes WHERE path = ? AND type != 'file'", [relativePath]);
     });
 
-    const tree = parser.parse(content);
-
     this.safeUpsertNode({
       id: fileId,
       type: 'file',
@@ -192,8 +190,34 @@ class StaticScanner {
       }
     });
 
+    let tree = null;
+    try {
+      tree = parser.parse(content);
+    } catch (e) {
+      // Some environments hit parser binding limits on very large files.
+      // Keep the file node fresh and fall back to text import extraction.
+      this.extractImportsFromText(content, fileId);
+      return;
+    }
+
     this.extractSymbols(tree.rootNode, fileId, relativePath);
     this.extractImports(tree.rootNode, fileId);
+  }
+
+  extractImportsFromText(content, fileId) {
+    const text = String(content || '');
+    const patterns = [
+      /import\s+[^'"\n]*?from\s+['"]([^'"]+)['"]/g,
+      /export\s+[^'"\n]*?from\s+['"]([^'"]+)['"]/g,
+      /require\(\s*['"]([^'"]+)['"]\s*\)/g,
+    ];
+
+    for (const re of patterns) {
+      let match;
+      while ((match = re.exec(text)) !== null) {
+        this.recordImport(fileId, match[1], null);
+      }
+    }
   }
 
   async scanMarkdown(filePath, projectRoot) {
@@ -377,6 +401,52 @@ class StaticScanner {
         await this.scanFile(fullPath, projectRoot);
       }
     }
+  }
+
+  // Best-effort full scan used by graph_rescan: continue past file-level parse
+  // failures so one pathological file does not block graph freshness updates.
+  // Returns a diagnostics object for caller reporting.
+  async scanDirectorySafe(dirPath, projectRoot, diagnostics = null) {
+    const report = diagnostics || {
+      scannedFiles: 0,
+      failedFiles: [],
+    };
+
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch (e) {
+      report.failedFiles.push({
+        path: path.relative(projectRoot, dirPath),
+        error: e.message,
+      });
+      return report;
+    }
+
+    const defaultExclude = ['node_modules', '.git', '.dev', 'data', 'audit'];
+    const excluded = new Set([...defaultExclude, ...this.config.exclude]);
+
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+
+      if (entry.isDirectory()) {
+        if (excluded.has(entry.name)) continue;
+        await this.scanDirectorySafe(fullPath, projectRoot, report);
+        continue;
+      }
+
+      try {
+        await this.scanFile(fullPath, projectRoot);
+        report.scannedFiles += 1;
+      } catch (e) {
+        report.failedFiles.push({
+          path: path.relative(projectRoot, fullPath),
+          error: e.message,
+        });
+      }
+    }
+
+    return report;
   }
 
   /**

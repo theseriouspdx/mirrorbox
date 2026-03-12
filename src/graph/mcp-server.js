@@ -71,6 +71,101 @@ class GraphService {
     // graph_server_info returns accurate values immediately on startup.
     this.indexRevision = parseInt(this.db.getServerMeta('index_revision', '0'), 10);
     this.lastIndexedAt = this.db.getServerMeta('last_indexed_at', new Date(0).toISOString());
+    this.lastScanStatus = this.db.getServerMeta('last_scan_status', 'unknown');
+    this.lastScanFailedFiles = parseInt(this.db.getServerMeta('last_scan_failed_files', '0'), 10) || 0;
+    this.lastScanCriticalFailures = parseInt(this.db.getServerMeta('last_scan_critical_failures', '0'), 10) || 0;
+    this.lastScanInputMtimeMs = parseInt(this.db.getServerMeta('last_scan_input_mtime_ms', '0'), 10) || 0;
+  }
+
+  _computeScanInputSignal(maxFiles = 5000) {
+    const srcPath = path.join(this.root, 'src');
+    const specPath = path.join(this.root, '.dev/spec/SPEC.md');
+    let latestInputMtimeMs = 0;
+    let scannedFiles = 0;
+    let truncated = false;
+
+    const statMtime = (targetPath) => {
+      try {
+        return fs.statSync(targetPath).mtimeMs || 0;
+      } catch (_) {
+        return 0;
+      }
+    };
+
+    const stack = [srcPath];
+    const skipDirs = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.cache']);
+    while (stack.length > 0) {
+      const dirPath = stack.pop();
+      let entries = [];
+      try {
+        entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      } catch (_) {
+        continue;
+      }
+
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          if (!skipDirs.has(entry.name)) {
+            stack.push(path.join(dirPath, entry.name));
+          }
+          continue;
+        }
+
+        scannedFiles += 1;
+        if (scannedFiles > maxFiles) {
+          truncated = true;
+          break;
+        }
+
+        const mtime = statMtime(path.join(dirPath, entry.name));
+        if (mtime > latestInputMtimeMs) latestInputMtimeMs = mtime;
+      }
+
+      if (truncated) break;
+    }
+
+    const specMtimeMs = statMtime(specPath);
+    if (specMtimeMs > latestInputMtimeMs) {
+      latestInputMtimeMs = specMtimeMs;
+    }
+
+    return {
+      latest_input_mtime_ms: Math.floor(latestInputMtimeMs),
+      scanned_files_for_signal: scannedFiles,
+      signal_truncated: truncated,
+    };
+  }
+
+  _summarizeAndPersistScan(diagnostics, trigger) {
+    const failedFiles = diagnostics.failedFiles || [];
+    const criticalFailures = failedFiles.filter((f) => f.path === '<enrich>').length;
+    const status = criticalFailures > 0
+      ? 'failed_critical'
+      : (failedFiles.length > 0 ? 'completed_with_warnings' : 'completed');
+    const inputSignal = this._computeScanInputSignal();
+
+    this.lastScanStatus = status;
+    this.lastScanFailedFiles = failedFiles.length;
+    this.lastScanCriticalFailures = criticalFailures;
+    this.lastScanInputMtimeMs = Number(inputSignal.latest_input_mtime_ms || 0);
+
+    this.db.setServerMeta('last_scan_status', status);
+    this.db.setServerMeta('last_scan_failed_files', this.lastScanFailedFiles);
+    this.db.setServerMeta('last_scan_critical_failures', this.lastScanCriticalFailures);
+    this.db.setServerMeta('last_scan_input_mtime_ms', this.lastScanInputMtimeMs);
+
+    return {
+      status,
+      trigger,
+      scanned_files: diagnostics.scannedFiles,
+      failed_files: this.lastScanFailedFiles,
+      critical_failures: this.lastScanCriticalFailures,
+      index_revision: this.indexRevision,
+      last_indexed_at: this.lastIndexedAt,
+      latest_input_mtime_ms: this.lastScanInputMtimeMs,
+      signal_truncated: inputSignal.signal_truncated,
+      failures: failedFiles.slice(0, 25),
+    };
   }
 
   enqueueWrite(fn) {
@@ -235,14 +330,43 @@ class GraphService {
           // when reached through the queue. Pre-queue guard in callTool is sufficient.
           this.isScanning = true;
           try {
-            console.error(`[GraphService] ${new Date().toISOString()} Starting full rescan of src/...`);
-            await this.scanner.scanDirectory(path.join(this.root, 'src'), this.root);
-            await this.scanner.enrich(this.root);
+            console.error(`[GraphService] ${new Date().toISOString()} Starting full rescan of SPEC.md + src/...`);
+
+            const diagnostics = {
+              scannedFiles: 0,
+              failedFiles: [],
+            };
+
+            const specPath = path.join(this.root, '.dev/spec/SPEC.md');
+            if (fs.existsSync(specPath)) {
+              try {
+                await this.scanner.scanFile(specPath, this.root);
+                diagnostics.scannedFiles += 1;
+              } catch (e) {
+                diagnostics.failedFiles.push({
+                  path: '.dev/spec/SPEC.md',
+                  error: e.message,
+                });
+              }
+            }
+
+            await this.scanner.scanDirectorySafe(path.join(this.root, 'src'), this.root, diagnostics);
+            try {
+              await this.scanner.enrich(this.root);
+            } catch (e) {
+              diagnostics.failedFiles.push({
+                path: '<enrich>',
+                error: e.message,
+              });
+            }
             // Increment only after successful completion — not if scanDirectory/enrich throws.
             this.indexRevision = this.db.incrementIndexRevision();
             this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
             console.error(`[GraphService] ${new Date().toISOString()} Rescan complete. index_revision=${this.indexRevision}`);
-            return { content: [{ type: 'text', text: 'Full graph rescan complete.' }] };
+
+            const summary = this._summarizeAndPersistScan(diagnostics, 'manual_rescan');
+
+            return { content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }] };
           } finally {
             this.isScanning = false;
           }
@@ -281,6 +405,10 @@ class GraphService {
               project_id: this.projectId,
               index_revision: this.indexRevision,
               last_indexed_at: this.lastIndexedAt,
+              last_scan_status: this.lastScanStatus,
+              last_scan_failed_files: this.lastScanFailedFiles,
+              last_scan_critical_failures: this.lastScanCriticalFailures,
+              last_scan_input_mtime_ms: this.lastScanInputMtimeMs,
               node_count: nodeCount,
               is_scanning: this.isScanning,
             }, null, 2)
@@ -303,6 +431,75 @@ class GraphService {
     console.error(`[GraphService] ${new Date().toISOString()} Enriching graph (LSP)...`);
     await this.scanner.enrich(this.root);
     console.error(`[GraphService] ${new Date().toISOString()} Dev init complete.`);
+  }
+
+  async autoRefreshDevIfStale() {
+    const epoch = new Date(0).toISOString();
+    const srcPath = path.join(this.root, 'src');
+    const specPath = path.join(this.root, '.dev/spec/SPEC.md');
+    let srcMtimeMs = 0;
+    let specMtimeMs = 0;
+    try {
+      srcMtimeMs = fs.statSync(srcPath).mtimeMs || 0;
+    } catch (_) {
+      srcMtimeMs = 0;
+    }
+    try {
+      specMtimeMs = fs.statSync(specPath).mtimeMs || 0;
+    } catch (_) {
+      specMtimeMs = 0;
+    }
+
+    const inputSignal = this._computeScanInputSignal();
+
+    const lastIndexedMs = Date.parse(this.lastIndexedAt || epoch);
+    const needsRefresh =
+      this.indexRevision <= 0 ||
+      !this.lastIndexedAt ||
+      this.lastIndexedAt === epoch ||
+      !Number.isFinite(lastIndexedMs) ||
+      (srcMtimeMs > 0 && lastIndexedMs < srcMtimeMs) ||
+      (specMtimeMs > 0 && lastIndexedMs < specMtimeMs) ||
+      (Number(inputSignal.latest_input_mtime_ms || 0) > Number(this.lastScanInputMtimeMs || 0));
+
+    if (!needsRefresh) {
+      console.error(`[MCP] ${new Date().toISOString()} Dev mode: Graph freshness OK (index_revision=${this.indexRevision}, last_scan_status=${this.lastScanStatus}).`);
+      return;
+    }
+
+    console.error(`[MCP] ${new Date().toISOString()} Dev mode: Graph stale/uninitialized — running auto graph_rescan...`);
+    this.isScanning = true;
+    try {
+      const diagnostics = {
+        scannedFiles: 0,
+        failedFiles: [],
+      };
+
+      if (fs.existsSync(specPath)) {
+        try {
+          await this.scanner.scanFile(specPath, this.root);
+          diagnostics.scannedFiles += 1;
+        } catch (e) {
+          diagnostics.failedFiles.push({ path: '.dev/spec/SPEC.md', error: e.message });
+        }
+      }
+
+      await this.scanner.scanDirectorySafe(srcPath, this.root, diagnostics);
+      try {
+        await this.scanner.enrich(this.root);
+      } catch (e) {
+        diagnostics.failedFiles.push({ path: '<enrich>', error: e.message });
+      }
+
+      this.indexRevision = this.db.incrementIndexRevision();
+      this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
+      const summary = this._summarizeAndPersistScan(diagnostics, 'dev_auto_refresh');
+      console.error(
+        `[MCP] ${new Date().toISOString()} Dev auto-refresh complete. index_revision=${this.indexRevision}, status=${summary.status}, scanned=${summary.scanned_files}, failed=${summary.failed_files}, critical=${summary.critical_failures}`
+      );
+    } finally {
+      this.isScanning = false;
+    }
   }
 
   async shutdown() {
@@ -445,21 +642,10 @@ async function main() {
       console.error(`[MCP] ${new Date().toISOString()} WARN: Could not write sentinel file: ${e.message}`);
     }
     if (mode === 'dev') {
-      try {
-        const nodeCount = graphService.db.get('SELECT COUNT(*) as count FROM nodes').count;
-        if (nodeCount > 0) {
-          console.error(`[MCP] ${new Date().toISOString()} Dev mode: Graph already populated (${nodeCount} nodes). Skipping initial scan.`);
-        } else {
-          console.error(`[MCP] ${new Date().toISOString()} Dev mode: Starting background initialization...`);
-          graphService.isScanning = true;
-          graphService.initDev()
-            .then(() => { console.error(`[MCP] ${new Date().toISOString()} Background initialization complete.`); })
-            .catch(err => { console.error(`[MCP] ${new Date().toISOString()} Background initialization failed:`, err); })
-            .finally(() => { graphService.isScanning = false; });
-        }
-      } catch (e) {
-        console.error(`[MCP] ${new Date().toISOString()} Failed to check node count:`, e.message);
-      }
+      graphService.autoRefreshDevIfStale()
+        .catch((err) => {
+          console.error(`[MCP] ${new Date().toISOString()} Dev auto-refresh failed:`, err.message);
+        });
     }
   });
 

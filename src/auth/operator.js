@@ -202,6 +202,19 @@ class Operator {
 
   async _ensureDevGraphFreshOrRecover(scriptPath, args) {
     const epoch = new Date(0).toISOString();
+    const isHealthy = (serverInfo, summary) => {
+      const status = String(
+        (serverInfo && serverInfo.last_scan_status) ||
+        (summary && summary.status) ||
+        'unknown'
+      ).toLowerCase();
+      const criticalFailures = Number(
+        (serverInfo && serverInfo.last_scan_critical_failures) ??
+        (summary && summary.critical_failures) ??
+        1
+      );
+      return (status === 'completed' || status === 'completed_with_warnings') && criticalFailures === 0;
+    };
 
     const tryRescan = async () => {
       const beforeInfo = await this.callMCPTool('graph_server_info', {});
@@ -220,12 +233,15 @@ class Operator {
       const after = JSON.parse(afterInfo.content[0].text);
       const revAfter = Number(after.index_revision || 0);
       const freshTimestamp = after.last_indexed_at && after.last_indexed_at !== epoch;
+      const healthy = isHealthy(after, summary);
 
       return {
-        ok: revAfter > revBefore && freshTimestamp,
+        ok: revAfter > revBefore && freshTimestamp && healthy,
         revBefore,
         revAfter,
         lastIndexedAt: after.last_indexed_at,
+        lastScanStatus: after.last_scan_status,
+        lastScanCriticalFailures: after.last_scan_critical_failures,
         summary,
       };
     };
@@ -233,7 +249,7 @@ class Operator {
     try {
       const first = await tryRescan();
       if (first.ok) return;
-      console.error(`[Operator] Dev graph freshness check failed (rev ${first.revBefore} -> ${first.revAfter}, ts=${first.lastIndexedAt}). Attempting self-heal restart.`);
+      console.error(`[Operator] Dev graph freshness check failed (rev ${first.revBefore} -> ${first.revAfter}, ts=${first.lastIndexedAt}, status=${first.lastScanStatus}, critical=${first.lastScanCriticalFailures}). Attempting self-heal restart.`);
     } catch (e) {
       console.error(`[Operator] Dev graph rescan failed (${e.message}). Attempting self-heal restart.`);
     }
@@ -242,7 +258,7 @@ class Operator {
     const second = await tryRescan();
     if (!second.ok) {
       throw new Error(
-        `[Operator] Dev graph still stale after self-heal restart (rev ${second.revBefore} -> ${second.revAfter}, ts=${second.lastIndexedAt}).`
+        `[Operator] Dev graph still stale/unhealthy after self-heal restart (rev ${second.revBefore} -> ${second.revAfter}, ts=${second.lastIndexedAt}, status=${second.lastScanStatus}, critical=${second.lastScanCriticalFailures}).`
       );
     }
   }
