@@ -57,7 +57,7 @@ class GraphService {
 
     const dbPath = mode === 'dev'
       ? path.join(root, '.dev/data/dev-graph.db')
-      : path.join(root, 'data/mirrorbox.db');
+      : path.join(root, '.mbo/mirrorbox.db');
 
     this.db = new DBManager(dbPath);
     this.graphStore = new GraphStore(this.db);
@@ -548,6 +548,7 @@ async function createSession(graphService, mode, sessions) {
 async function main() {
   const { mode, root } = parseArgs();
   const PORT = parseInt(process.env.MBO_PORT || '3737', 10);
+  const runDir = mode === 'dev' ? path.join(root, '.dev/run') : path.join(root, '.mbo/run');
   console.error(`[MCP] ${new Date().toISOString()} Starting Graph MCP Server (${mode}) on port ${PORT}...`);
 
   const graphService = new GraphService(mode, root);
@@ -636,8 +637,19 @@ async function main() {
   httpServer.listen(PORT, '127.0.0.1', () => {
     console.error(`[MCP] ${new Date().toISOString()} Graph MCP Server (${mode}) listening on http://127.0.0.1:${PORT}/mcp`);
     try {
-      const sentinelPath = path.join(root, '.dev/run/mcp.ready');
+      fs.mkdirSync(runDir, { recursive: true });
+      const sentinelPath = path.join(runDir, 'mcp.ready');
       fs.writeFileSync(sentinelPath, new Date().toISOString());
+      const manifest = {
+        url: `http://127.0.0.1:${PORT}/mcp`,
+        port: PORT,
+        pid: process.pid,
+        mode,
+        project_root: root,
+        project_id: graphService.projectId,
+        started_at: new Date().toISOString(),
+      };
+      fs.writeFileSync(path.join(runDir, 'mcp.json'), JSON.stringify(manifest, null, 2));
     } catch (e) {
       console.error(`[MCP] ${new Date().toISOString()} WARN: Could not write sentinel file: ${e.message}`);
     }

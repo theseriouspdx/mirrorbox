@@ -9,6 +9,27 @@ const eventStore = require('../state/event-store');
 
 const MBO_ROOT = path.resolve(__dirname, '../..');
 
+function getRunDir() {
+  const projectRoot = process.env.MBO_PROJECT_ROOT || process.cwd();
+  return path.join(projectRoot, '.mbo/run');
+}
+
+function getManifestPath() {
+  return path.join(getRunDir(), 'mcp.json');
+}
+
+function readManifest() {
+  try {
+    return JSON.parse(fs.readFileSync(getManifestPath(), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function getExpectedProjectRoot() {
+  return fs.realpathSync(process.env.MBO_PROJECT_ROOT || process.cwd());
+}
+
 /**
  * Section 8: The Operator
  * The persistent session anchor. Classification, routing, and context management.
@@ -89,10 +110,10 @@ class Operator {
   async startMCP() {
     const scriptPath = path.join(__dirname, '../../scripts/mbo-start.sh');
     const args = this.mode === 'dev' ? ['--mode=dev'] : [];
-    const defaultPort = this.mode === 'dev' ? 4737 : 3737;
-    this.mcpPort = parseInt(process.env.MBO_PORT || String(defaultPort), 10);
+    const manifest = readManifest();
+    this.mcpPort = manifest && Number.isFinite(Number(manifest.port)) ? Number(manifest.port) : null;
     
-    const portBusy = await this._isPortBound(this.mcpPort);
+    const portBusy = this.mcpPort ? await this._isPortBound(this.mcpPort) : false;
 
     if (!portBusy) {
       // Port is free — spawn the MCP server process.
@@ -103,7 +124,7 @@ class Operator {
     } else {
       console.error(`[Operator] MCP port ${this.mcpPort} already bound — reusing existing server.`);
       // Restore persisted session ID so subsequent requests carry the correct header.
-      const sessionFile = path.join(__dirname, '../../.dev/run/mcp.session');
+      const sessionFile = path.join(getRunDir(), 'mcp.session');
       try {
         const saved = require('fs').readFileSync(sessionFile, 'utf8').trim();
         if (saved) {
@@ -187,7 +208,7 @@ class Operator {
     }
     await this._killServerOnPort(this.mcpPort);
 
-    const sessionFile = path.join(__dirname, '../../.dev/run/mcp.session');
+    const sessionFile = path.join(getRunDir(), 'mcp.session');
     try { require('fs').unlinkSync(sessionFile); } catch (_) {}
     this.mcpSessionId = null;
 
@@ -282,7 +303,7 @@ class Operator {
    * Timeout: 15 seconds total.
    */
   async _waitForMCPReady(timeoutMs = 15000) {
-    const sentinelPath = path.join(__dirname, '../../.dev/run/mcp.ready');
+    const sentinelPath = path.join(getRunDir(), 'mcp.ready');
     const interval = 100;
     const deadline = Date.now() + timeoutMs;
 
@@ -292,8 +313,14 @@ class Operator {
     while (Date.now() < deadline) {
       // Prefer sentinel: it means the server is past listen() and ready.
       if (require('fs').existsSync(sentinelPath)) return;
+      if (!this.mcpPort) {
+        const manifest = readManifest();
+        if (manifest && Number.isFinite(Number(manifest.port))) {
+          this.mcpPort = Number(manifest.port);
+        }
+      }
       // Fallback: TCP probe (handles cases where sentinel write fails).
-      if (await this._isPortBound(this.mcpPort)) return;
+      if (this.mcpPort && await this._isPortBound(this.mcpPort)) return;
       await new Promise(r => setTimeout(r, interval));
     }
     throw new Error(`MCP server did not become ready on port ${this.mcpPort} within ${timeoutMs}ms. Check .dev/logs/mcp-stderr.log`);
@@ -322,7 +349,7 @@ class Operator {
         // to re-initialize with a clean slate.
         if (this.mcpSessionId) {
           console.error(`[Operator] Stored session ID rejected (${err.message}) — server likely restarted. Re-initializing.`);
-          const sessionFile = path.join(__dirname, '../../.dev/run/mcp.session');
+          const sessionFile = path.join(getRunDir(), 'mcp.session');
           try { require('fs').unlinkSync(sessionFile); } catch (_) {}
           this.mcpSessionId = null;
         } else {
@@ -355,7 +382,7 @@ class Operator {
       }
     }
 
-    throw new Error(`MCP initialize failed on port ${this.mcpPort}: ${lastError ? lastError.message : 'unknown error'}`);
+    throw new Error(`MCP initialize failed on port ${this.mcpPort || 'unknown'}: ${lastError ? lastError.message : 'unknown error'}`);
   }
 
   async sendMCPNotification(method, params) {
@@ -380,7 +407,7 @@ class Operator {
     const info = JSON.parse(result.content[0].text);
 
     const { createHash } = require('crypto');
-    const expectedRoot = fs.realpathSync(MBO_ROOT);
+    const expectedRoot = getExpectedProjectRoot();
     // UTF-8 encoding matches mcp-server.js — part of the trust contract, do not change.
     const expectedId = createHash('sha256')
       .update(Buffer.from(expectedRoot, 'utf8'))
@@ -429,6 +456,12 @@ class Operator {
 
   _sendMCPHttp(payload) {
     return new Promise((resolve, reject) => {
+      if (!this.mcpPort) {
+        const manifest = readManifest();
+        if (manifest && Number.isFinite(Number(manifest.port))) {
+          this.mcpPort = Number(manifest.port);
+        }
+      }
       if (!this.mcpPort) return reject(new Error('MCP port not set'));
 
       const body = JSON.stringify(payload);
@@ -453,7 +486,7 @@ class Operator {
           this.mcpSessionId = Array.isArray(sid) ? sid[0] : sid;
           // Persist so a restarted Operator can rejoin an existing session.
           try {
-            const runDir = path.join(__dirname, '../../.dev/run');
+            const runDir = getRunDir();
             require('fs').mkdirSync(runDir, { recursive: true });
             require('fs').writeFileSync(path.join(runDir, 'mcp.session'), this.mcpSessionId, 'utf8');
           } catch (_) {}
@@ -1392,7 +1425,7 @@ Return JSON:
     this.mcpSessionId = null;
     // Clean up persisted session — a killed server's session ID is invalid.
     try {
-      require('fs').unlinkSync(path.join(__dirname, '../../.dev/run/mcp.session'));
+      require('fs').unlinkSync(path.join(getRunDir(), 'mcp.session'));
     } catch (_) {}
     // Section 17: Generate handoff on clean shutdown
     stateManager.checkpoint('mirror');

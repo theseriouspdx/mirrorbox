@@ -1,10 +1,24 @@
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+function resolveEndpoint() {
+  const projectRoot = process.env.MBO_PROJECT_ROOT || process.cwd();
+  const manifestPath = path.join(projectRoot, '.mbo', 'run', 'mcp.json');
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    return { host: '127.0.0.1', port: Number(manifest.port) || 3737, path: '/mcp' };
+  } catch {
+    return { host: '127.0.0.1', port: 3737, path: '/mcp' };
+  }
+}
 
 async function mcpQuery(method, params, sessionId = null) {
+  const ep = resolveEndpoint();
   const options = {
-    hostname: '127.0.0.1',
-    port: 3737,
-    path: '/mcp',
+    hostname: ep.host,
+    port: ep.port,
+    path: ep.path,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
