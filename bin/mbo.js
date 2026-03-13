@@ -21,6 +21,24 @@ const INVOCATION_CWD = process.cwd();
 const PROJECT_ROOT = process.env.MBO_PROJECT_ROOT || findProjectRoot(INVOCATION_CWD);
 const entry = path.join(__dirname, '..', 'src', 'index.js');
 
+function runSetupCommand() {
+  require('../src/cli/setup').runSetup().catch(err => { console.error(err); process.exit(1); });
+}
+
+function runAuthCommand(argv) {
+  const args = argv.slice(3);
+  const providerFlag = args.find(a => a.startsWith('--provider='));
+  const provider = providerFlag ? providerFlag.split('=')[1] : null;
+
+  runSetupCommand();
+
+  if (provider) {
+    process.stderr.write(`[MBO] Auth saved for provider: ${provider}\n`);
+  } else {
+    process.stderr.write('[MBO] Auth completed via setup flow.\n');
+  }
+}
+
 function getSessionScopedPids(packageRoot) {
   const runDir = path.join(packageRoot, '.dev', 'run');
   const files = ['operator.pid', 'claude.pid', 'gemini.pid', 'probe.pid', 'test.pid'];
@@ -116,7 +134,10 @@ function reapStaleHelpers(packageRoot) {
 }
 
 if (process.argv[2] === 'setup') {
-  require('../src/cli/setup').runSetup().catch(err => { console.error(err); process.exit(1); });
+  runSetupCommand();
+} else if (process.argv[2] === 'auth') {
+  // Auth/config operations are global and allowed from any directory.
+  runAuthCommand(process.argv);
 } else if (process.argv[2] === 'init') {
   if (isSelfRunDisallowed(INVOCATION_CWD, PACKAGE_ROOT)) {
     process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));

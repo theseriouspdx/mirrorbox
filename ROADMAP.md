@@ -30,7 +30,7 @@ Milestone 1.1 focuses on expanding the Sovereign Loop's reach and hardening the 
 ### Milestone 1.1 — Portability & Hardening [IN PROGRESS]
 - [ ] Implement Section 28v2 CLI Portability (upward root resolution).
 - [ ] Implement Project Scaffolding (.mbo/ init) and .gitignore automation.
-- [ ] Implement Tokenizer Baseline and real-time TOKEN_USAGE accounting.
+- [ ] Implement Tokenmiser Baseline and real-time TOKEN_USAGE accounting.
 - [ ] Implement Authoritative Launch Sequence with Non-TTY CI guards.
 - [ ] Fix BUG-050: Recursive self-correction on validator failure.
 

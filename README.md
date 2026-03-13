@@ -48,6 +48,13 @@ Example:
 
 The local helpers (`mcp_query.js`, `mcp_http_query.js`) now read this manifest to resolve endpoint/port.
 
+Use explicit Node invocation:
+
+```bash
+node ./mcp_query.js tools_list
+node ./mcp_query.js graph_search "open tasks"
+```
+
 ## Notes
 
 - Do not run runtime `mbo` from `/Users/johnserious/MBO` (controller repo guard).

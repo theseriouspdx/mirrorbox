@@ -17,27 +17,33 @@ def _sha256_file(path: Path) -> str:
     h.update(path.read_bytes())
     return h.hexdigest()
 
-def compute_merkle_root(src_dir: Path) -> str:
+def compute_merkle_root(src_dir: Path, base_root: Optional[Path] = None, file_list: Optional[list[Path]] = None) -> str:
     leaves = []
+    base = base_root or MBO_ROOT
+
+    if file_list is not None:
+        found_files = [Path(f) for f in file_list]
+    else:
+        # BUG-009: Include all source types for 1.0 Alpha
+        patterns = ["*.py", "*.js", "*.json", "*.md", "*.spec"]
+        found_files = []
+        for p in patterns:
+            found_files.extend(src_dir.rglob(p))
+
     # BUG-009: Include all source types for 1.0 Alpha
-    patterns = ["*.py", "*.js", "*.json", "*.md", "*.spec"]
-    found_files = []
-    for p in patterns:
-        found_files.extend(src_dir.rglob(p))
-    
     # Filter out ignored directories
     ignored = {".git", "node_modules", ".dev", "data", "audit", "__pycache__"}
-    
+
     for filepath in sorted(found_files):
         if any(part in ignored for part in filepath.parts):
             continue
         if not filepath.is_file():
             continue
-        relative = str(filepath.relative_to(MBO_ROOT))
+        relative = str(filepath.relative_to(base))
         content_hash = _sha256_file(filepath)
         leaf = hashlib.sha256(f"{relative}:{content_hash}".encode()).hexdigest()
         leaves.append(leaf)
-    
+
     if not leaves: return hashlib.sha256(b"__mbo_empty_src__").hexdigest()
     layer = leaves
     while len(layer) > 1:
@@ -60,6 +66,12 @@ def log_audit(event):
 
 def check_integrity(silent=False):
     state = load_canonical_state()
+    scope = state.get("merkle_scope", "src")
+    if scope != "src":
+        if not silent:
+            print(f"[GATE] CRITICAL: Unsupported merkle scope in state.json: {scope}", file=sys.stderr)
+        return False
+
     current_root = compute_merkle_root(SRC_DIR)
     
     # If a session is active, we expect changes in the specific cell_scope.
@@ -70,6 +82,7 @@ def check_integrity(silent=False):
             print(f"[GATE] CRITICAL: Merkle mismatch detected.", file=sys.stderr)
             print(f"Expected: {state['merkle_root']}", file=sys.stderr)
             print(f"Actual:   {current_root}", file=sys.stderr)
+            print(f"Scope:    {scope}", file=sys.stderr)
         return False
     return True
 
@@ -177,7 +190,7 @@ if __name__ == "__main__":
 
     if arg == "--merkle-root":
         target = Path(sys.argv[2]) if len(sys.argv) > 2 else SRC_DIR
-        print(compute_merkle_root(target))
+        print(compute_merkle_root(target, base_root=target))
         sys.exit(0)
     if arg == "--status":
         if SESSION_LOCK.exists():

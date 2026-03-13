@@ -176,6 +176,28 @@
 - **Severity:** P2
 - **Status:** OPEN — deferred. No heartbeat means aggressive proxy/load-balancer timeouts can silently destroy the SSE connection.
 
+### BUG-061: Merkle scope drift + MCP query path drift can cause false mismatch and wrong-server access | Milestone: 1.1 | OPEN
+- **Location:** `bin/handshake.py`, `src/relay/pile.js`, `mcp_query.js`, `src/utils/resolve-manifest.js`
+- **Severity:** P0
+- **Status:** OPEN — 2026-03-13
+- **Description:** Two coupled drift failures remain active: (1) Merkle scope mismatch (`handshake.py` validates `src/` baseline while `pile.js` computes project-root hashes), so non-`src` changes can trigger false promotion mismatches; (2) preflight query usage still appears as `mcp_query.js ...` in operator flows, which fails with `command not found` unless `node` is explicit and can bypass manifest-root assertions when stale scripts are used.
+- **Fix Required:**
+  1. Introduce explicit Merkle scope contract (`src` vs `approved_files` vs `project`) and enforce one scope per operation pair.
+  2. Update Pile verification to hash the approved promotion set (or identical explicit scope on both worlds), not full project root by default.
+  3. Standardize MCP preflight command path to `node ./mcp_query.js ...` and reject non-manifest endpoint fallbacks.
+  4. Add regression tests for case-variant project roots and non-`src` edits to ensure no false lockout.
+
+### BUG-062: Auth bootstrap unusable in-app/self-run contexts (CLI dependency and non-TTY failure) | Milestone: 1.1 | OPEN
+- **Location:** `bin/mbo.js`, `src/cli/setup.js`, `src/index.js`, onboarding/auth UX
+- **Severity:** P1
+- **Status:** OPEN — 2026-03-13
+- **Description:** `mbo auth` remains coupled to CLI/TTY setup semantics and is not reliably usable where users are already inside the app flow. In self-run or non-TTY contexts, auth/setup can fail and force obscure fallback commands, creating first-run lockout and violating discoverability.
+- **Fix Required:**
+  1. Implement in-app human-mediated auth flow (no external CLI dependency once inside app).
+  2. Distinguish global auth/config operations from project runtime operations in command routing and UX.
+  3. Provide explicit recovery UX when auth is missing (guided prompt/action path from within app).
+  4. Keep credentials in global config/secure store and preserve mirror/subject isolation invariants.
+
 ### BUG-056: Tokenmiser dashboard using NaN placeholders for tokenizer/pricing data | Milestone: 1.1 | OPEN
 - **Location:** `src/state/stats-manager.js`, `src/cli/tokenmiser-dashboard.js`
 - **Severity:** P1
@@ -208,4 +230,4 @@
 
 ---
 
-*Last updated: 2026-03-12*
+*Last updated: 2026-03-13*

@@ -47,6 +47,14 @@ Local helper scripts now use manifest discovery:
 
 Run from the target project root so they can resolve `./.mbo/run/mcp.json`.
 
+Examples:
+
+```bash
+node ./mcp_query.js tools_list
+node ./mcp_query.js graph_server_info
+node ./mcp_query.js graph_search "open tasks"
+```
+
 ## Troubleshooting
 
 1. `ECONNREFUSED` from helper script

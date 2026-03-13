@@ -2131,7 +2131,7 @@ No module may infer DB path from source tree location.
 
 ---
 
-## Section 29 — Tokenizer Contract (Milestone 1.1)
+## Section 29 — Tokenmiser Contract (Milestone 1.1)
 
 ### 29.1 Required Functions
 - `scan(projectRoot) -> { tokenCountRaw, fileCount, skippedByIgnore }`
@@ -2144,9 +2144,14 @@ No module may infer DB path from source tree location.
 - If baseline missing but onboarding exists, create baseline at next launch and mark event `baseline_backfill=true`.
 
 ### 29.3 Scan Rules
-- Tokenizer MUST use `cl100k_base`.
+- Tokenmiser MUST use `cl100k_base`.
 - MUST respect `.gitignore`.
 - MUST exclude `.mbo/logs`, `.mbo/sessions`, and generated artifacts.
+
+### 29.4 Request Baseline (The "Without" Baseline)
+- For every `callModel` request, calculate a "Raw" baseline.
+- Calculation: `character length of the unoptimized history buffer / 4`.
+- This represents the cost of the request if MBO's context reduction was NOT applied.
 
 ---
 
@@ -2161,19 +2166,33 @@ Every `callModel` MUST emit `TOKEN_USAGE` with:
 - `tokensIn`
 - `tokensOut`
 - `costUsd` (decimal, 6 precision)
+- `rawTokensEstimate`
+- `rawCostEstimate`
 - `sessionTokensTotal`
 - `sessionCostUsdTotal`
 
 ### 30.2 Pricing Source
 - Try OpenRouter `/api/v1/models` once per session start.
-- On failure, use static fallback table.
+- On failure, use static fallback table or last cached pricing object from `.mbo/pricing_cache.json`.
 - Local models MUST record `costUsd = 0`.
 
-### 30.3 UI Fields
-Stage 1.5 sign-off MUST show:
-- Session Cost (USD)
-- Repo Raw Cost (USD estimate)
-- Efficiency (%) = `1 - mboLoaded/currentRaw`
+### 30.3 UI Dashboard (Agent Header)
+- Each Agent Panel MUST feature a top status bar:
+  - **Green Text:** TM [Actual Tokens] / $[Actual Cost]
+  - **Red Text:** [Estimated Raw Tokens] / $[Estimated Raw Cost]
+- The Operator Panel MUST show a bundled TOTAL summing these metrics across all active agents.
+
+### 30.4 The SHIFT-T Stats Overlay
+- Global keydown listener for `SHIFT+T` toggles a persistent terminal-style overlay.
+- Display "Proof of Value" metrics:
+  - **PROJECT LIFETIME:** Cumulative savings (Baseline Cost - Actual Cost) across all recorded sessions.
+  - **AVERAGE SESSION:** Mean savings per session.
+  - **LARGEST SESSION:** The single response with the highest recorded delta (The "Big Save").
+  - **CARBON IMPACT:** Estimated 0.1g CO2 avoided per 1,000 tokens stripped from the stream.
+
+### 30.5 Persistence
+- All lifetime and session stats MUST be saved to `.mbo/stats.json`.
+- Metrics MUST persist across app restarts to ensure "Lifetime" and "Largest" metrics are preserved.
 
 ---
 

@@ -1,7 +1,34 @@
+#!/usr/bin/env node
+'use strict';
+
+const fs = require('fs');
 const http = require('http');
+const path = require('path');
+const { resolveManifest } = require('./src/utils/resolve-manifest');
+
+function canonicalPath(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+function resolveEndpoint() {
+  const cwdRoot = canonicalPath(process.cwd());
+  const { manifest } = resolveManifest({ root: cwdRoot });
+  const manifestRoot = canonicalPath(manifest.project_root || cwdRoot);
+  if (manifestRoot !== cwdRoot) {
+    throw new Error(
+      `[MCP QUERY] project_root mismatch. cwd=${cwdRoot} manifest.project_root=${manifestRoot}. ` +
+      'Run from the intended project root and retry.'
+    );
+  }
+  return { host: '127.0.0.1', port: manifest.port, path: '/mcp' };
+}
 
 async function callMCP(method, params = {}, sessionId = null) {
-  const port = 3737; // Server port
+  const ep = resolveEndpoint();
   const body = JSON.stringify({
     jsonrpc: '2.0',
     id: 1,
@@ -20,9 +47,9 @@ async function callMCP(method, params = {}, sessionId = null) {
 
   return new Promise((resolve, reject) => {
     const req = http.request({
-      host: '127.0.0.1',
-      port,
-      path: '/mcp',
+      host: ep.host,
+      port: ep.port,
+      path: ep.path,
       method: 'POST',
       headers
     }, (res) => {
@@ -79,7 +106,7 @@ const [,, command, ...args] = process.argv;
     } else if (command === 'tools_list') {
       res = await callMCP('tools/list', {}, sid);
     } else {
-      console.log("Usage: node mcp_query.js [graph_server_info | graph_search <pattern> | graph_rescan | tools_list]");
+      console.log('Usage: node ./mcp_query.js [graph_server_info | graph_search <pattern> | graph_rescan | tools_list]');
       return;
     }
     console.log(JSON.stringify(res, null, 2));
