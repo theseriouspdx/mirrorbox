@@ -11,7 +11,7 @@
 'use strict';
 
 const path = require('path');
-const { spawn, execSync } = require('child_process');
+const { spawn, spawnSync, execSync } = require('child_process');
 const fs = require('fs');
 const { findProjectRoot } = require('../src/utils/root');
 const { isSelfRunDisallowed, selfRunGuardMessage } = require('../src/cli/startup-checks');
@@ -27,16 +27,59 @@ function runSetupCommand() {
 
 function runAuthCommand(argv) {
   const args = argv.slice(3);
-  const providerFlag = args.find(a => a.startsWith('--provider='));
-  const provider = providerFlag ? providerFlag.split('=')[1] : null;
+  const handshakePath = path.join(PACKAGE_ROOT, 'bin', 'handshake.py');
 
-  runSetupCommand();
-
-  if (provider) {
-    process.stderr.write(`[MBO] Auth saved for provider: ${provider}\n`);
-  } else {
-    process.stderr.write('[MBO] Auth completed via setup flow.\n');
+  if (!fs.existsSync(handshakePath)) {
+    process.stderr.write(`[MBO] ERROR: handshake tool missing at ${handshakePath}\n`);
+    process.exit(1);
   }
+
+  // `mbo auth` with no scope behaves like status for clarity.
+  if (args.length === 0 || args[0] === 'status' || args[0] === '--status') {
+    const status = spawnSync('python3', [handshakePath, '--status'], {
+      stdio: 'inherit',
+      env: process.env,
+    });
+    process.exit(status.status ?? 1);
+  }
+
+  const scope = args.find(a => !a.startsWith('--'));
+  if (!scope) {
+    process.stderr.write('Usage: mbo auth <scope> [--force]\n');
+    process.exit(1);
+  }
+
+  const allowFlags = new Set(['--force']);
+  const passthroughFlags = args.filter(a => a.startsWith('--') && allowFlags.has(a));
+  const unknownFlags = args.filter(a => a.startsWith('--') && !allowFlags.has(a));
+  if (unknownFlags.length > 0) {
+    process.stderr.write(`[MBO] ERROR: Unsupported auth option(s): ${unknownFlags.join(' ')}\n`);
+    process.stderr.write('Usage: mbo auth <scope> [--force]\n');
+    process.exit(1);
+  }
+
+  // Print session state before attempting auth so humans can see current state.
+  spawnSync('python3', [handshakePath, '--status'], {
+    stdio: 'inherit',
+    env: process.env,
+  });
+
+  const auth = spawnSync('python3', [handshakePath, scope, ...passthroughFlags], {
+    stdio: 'inherit',
+    env: process.env,
+  });
+
+  if ((auth.status ?? 1) !== 0) {
+    process.exit(auth.status ?? 1);
+  }
+
+  // Print final state after successful auth.
+  spawnSync('python3', [handshakePath, '--status'], {
+    stdio: 'inherit',
+    env: process.env,
+  });
+
+  process.exit(0);
 }
 
 function getSessionScopedPids(packageRoot) {
