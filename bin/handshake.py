@@ -195,7 +195,12 @@ if __name__ == "__main__":
     if arg == "--status":
         if SESSION_LOCK.exists():
             data = json.loads(SESSION_LOCK.read_text())
-            print(f"[SESSION] Active: {data['cell_scope']} (Expires in {int(data['expires_at'] - time.time())}s)")
+            expires_at = float(data.get("expires_at", 0))
+            remaining = int(expires_at - time.time())
+            if remaining > 0:
+                print(f"[SESSION] Active: {data['cell_scope']} (Expires in {remaining}s)")
+            else:
+                print(f"[SESSION] Expired: {data['cell_scope']} (Expired {-remaining}s ago)")
         else: print("[SESSION] None")
     elif arg == "--revoke":
         lock_src()
