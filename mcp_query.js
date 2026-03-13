@@ -124,7 +124,7 @@ async function callMCP(method, params = {}, sessionId = null) {
       });
     });
 
-    req.setTimeout(8000, () => {
+    req.setTimeout(30000, () => {
       finish(reject, new Error(`MCP request timeout for method=${method}`));
       req.destroy();
     });
@@ -134,15 +134,35 @@ async function callMCP(method, params = {}, sessionId = null) {
   });
 }
 
+async function withRetry(fn, retries = 3, delayMs = 500) {
+  let lastErr = null;
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const msg = String(err && err.message ? err.message : err || '');
+      const retryable =
+        msg.includes('timeout') ||
+        msg.includes('ECONNRESET') ||
+        msg.includes('socket hang up') ||
+        msg.includes('EPIPE');
+      if (!retryable || i === retries - 1) break;
+      await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 const [,, command, ...args] = process.argv;
 
 (async () => {
   try {
-    const init = await callMCP('initialize', {
+    const init = await withRetry(() => callMCP('initialize', {
       protocolVersion: '2024-11-05',
       capabilities: {},
       clientInfo: { name: 'mcp-query-script', version: '1.0.0' }
-    });
+    }));
     const sid = init.sessionId;
 
     let res;
