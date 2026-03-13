@@ -11,11 +11,12 @@ Every working session follows this pattern:
 4. Agent generates Assumption Ledger (Stage 1.5)
 5. Review assumptions + blockers. Respond 'go' to approve defaults.
 6. Grant auth scope: mbo <scope>
-7. Agent implements via impl_step.sh (one file at a time)
-8. Audit gate: review diff + validator output
-9. Approve or reject
-10. On approve: §6B state sync (revoke → baseline → mark task COMPLETE)
-11. Commit + update projecttracking.md
+7. Agent creates atomic backup in .dev/bak/ (Invariant 13)
+8. Agent implements via impl_step.sh (one file at a time)
+9. Audit gate: review diff + validator output
+10. Approve or reject
+11. On approve: §6B state sync (revoke → baseline → mark task COMPLETE)
+12. Commit + update projecttracking.md
 ```
 
 ---
@@ -76,6 +77,7 @@ The pipeline that processes each implementation task:
 | 3 | Gate 0 | Integrity + auth check |
 | 4 | Plan | Generate implementation plan |
 | 4.5 | Dry Run | Virtual execution check |
+| 5 | Backup | **Atomic Topology Backup to `.dev/bak/` (Invariant 13)** |
 | 6 | Write + Validate | `impl_step.sh` + `validator.py` |
 | 6A | Audit Gate | Return `audit_pending`, pause for human |
 | 6B | State Sync | Revoke → baseline → update graph (runs after `approved`) |

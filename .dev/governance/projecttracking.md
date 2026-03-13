@@ -1,8 +1,8 @@
 # projecttracking.md
 ## Mirror Box Orchestrator — Build Tracking
 
-**Current Milestone:** 1.1 — Portability & Tokenmiser [IN PROGRESS]
-**Next Action:** Temporary MCP-disabled operations mode active (2026-03-13) — execute legacy workflow while MCP redesign requirements are finalized
+**Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
+**Next Action:** Execute Task 1.1-H24 — DID protocol implementation in operator pipeline (Tier 3, DID required)
 
 ---
 
@@ -46,12 +46,19 @@
 | 1.1-H11 | Implement Agent Header status bar (Green/Red metrics) | COMPLETED |
 | 1.1-H12 | Canonicalize AGENTS.md — update root doc, create src/templates/AGENTS.md for subject projects | COMPLETED |
 | 1.1-H13 | Directory structure cleanup — move root strays to scripts/, delete scratch files, update .gitignore | OPEN |
-| 1.1-H14 | Multi-agent dev workflow design — role assignments for Claude/Gemini/Codex/Claude Desktop, DID protocol across tools, handoff format | OPEN |
+| 1.1-H14 | Multi-agent dev workflow design — role assignments for Claude/Gemini/Codex, DID protocol across tools, handoff format | COMPLETED — 2026-03-13 — see `.dev/governance/DID-PROTOCOL.pdf` |
 | 1.1-H15 | Fix BUG-057: MCP stream-destroyed incident — safeHandleTransportRequest + SSE guard + autoRefreshDevIfStale queue serialization | COMPLETED |
 | 1.1-H16 | Fix BUG-061: Merkle scope drift + MCP query path drift (manifest-only endpoint + canonical root assertion + preflight command hardening) | COMPLETED |
 | 1.1-H17 | Fix BUG-062: In-app human-mediated auth flow (no CLI dependency) + self-run/non-TTY auth usability | COMPLETED |
 | 1.1-H18 | Fix BUG-064: mcp_query initialize timeout via wrong endpoint selection and weak fallback | COMPLETED |
 | 1.1-H19 | Fix BUG-065: preserve dynamic env endpoint + POST preflight to avoid TCP-only MCP hangs | COMPLETED |
-| 1.1-H20 | Fix BUG-066: always route initialize to fresh transport instance in MCP server | IN PROGRESS |
+| 1.1-H20 | Fix BUG-066: always route initialize to fresh transport instance in MCP server | COMPLETED |
 | 1.1-H21 | Fix BUG-067: keep `mbo auth` usable in controller repo while runtime remains guarded | COMPLETED |
-| 1.1-H22 | Temporary MCP-disabled operations mode in controller repo; route agents to legacy workflow | ACTIVE TEMPORARY OVERRIDE |
+| 1.1-H22 | Temporary MCP-disabled operations mode in controller repo; route agents to legacy workflow | SUPERSEDED — see 1.1-H23 |
+| 1.1-H23 | Migrate MCP to launchd-owned system daemon — fixed port 7337, delete mbo-start.sh/watchdog/manifests, surgery on mcp-server.js + operator.js, add mbo setup/teardown | COMPLETED |
+| 1.1-H24 | Implement DID protocol in operator pipeline — wire Gemini-as-A, Claude-as-B, Codex tiebreaker into callModel routing; enforce blind derivation context isolation; add reconciliation output format and retry gate | OPEN — Tier 3, DID required, preflight at `.dev/preflight/did-protocol-implementation.md` |
+| 1.1-H25 | Security Hardening: restore Section 8 Affirmation Protocol (non-persistence), implement Invariant 13 (Topology Backups) and Invariant 14 (Write-File Overwrite Lock) | COMPLETED |
+
+Audit addendum (2026-03-13):
+- Task `1.1-H12` is functionally complete, but its original closing commit (`becf656`) bundled unrelated fixes (`1.1-H19`/`1.1-H20`/`1.1-H21`).
+- Canonical H12 evidence files are `AGENTS.md`, `.dev/governance/AGENTS.md`, and `src/templates/AGENTS.md`.

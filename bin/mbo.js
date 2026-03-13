@@ -22,7 +22,29 @@ const PROJECT_ROOT = process.env.MBO_PROJECT_ROOT || findProjectRoot(INVOCATION_
 const entry = path.join(__dirname, '..', 'src', 'index.js');
 
 function runSetupCommand() {
-  require('../src/cli/setup').runSetup().catch(err => { console.error(err); process.exit(1); });
+  const setup = require('../src/cli/setup');
+  Promise.resolve()
+    .then(async () => {
+      const hasConfig = setup.validateConfig();
+      if (!hasConfig) {
+        await setup.runSetup();
+      }
+    })
+    .then(() => setup.installMCPDaemon(PROJECT_ROOT))
+    .then(() => {
+      process.stdout.write('[MBO] MCP daemon ready at http://127.0.0.1:7337/mcp\n');
+    })
+    .catch(err => { console.error(err); process.exit(1); });
+}
+
+function runTeardownCommand() {
+  try {
+    require('../src/cli/setup').runTeardown();
+    process.stdout.write('[MBO] MCP daemon torn down.\n');
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
 }
 
 function runAuthCommand(argv) {
@@ -207,6 +229,8 @@ function reapStaleHelpers(packageRoot) {
 
 if (process.argv[2] === 'setup') {
   runSetupCommand();
+} else if (process.argv[2] === 'teardown') {
+  runTeardownCommand();
 } else if (process.argv[2] === 'auth') {
   // Auth/config operations are global and allowed from any directory.
   runAuthCommand(process.argv);

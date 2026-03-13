@@ -1,4 +1,4 @@
-const { spawn, execSync, spawnSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -8,45 +8,9 @@ const db = require('../state/db-manager');
 const eventStore = require('../state/event-store');
 
 const MBO_ROOT = path.resolve(__dirname, '../..');
-
-const {
-  resolveManifest,
-  readManifest,
-  getRunDir: _getRunDir,
-  tryReadManifestRelaxed,
-} = require('../utils/resolve-manifest');
-
-// Mode-aware run dir — used everywhere PID/session files are written.
-function getRunDir(mode) {
-  return _getRunDir(mode || 'runtime');
-}
-
-function readProcessStartMs(pid) {
-  try {
-    const out = execSync(`ps -o lstart= -p ${pid}`, { encoding: 'utf8' }).trim();
-    if (!out) return null;
-    const ms = Date.parse(out);
-    return Number.isFinite(ms) ? Math.floor(ms / 1000) * 1000 : null;
-  } catch {
-    // Some minimal Docker/CI images lack ps(1) with lstart support.
-    // Degrade gracefully; caller decides whether this check is mandatory.
-    return null;
-  }
-}
-
-function readProcessCommand(pid) {
-  try {
-    return execSync(`ps -o command= -p ${pid}`, { encoding: 'utf8' }).trim();
-  } catch {
-    // Some minimal Docker/CI images lack ps(1) command output support.
-    // Degrade gracefully; caller decides whether this check is mandatory.
-    return null;
-  }
-}
-
-function getExpectedProjectRoot() {
-  return fs.realpathSync(process.env.MBO_PROJECT_ROOT || process.cwd());
-}
+const MCP_BASE_URL = 'http://127.0.0.1:7337';
+const MCP_URL = `${MCP_BASE_URL}/mcp`;
+const MCP_HEALTH_URL = `${MCP_BASE_URL}/health`;
 
 /**
  * Section 8: The Operator
@@ -82,113 +46,10 @@ class Operator {
       graphSummary: '',
       pendingDecision: null
     };
-    this.mcpServer = null;
-    this.mcpSessionId = null;
-    this.mcpPort = null;
     this.messageId = 1;
     this.contextThreshold = 0.8;      // Section 8: configurable via operatorContextThreshold
     this.activeModelWindow = null;    // set after routeModels() resolves, see _loadModelWindow()
     this.sandboxFocus = false;        // BUG-013: Sandbox interaction state
-    this.mcpRestartHistory = [];
-    this.mcpCircuitThreshold = 3;
-    this.mcpCircuitWindowMs = 30000;
-  }
-
-  _registerMCPRestartFailure(reason = 'unknown') {
-    const now = Date.now();
-    this.mcpRestartHistory = this.mcpRestartHistory
-      .filter((entry) => now - entry.ts <= this.mcpCircuitWindowMs);
-    this.mcpRestartHistory.push({ ts: now, reason });
-
-    if (this.mcpRestartHistory.length >= this.mcpCircuitThreshold) {
-      const incident = {
-        status: 'incident',
-        incident_reason: `circuit_breaker_open: ${this.mcpRestartHistory.length} restart failures within ${Math.floor(this.mcpCircuitWindowMs / 1000)}s`,
-      };
-      try {
-        const resolved = resolveManifest({ root: process.env.MBO_PROJECT_ROOT || process.cwd(), mustReady: false });
-        const current = resolved && resolved.manifest ? resolved.manifest : {};
-        const payload = {
-          ...current,
-          status: incident.status,
-          incident_reason: incident.incident_reason,
-          restart_count: this.mcpRestartHistory.length,
-          last_verified_at: new Date().toISOString(),
-        };
-        if (resolved && resolved.manifestPath) {
-          fs.writeFileSync(resolved.manifestPath, JSON.stringify(payload, null, 2), 'utf8');
-        }
-      } catch (_) {}
-      throw new Error(`[Operator] MCP incident: ${incident.incident_reason}`);
-    }
-  }
-
-  _validateManifestV3(manifest) {
-    if (!manifest || typeof manifest !== 'object') {
-      throw new Error('[Operator] MCP manifest missing or invalid JSON.');
-    }
-
-    const required = [
-      'manifest_version', 'checksum', 'project_root', 'project_id', 'pid', 'process_start_ms',
-      'port', 'mode', 'epoch', 'instance_id', 'started_at', 'last_verified_at', 'status',
-      'restart_count', 'incident_reason'
-    ];
-
-    for (const key of required) {
-      if (!(key in manifest)) {
-        throw new Error(`[Operator] MCP manifest missing required field: ${key}`);
-      }
-    }
-
-    if (manifest.manifest_version !== 3) {
-      throw new Error(`[Operator] MCP manifest version mismatch. Expected 3, got ${manifest.manifest_version}`);
-    }
-
-    if (typeof manifest.instance_id !== 'string' || manifest.instance_id.length < 8) {
-      throw new Error('[Operator] MCP manifest has invalid instance_id.');
-    }
-
-    if (!Number.isInteger(Number(manifest.epoch)) || Number(manifest.epoch) < 1) {
-      throw new Error('[Operator] MCP manifest has invalid epoch.');
-    }
-
-    const { checksum, ...withoutChecksum } = manifest;
-    const computed = computeManifestChecksum(withoutChecksum);
-    if (checksum !== computed) {
-      throw new Error('[Operator] MCP manifest checksum mismatch.');
-    }
-
-    if (manifest.status !== 'ready') {
-      throw new Error(`[Operator] MCP manifest status is "${manifest.status}" — server not ready. incident_reason: ${manifest.incident_reason || 'none'}`);
-    }
-
-    const expectedRoot = getExpectedProjectRoot();
-    if (manifest.project_root !== expectedRoot) {
-      throw new Error(`[Operator] MCP project_root mismatch. expected=${expectedRoot} got=${manifest.project_root}`);
-    }
-
-    if (!Number.isInteger(Number(manifest.restart_count)) || Number(manifest.restart_count) < 0) {
-      throw new Error('[Operator] MCP manifest has invalid restart_count.');
-    }
-
-    const startMs = readProcessStartMs(Number(manifest.pid));
-    const manifestStartMs = Math.floor(Number(manifest.process_start_ms) / 1000) * 1000;
-    if (startMs !== null && startMs !== manifestStartMs) {
-      throw new Error('[Operator] MCP process fingerprint mismatch (pid/start time).');
-    }
-    if (startMs === null) {
-      console.error('[Operator] WARN: process start time unavailable (ps missing?) — skipping start-time fingerprint check.');
-    }
-
-    const cmd = readProcessCommand(Number(manifest.pid));
-    if (cmd !== null && (!cmd.includes('mcp-server.js') || !cmd.includes(expectedRoot))) {
-      throw new Error('[Operator] MCP process fingerprint mismatch (command/root).');
-    }
-    if (cmd === null) {
-      console.error('[Operator] WARN: process command unavailable (ps missing?) — skipping command fingerprint check.');
-    }
-
-    return manifest;
   }
 
   /**
@@ -226,414 +87,39 @@ class Operator {
    * Section 9: Gate 0 - Initialize MCP session
    */
   async startMCP() {
-    const scriptPath = path.join(__dirname, '../../scripts/mbo-start.sh');
-    const args = this.mode === 'dev' ? ['--mode=dev'] : [];
-    const manifest = readManifest();
-    if (manifest) {
-      try {
-        this._validateManifestV3(manifest);
-      } catch (err) {
-        console.error(`[Operator] Existing MCP manifest invalid: ${err.message}. Attempting scoped restart path.`);
-      }
-    }
-    // Use port from manifest only if it passed validation — don't carry over a stale port.
-    this.mcpPort = (manifest && manifest.status === 'ready' && Number.isFinite(Number(manifest.port)))
-      ? Number(manifest.port)
-      : null;
-    
-    const portBusy = this.mcpPort ? await this._isPortBound(this.mcpPort) : false;
-
-    if (!portBusy) {
-      // Port is free — spawn the MCP server process.
-      try {
-        await this._spawnMCPServer(scriptPath, args);
-        await this._waitForMCPReady();
-        // Re-read manifest after server is up to get the actual live port.
-        const liveManifest = readManifest({ mustReady: false });
-        if (liveManifest && Number.isFinite(liveManifest.port)) {
-          this.mcpPort = liveManifest.port;
-        }
-      } catch (err) {
-        this._registerMCPRestartFailure(err.message);
-        throw err;
-      }
-    } else {
-      console.error(`[Operator] MCP port ${this.mcpPort} already bound — reusing existing server.`);
-      // Restore persisted session ID so subsequent requests carry the correct header.
-      const sessionFile = path.join(getRunDir(this.mode), 'mcp.session');
-      try {
-        const saved = require('fs').readFileSync(sessionFile, 'utf8').trim();
-        if (saved) {
-          this.mcpSessionId = saved;
-          console.error(`[Operator] Restored MCP session ID from disk: ${saved}`);
-        }
-      } catch (_) {
-        // No persisted session — server will reject non-initialize requests;
-        // _initializeMCPWithRetry will handle the fallback.
-      }
-    }
-
-    try {
-      await this._initializeMCPWithRetry(portBusy);
-    } catch (err) {
-      this._registerMCPRestartFailure(err.message);
-      throw err;
-    }
-
-    // Task 1.1-10: Assert the server is serving the correct project root.
-    // Hard fails with an actionable message if project_id mismatches.
-    const serverInfo = await this._assertProjectId();
-    if (serverInfo.is_scanning) {
-      await this._waitForScanComplete();
-    }
-
-    if (this.mode === 'dev') {
-      await this._ensureDevGraphFreshOrRecover(scriptPath, args);
-    }
-
-    // Best-effort initialization notification; server compatibility may vary.
-    await this.sendMCPNotification('notifications/initialized', {});
+    await this._assertDaemonHealthy();
     await this._loadModelWindow();
   }
 
-  async _spawnMCPServer(scriptPath, args) {
-    const logDir = path.join(__dirname, '../../.dev/logs');
-    const logPath = path.join(logDir, 'mcp-stderr.log');
-    let logFd;
-    try {
-      require('fs').mkdirSync(logDir, { recursive: true });
-      logFd = require('fs').openSync(logPath, 'a');
-    } catch (e) {
-      console.error(`[Operator] WARN: Could not open MCP log file: ${e.message}`);
-    }
-
-    this.mcpServer = spawn(scriptPath, args, {
-      stdio: ['ignore', 'ignore', logFd || 'inherit'],
-      env: { ...process.env, NODE_ENV: this.mode === 'dev' ? 'development' : 'production' },
-      detached: false,
-    });
-
-    if (logFd) {
-      this.mcpServer.on('spawn', () => require('fs').closeSync(logFd));
-    }
-
-    this.mcpServer.on('exit', (code, signal) => {
-      if (code !== 0 && code !== null) {
-        console.error(`[Operator] MCP launcher exited with code=${code} signal=${signal || 'none'}.`);
-      }
-    });
-  }
-
-  async _killServerOnPort(port) {
-    try {
-      const out = execSync(`lsof -ti:${port}`, { encoding: 'utf8' }).trim();
-      if (!out) return;
-      for (const pidStr of out.split(/\s+/)) {
-        const pid = parseInt(pidStr, 10);
-        if (Number.isFinite(pid)) {
-          try { process.kill(pid, 'SIGTERM'); } catch (_) {}
-        }
-      }
-      await new Promise(r => setTimeout(r, 500));
-    } catch (_) {
-      // nothing listening or lsof unavailable
+  async _assertDaemonHealthy() {
+    const info = await this._httpGetJson(MCP_HEALTH_URL).catch(() => null);
+    if (!info || info.status !== 'ok') {
+      throw new Error('Graph server not running. Run: mbo setup && launchctl load ~/Library/LaunchAgents/com.mbo.mcp.plist');
     }
   }
 
-  async _restartMCPServer(scriptPath, args) {
-    console.error(`[Operator] Restarting MCP server on port ${this.mcpPort} for self-healing...`);
-
-    if (this.mcpServer) {
-      try { this.mcpServer.kill('SIGTERM'); } catch (_) {}
-      this.mcpServer = null;
-    }
-    await this._killServerOnPort(this.mcpPort);
-
-    const sessionFile = path.join(getRunDir(this.mode), 'mcp.session');
-    try { require('fs').unlinkSync(sessionFile); } catch (_) {}
-    this.mcpSessionId = null;
-
-    await this._spawnMCPServer(scriptPath, args);
-    await this._waitForMCPReady();
-    this._syncClientConfigs();
-    await this._initializeMCPWithRetry(false);
-    const info = await this._assertProjectId();
-    if (info.is_scanning) {
-      await this._waitForScanComplete();
-    }
-  }
-
-  _syncClientConfigs() {
-    const port = this.mcpPort;
-    if (!port) return;
-    const url = `http://127.0.0.1:${port}/mcp`;
-    const root = process.env.MBO_PROJECT_ROOT || process.cwd();
-    for (const relPath of ['.mcp.json', '.gemini/settings.json']) {
-      const filePath = path.join(root, relPath);
-      try {
-        const cfg = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-        let updated = false;
-        for (const key of Object.keys(cfg.mcpServers || {})) {
-          if (cfg.mcpServers[key].url !== undefined) {
-            cfg.mcpServers[key].url = url;
-            updated = true;
+  _httpGetJson(url) {
+    return new Promise((resolve, reject) => {
+      const req = http.get(url, (res) => {
+        let body = '';
+        res.on('data', (c) => { body += c.toString(); });
+        res.on('end', () => {
+          if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
+          try {
+            resolve(JSON.parse(body));
+          } catch (err) {
+            reject(err);
           }
-        }
-        if (updated) {
-          fs.writeFileSync(filePath, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
-          console.error(`[Operator] Synced ${relPath} to port ${port}`);
-        }
-      } catch (_) {}
-    }
-  }
-
-  async _ensureDevGraphFreshOrRecover(scriptPath, args) {
-    const epoch = new Date(0).toISOString();
-    const isHealthy = (serverInfo, summary) => {
-      const status = String(
-        (serverInfo && serverInfo.last_scan_status) ||
-        (summary && summary.status) ||
-        'unknown'
-      ).toLowerCase();
-      const criticalFailures = Number(
-        (serverInfo && serverInfo.last_scan_critical_failures) ??
-        (summary && summary.critical_failures) ??
-        1
-      );
-      return (status === 'completed' || status === 'completed_with_warnings') && criticalFailures === 0;
-    };
-
-    const tryRescan = async () => {
-      const beforeInfo = await this.callMCPTool('graph_server_info', {});
-      const before = JSON.parse(beforeInfo.content[0].text);
-      const revBefore = Number(before.index_revision || 0);
-
-      const rescanResult = await this.callMCPTool('graph_rescan', {});
-      let summary = null;
-      try {
-        summary = JSON.parse(rescanResult.content[0].text);
-      } catch (_) {
-        // keep going, rev check is authoritative
-      }
-
-      const afterInfo = await this.callMCPTool('graph_server_info', {});
-      const after = JSON.parse(afterInfo.content[0].text);
-      const revAfter = Number(after.index_revision || 0);
-      const freshTimestamp = after.last_indexed_at && after.last_indexed_at !== epoch;
-      const healthy = isHealthy(after, summary);
-
-      return {
-        ok: revAfter > revBefore && freshTimestamp && healthy,
-        revBefore,
-        revAfter,
-        lastIndexedAt: after.last_indexed_at,
-        lastScanStatus: after.last_scan_status,
-        lastScanCriticalFailures: after.last_scan_critical_failures,
-        summary,
-      };
-    };
-
-    try {
-      const first = await tryRescan();
-      if (first.ok) return;
-      console.error(`[Operator] Dev graph freshness check failed (rev ${first.revBefore} -> ${first.revAfter}, ts=${first.lastIndexedAt}, status=${first.lastScanStatus}, critical=${first.lastScanCriticalFailures}). Attempting self-heal restart.`);
-    } catch (e) {
-      console.error(`[Operator] Dev graph rescan failed (${e.message}). Attempting self-heal restart.`);
-    }
-
-    await this._restartMCPServer(scriptPath, args);
-    const second = await tryRescan();
-    if (!second.ok) {
-      throw new Error(
-        `[Operator] Dev graph still stale/unhealthy after self-heal restart (rev ${second.revBefore} -> ${second.revAfter}, ts=${second.lastIndexedAt}, status=${second.lastScanStatus}, critical=${second.lastScanCriticalFailures}).`
-      );
-    }
-  }
-
-  /**
-   * Returns true if something is already listening on this.mcpPort.
-   * Uses a non-blocking TCP probe — no child process required.
-   */
-  _isPortBound(port) {
-    return new Promise((resolve) => {
-      const net = require('net');
-      const sock = net.createConnection(port, '127.0.0.1');
-      sock.once('connect', () => { sock.destroy(); resolve(true); });
-      sock.once('error', () => resolve(false));
-    });
-  }
-
-  /**
-   * Waits for the sentinel file written by mcp-server.js on successful bind,
-   * OR falls back to TCP polling if the sentinel does not appear in time.
-   * Timeout: 15 seconds total.
-   */
-  async _waitForMCPReady(timeoutMs = 15000) {
-    const sentinelPath = path.join(getRunDir(this.mode), 'mcp.ready');
-    const modeManifestPath = path.join(getRunDir(this.mode), 'mcp.json');
-    const runtimeManifestPath = path.join(getRunDir('runtime'), 'mcp.json');
-    const interval = 100;
-    const deadline = Date.now() + timeoutMs;
-
-    // Remove any stale sentinel from a previous run before waiting.
-    try { require('fs').unlinkSync(sentinelPath); } catch (_) {}
-
-    while (Date.now() < deadline) {
-      if (require('fs').existsSync(sentinelPath)) {
-        // Sentinel exists: resolve live port from manifest with short retry window.
-        for (let i = 0; i < 5; i++) {
-          const m = tryReadManifestRelaxed(modeManifestPath)
-                 || tryReadManifestRelaxed(runtimeManifestPath);
-          if (m && Number.isFinite(m.port)) {
-            this.mcpPort = m.port;
-            break;
-          }
-          await new Promise(r => setTimeout(r, 100));
-        }
-
-        // After sentinel + manifest port, verify TCP liveness to avoid ghost-ready.
-        if (!this.mcpPort) {
-          throw new Error('MCP readiness sentinel detected but live port unavailable from manifest.');
-        }
-        for (let i = 0; i < 10; i++) {
-          if (await this._isPortBound(this.mcpPort)) return;
-          await new Promise(r => setTimeout(r, 200));
-        }
-        throw new Error(`MCP sentinel detected but port ${this.mcpPort} is not accepting connections.`);
-      }
-      if (!this.mcpPort) {
-        const m = tryReadManifestRelaxed(modeManifestPath)
-               || tryReadManifestRelaxed(runtimeManifestPath);
-        if (m && Number.isFinite(m.port)) this.mcpPort = m.port;
-      }
-      // Fallback: TCP probe (handles cases where sentinel write fails).
-      if (this.mcpPort && await this._isPortBound(this.mcpPort)) return;
-      await new Promise(r => setTimeout(r, interval));
-    }
-    throw new Error(`MCP server did not become ready on port ${this.mcpPort} within ${timeoutMs}ms. Check .dev/logs/mcp-stderr.log`);
-  }
-
-  /**
-   * Sends the MCP initialize handshake.
-   *
-   * When portBusy=true the server already has an active session from a prior
-   * Operator instance. In that case we skip initialize entirely — the session
-   * ID is unknown and re-initializing would return "Server already initialized".
-   * Instead we do a lightweight tools/list probe to confirm the server is live.
-   *
-   * When portBusy=false we just spawned the server so we own the fresh session.
-   */
-  async _initializeMCPWithRetry(portBusy = false) {
-    if (portBusy) {
-      // Server already running — probe with tools/list instead of initialize.
-      try {
-        await this.sendMCPRequest('tools/list', {});
-        console.error(`[Operator] Reused existing MCP session on port ${this.mcpPort}.`);
-        return;
-      } catch (err) {
-        // If we had a restored session ID, the server may have restarted
-        // (new session assigned). Evict the stale session file and fall through
-        // to re-initialize with a clean slate.
-        if (this.mcpSessionId) {
-          console.error(`[Operator] Stored session ID rejected (${err.message}) — server likely restarted. Re-initializing.`);
-      const sessionFile = path.join(getRunDir(this.mode), 'mcp.session');
-      try { require('fs').unlinkSync(sessionFile); } catch (_) {}
-      this.mcpSessionId = null;
-      } else {
-          // No stored session — server may enforce session on all endpoints.
-          console.error(`[Operator] tools/list probe failed with no stored session (${err.message}). Attempting initialize.`);
-        }
-      }
-    }
-
-    const maxAttempts = 10;
-    let lastError = null;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const res = await this.sendMCPRequest('initialize', {
-          protocolVersion: '2024-11-05',
-          capabilities: {},
-          clientInfo: { name: 'mbo-operator', version: '1.0.0' }
         });
-        if (res !== null) return; // Normal success path.
-      } catch (err) {
-        if (err.message && err.message.includes('Server already initialized')) {
-          // Harmless race: server was already initialized (e.g. another client beat us).
-          // Session ID was captured from the response header — we can proceed.
-          console.error(`[Operator] MCP already initialized — session captured, proceeding.`);
-          return;
-        }
-        lastError = err;
-        await new Promise((resolve) => setTimeout(resolve, 300 * attempt)); // backoff
-      }
-    }
-
-    throw new Error(`MCP initialize failed on port ${this.mcpPort || 'unknown'}: ${lastError ? lastError.message : 'unknown error'}`);
-  }
-
-  async sendMCPNotification(method, params) {
-    try {
-      await this._sendMCPHttp({
-        jsonrpc: '2.0',
-        method,
-        params
       });
-    } catch {
-      // Notification is optional for current server behavior.
-    }
-  }
-
-  /**
-   * Task 1.1-10: Assert the graph server is serving the correct project root.
-   * Computes project_id from MBO_ROOT using the same UTF-8 sha256 contract as the server.
-   * Hard fails with an actionable error message on mismatch.
-   */
-  async _assertProjectId() {
-    const result = await this.callMCPTool('graph_server_info', {});
-    const info = JSON.parse(result.content[0].text);
-
-    const { createHash } = require('crypto');
-    const expectedRoot = getExpectedProjectRoot();
-    // UTF-8 encoding matches mcp-server.js — part of the trust contract, do not change.
-    const expectedId = createHash('sha256')
-      .update(Buffer.from(expectedRoot, 'utf8'))
-      .digest('hex')
-      .slice(0, 16);
-
-    if (info.project_id !== expectedId) {
-      throw new Error(
-        `[Operator] FATAL: Graph server project_id mismatch.\n` +
-        `  Expected: ${expectedId} (root: ${expectedRoot})\n` +
-        `  Got:      ${info.project_id} (root: ${info.project_root})\n` +
-        `  The server is serving a different project.\n` +
-        `  Kill and restart MCP: lsof -ti:${this.mcpPort} | xargs kill -9`
-      );
-    }
-
-    console.error(`[Operator] Graph server identity verified: project_id=${info.project_id}, index_revision=${info.index_revision}`);
-    return info;
-  }
-
-  /**
-   * Task 1.1-10: Wait for an in-progress graph scan to complete.
-   * Bounded to 6 attempts × 5s = 30s max. Not an open loop — each poll is a full
-   * MCP tool call, so interval spacing matters.
-   */
-  async _waitForScanComplete(maxAttempts = 6, intervalMs = 5000) {
-    for (let i = 0; i < maxAttempts; i++) {
-      const result = await this.callMCPTool('graph_server_info', {});
-      const info = JSON.parse(result.content[0].text);
-      if (!info.is_scanning) return info;
-      console.error(`[Operator] Graph scan in progress (${i + 1}/${maxAttempts}), waiting ${intervalMs}ms...`);
-      await new Promise(r => setTimeout(r, intervalMs));
-    }
-    throw new Error(`[Operator] Graph server still scanning after ${maxAttempts * intervalMs / 1000}s. Aborting.`);
+      req.setTimeout(5000, () => req.destroy(new Error('health timeout')));
+      req.on('error', reject);
+    });
   }
 
   sendMCPRequest(method, params) {
     const id = this.messageId++;
-    return this._sendMCPHttp({
+    return this._postMCP({
       jsonrpc: '2.0',
       id,
       method,
@@ -641,43 +127,17 @@ class Operator {
     });
   }
 
-  _sendMCPHttp(payload) {
+  _postMCP(payload) {
     return new Promise((resolve, reject) => {
-      if (!this.mcpPort) {
-        const m = tryReadManifestRelaxed(path.join(getRunDir(this.mode), 'mcp.json'))
-               || tryReadManifestRelaxed(path.join(getRunDir('runtime'), 'mcp.json'));
-        if (m && Number.isFinite(m.port)) this.mcpPort = m.port;
-      }
-      if (!this.mcpPort) return reject(new Error('MCP port not set'));
-
       const body = JSON.stringify(payload);
-      const headers = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json, text/event-stream',
-        'Content-Length': Buffer.byteLength(body),
-      };
-      if (this.mcpSessionId) {
-        headers['mcp-session-id'] = this.mcpSessionId;
-      }
-
-      const req = http.request({
-        host: '127.0.0.1',
-        port: this.mcpPort,
-        path: '/mcp',
+      const req = http.request(MCP_URL, {
         method: 'POST',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/event-stream',
+          'Content-Length': Buffer.byteLength(body),
+        },
       }, (res) => {
-        const sid = res.headers['mcp-session-id'];
-        if (sid) {
-          this.mcpSessionId = Array.isArray(sid) ? sid[0] : sid;
-          // Persist so a restarted Operator can rejoin an existing session.
-          try {
-            const runDir = getRunDir(this.mode);
-            require('fs').mkdirSync(runDir, { recursive: true });
-            require('fs').writeFileSync(path.join(runDir, 'mcp.session'), this.mcpSessionId, 'utf8');
-          } catch (_) {}
-        }
-
         const contentType = String(res.headers['content-type'] || '').toLowerCase();
         let responseBody = '';
         res.on('data', (chunk) => { responseBody += chunk.toString(); });
@@ -1591,15 +1051,6 @@ Return JSON:
   }
 
   async shutdown() {
-    if (this.mcpServer) {
-      this.mcpServer.kill();
-      this.mcpServer = null;
-    }
-    this.mcpSessionId = null;
-    // Clean up persisted session — a killed server's session ID is invalid.
-    try {
-      require('fs').unlinkSync(path.join(getRunDir(this.mode), 'mcp.session'));
-    } catch (_) {}
     // Section 17: Generate handoff on clean shutdown
     stateManager.checkpoint('mirror');
     stateManager.generateHandoff();

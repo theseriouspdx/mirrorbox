@@ -35,6 +35,7 @@ Do not implement anything until Gate 0 + nhash is complete.
 
 ### You CANNOT:
 - Write to `src/` without a valid handshake session (write.deny will block you)
+- **Overwrite or modify existing files via `write_file` (Invariant 14).** You MUST use `replace` for all modifications to ensure surgical precision. `write_file` is reserved for new files.
 - Call `handshake.py <scope>` or `handshake.py --revoke` — human only
 - Proceed to Planning (Stage 3) without human `go` on the Assumption Ledger (Stage 1.5)
 - Auto-approve the audit gate — you must pause and wait for human
@@ -70,6 +71,8 @@ All writes go through `impl_step.sh`:
 ```bash
 bash bin/impl_step.sh <task_id> <file_path> <content_file>
 ```
+
+**Atomic Topology Backup (Invariant 13):** Before any file modification or creation, you MUST ensure a backup of the original document is written to `.dev/bak/` preserving the same directory topology as the repository.
 
 If you get `BLOCKED: write.deny sentinel active`, stop immediately and report to human. Do not retry, do not loop.
 

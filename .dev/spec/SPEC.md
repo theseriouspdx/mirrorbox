@@ -1514,24 +1514,25 @@ On `exit`, `end session`, or Ctrl+C: all `running` processes receive `SIGTERM`. 
 
 Subprocesses spawned via `child_process.spawn` — never `exec` or `execSync`. All arguments passed as array elements, never interpolated into shell strings. Prompts written to child stdin via handle.
 
-### MCP Server Resilience (1.0-MCP)
+### MCP Server Resilience (1.0-MCP) — SUPERSEDED
 
-The MCP graph server (`src/graph/mcp-server.js`) must remain stable across all launch contexts — launchd, background shell jobs, and direct invocation. Five layers enforce this:
+> **SUPERSEDED by Task 1.1-H23 (2026-03-13).** The five-layer self-managed MCP
+> resilience contract below has been replaced by a launchd system daemon
+> architecture. The graph server runs at fixed port `7337`, managed entirely by
+> the OS. MBO no longer starts, monitors, or restarts the MCP process.
+> See `docs/mcp.md` and `.dev/preflight/mcp-daemon-migration.md` for the
+> current architecture. The implementation spec (Section 32) has also been
+> superseded — do not implement any of its requirements.
 
-**Layer 1 — Signal trap + fd leak fix (`scripts/mbo-start.sh`)**
-The EXIT trap must redirect its output to stderr (`>&2`) to prevent plain-text output from corrupting the MCP stdout pipe. File descriptor 3 must be explicitly closed (`exec 3>&-`) before `exec node` to prevent fd leakage into the node process. `exec node` must be retained (not replaced with bare `node`) to maintain PID consistency for the watchdog.
+The original five-layer contract (signal traps, EPIPE guards, sentinel files,
+plist pre-flight, transparent session recovery) is preserved below for historical
+reference only. None of it applies to active development.
 
-**Layer 2 — EPIPE guard (`src/graph/mcp-server.js`)**
-Explicit `process.stdout` and `process.stderr` error handlers at process start. `EPIPE` errors are silently ignored. All other stream errors trigger `process.exit(1)`. Prevents the `uncaughtException` handler from firing `shutdown()` on a broken pipe.
-
-**Layer 3 — Startup sentinel file (`src/graph/mcp-server.js`)**
-On successful `httpServer.listen`, write `.dev/run/mcp.ready` containing the ISO 8601 bind timestamp. Session start scripts must verify this file exists and is less than 30 seconds old before proceeding. If absent after 15 seconds, surface a hard failure to the operator. Eliminates "sleep and pray" port polling.
-
-**Layer 4 — launchd plist (macOS service)**
-The MCP server is registered as a `LaunchAgent` (`~/Library/LaunchAgents/com.mbo.mcp.plist`). launchd owns fd setup, respawn-on-crash, and PID lifecycle. `mbo-start.sh` operates as a pre-flight check only; launchd performs the actual process launch. `KeepAlive: true`. Stdout/stderr log to `.dev/logs/mcp.out` and `.dev/logs/mcp.err`.
-
-**Layer 5 — Transparent session recovery (`src/graph/mcp-server.js`)**
-If a POST arrives with an `mcp-session-id` header that is not in the sessions Map (stale ID after server restart), the server must not return 404. Instead: create a new session, log a `TRANSPARENT_RECOVERY` event to stderr with the old and new session IDs, and return the new session ID in the `mcp-session-id` response header. The client continues without interruption.
+~~**Layer 1 — Signal trap + fd leak fix (`scripts/mbo-start.sh`)**~~
+~~**Layer 2 — EPIPE guard**~~
+~~**Layer 3 — Startup sentinel file**~~
+~~**Layer 4 — launchd plist pre-flight**~~
+~~**Layer 5 — Transparent session recovery**~~
 
 ---
 
@@ -1627,6 +1628,8 @@ interface StatusBarState {
 
 **Invariant 1:** No unapproved file modifications. `writeFile` validates every target path against the approved list before writing.
 
+**Invariant 14:** No `write_file` for overwrites. Overwriting or modifying an existing file via `write_file` is prohibited. `replace` MUST be used for all modifications to existing files. `write_file` is reserved for creating new files only.
+
 **Invariant 2:** No write access outside project root. Path traversal checked on every write operation.
 
 **Invariant 3:** No execution without human approval. `go` confirmation required at Stage 5. No timeout, model output, or error condition overrides this.
@@ -1642,6 +1645,8 @@ interface StatusBarState {
 **Invariant 8:** Secrets never enter sandbox execution. Environment sanitized before container spawn.
 
 **Invariant 9:** Local models stay local. No local model output is transmitted to external services.
+
+**Invariant 13:** Pre-Mutation Checkpoints & Backups. Immutable checkpoint required before any mutation in either world. Before any file modification or creation, a backup of the original document MUST be written to `.dev/bak/` preserving the same directory topology as the repository.
 
 **Invariant 10 (Entropy Tax):** Every cell in `/src` must pass the `bin/validator.py` check. 
 * Max LOC: 250 (non-blank, non-comment)
@@ -2228,112 +2233,31 @@ On validator failure:
 7. Validator failure performs Stage 3A re-entry with log injection.
 8. All behavior covered by automated tests for happy path + failure path.
 
-## Section 32 — MCP Runtime Contract v3 (99/1 Reliability)
+## Section 32 — MCP Runtime Contract (SUPERSEDED)
 
-### 32.1 Goal
-Eliminate recurrent MCP instability by enforcing a deterministic, project-scoped runtime contract for startup, validation, and recovery.
-
-### 32.2 Scope
-1. Runtime authority file: `.mbo/run/mcp.json`.
-2. Concurrency control: `.mbo/run/mcp.lock` (CAS lock semantics).
-3. Deterministic validation before client trust.
-4. Explicit incident state and restart circuit breaker.
-
-### 32.3 Manifest Schema (Authoritative)
-`mcp.json` MUST include:
-- `manifest_version` (integer)
-- `checksum` (sha256 of canonical JSON payload excluding checksum field)
-- `project_root` (absolute, canonical path)
-- `project_id` (stable identity hash from canonical root + repo identity when available)
-- `pid` (integer)
-- `process_start_ms` (integer)
-- `port` (integer)
-- `mode` (`dev` or `runtime`)
-- `epoch` (integer; monotonic increment on each successful server start)
-- `instance_id` (uuidv4 per live MCP process)
-- `started_at` (ISO 8601 UTC)
-- `last_verified_at` (ISO 8601 UTC)
-- `status` (`starting` | `ready` | `incident` | `stopped`)
-- `restart_count` (integer)
-- `incident_reason` (nullable string)
-
-### 32.4 Atomic Write Contract
-All writes to `.mbo/run/mcp.json` MUST be atomic:
-1. Write complete JSON to temp file in same directory.
-2. `fsync` temp file.
-3. Atomic rename temp -> target.
-4. `fsync` parent directory.
-
-On read failure (parse/schema/checksum mismatch), consumers MUST fail closed and enter recovery path.
-
-### 32.5 Lock Contract (Split-Brain Prevention)
-`mcp.lock` MUST be acquired before any start/reclaim operation.
-
-Lock owner payload MUST include:
-- `pid`
-- `process_start_ms`
-- `nonce`
-- `acquired_at`
-
-Rules:
-1. Lock acquisition uses compare-and-swap semantics.
-2. If lock exists, validate owner liveness and age.
-3. Stale lock may be reclaimed only if owner is non-live or lock age exceeds timeout.
-4. Startup/reclaim without lock is forbidden.
-
-### 32.6 Client Trust Algorithm (Deterministic)
-Before trusting manifest, client MUST validate all of:
-1. Manifest schema + checksum.
-2. `project_id` matches current project.
-3. PID liveness and process fingerprint:
-   - pid exists
-   - process start time matches `process_start_ms`
-   - command/root fingerprint matches MCP server for this project.
-4. MCP protocol health:
-   - `initialize` succeeds.
-   - `graph_server_info` succeeds and returns matching `project_id`.
-
-If any check fails, client MUST enter scoped recovery.
-
-### 32.7 Recovery Contract
-Recovery tiers:
-1. Reconnect using current manifest.
-2. Full revalidation (32.6).
-3. Scoped restart under lock.
-4. Incident fail-fast.
-
-Constraints:
-- No broad process kill patterns.
-- No destructive cleanup (`rm -f` and delete/recreate patterns prohibited).
-- Recovery must be project-scoped and auditable.
-
-### 32.8 Epoch and Instance Semantics
-1. `epoch` increments exactly once per successful start transition to `ready`.
-2. `instance_id` uniquely identifies live process lifetime.
-3. Mid-session `instance_id` change is a hard reconnect boundary for clients.
-4. Highest valid `epoch` under lock is canonical.
-
-### 32.9 Circuit Breaker and Incident State
-If restart attempts exceed configured threshold within recovery window:
-1. Set manifest `status = incident`.
-2. Populate `incident_reason`.
-3. Halt automatic restart loop.
-4. Surface explicit operator error with incident metadata.
-
-Silent retry loops are forbidden.
-
-### 32.10 Acceptance Tests (Mandatory)
-1. Concurrent cold starts (>=50) in one project produce exactly one active MCP instance.
-2. Corrupt/partial manifest is rejected and recovered through fresh atomic write.
-3. PID reuse simulation is rejected by process fingerprint checks.
-4. Crash loop triggers circuit breaker and incident state.
-5. Cross-project concurrent starts remain isolated by project identity and runtime files.
-6. Mid-session server replacement triggers `instance_id` mismatch handling and clean reconnect.
-
-### 32.11 Governance Alignment
-This section operationalizes:
-- Non-destructive recovery requirements.
-- Two-world and project identity isolation.
-- Deterministic, auditable runtime state transitions.
-
-All implementation under this section is Tier 2+ and requires human reconciliation protocol before mutation in guarded scopes.
+> **SUPERSEDED by architectural decision, 2026-03-13.**
+>
+> The MCP Runtime Contract v3 (99/1 Reliability) — including manifest schema,
+> lock semantics, process fingerprinting, circuit breaker, and all acceptance
+> tests — was written to compensate for MBO managing its own MCP process
+> lifecycle. That approach was the root cause of 5+ days of instability.
+>
+> **The new contract is simpler:** launchd owns the server. Port is fixed at
+> `7337`. Clients connect or fail. MBO does not start, stop, watchdog, lock,
+> or fingerprint the server process. The OS does that.
+>
+> **What this eliminates from the spec:**
+> - `.mbo/run/mcp.json` manifest and all its schema requirements
+> - `.mbo/run/mcp.lock` and CAS lock semantics
+> - `epoch`, `instance_id`, `process_start_ms`, `restart_count` lifecycle fields
+> - Client trust algorithm (32.6) — replaced by a single `/health` check
+> - Recovery tiers (32.7) — replaced by "fail closed, tell operator"
+> - Circuit breaker (32.9) — handled by launchd `ThrottleInterval`
+> - All 6 acceptance tests in 32.10 — replaced by 10 simpler ones in migration spec
+>
+> **Current implementation spec:** `.dev/preflight/mcp-daemon-migration.md`
+> **Current architecture doc:** `docs/mcp.md`
+> **Task:** `1.1-H23` in `projecttracking.md`
+>
+> Do not implement any requirements from the original Section 32.
+> This section is preserved as a record of what was tried and why it was abandoned.

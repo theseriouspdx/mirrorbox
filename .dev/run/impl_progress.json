@@ -1,54 +1,64 @@
 {
-  "task_id": "1.1-H08",
+  "task_id": "1.1-H12",
   "steps": [
     {
-      "file": "src/state/event-store.js",
-      "ts": "2026-03-11T21:23:06Z",
+      "file": "CHANGELOG.md",
+      "ts": "2026-03-13T05:10:40Z",
       "status": "written"
     },
     {
-      "file": "src/index.js",
-      "ts": "2026-03-11T21:32:02Z",
+      "file": "mcp_query.js",
+      "ts": "2026-03-13T05:16:28Z",
+      "status": "written"
+    },
+    {
+      "file": "mcp_query.js",
+      "ts": "2026-03-13T05:40:15Z",
       "status": "written"
     },
     {
       "file": "src/graph/mcp-server.js",
-      "ts": "2026-03-11T21:32:29Z",
+      "ts": "2026-03-13T05:40:15Z",
       "status": "written"
     },
     {
-      "file": "src/index.js",
-      "ts": "2026-03-11T21:55:16Z",
+      "file": "src/graph/mcp-server.js",
+      "ts": "2026-03-13T05:45:11Z",
       "status": "written"
     },
     {
-      "file": "src/index.js",
-      "ts": "2026-03-11T21:55:45Z",
+      "file": "mcp_query.js",
+      "ts": "2026-03-13T05:48:42Z",
+      "status": "written"
+    },
+    {
+      "file": "AGENTS.md",
+      "ts": "2026-03-13T07:05:18Z",
+      "status": "written"
+    },
+    {
+      "file": ".dev/governance/BUGS.md",
+      "ts": "2026-03-13T07:05:18Z",
       "status": "written"
     },
     {
       "file": ".dev/governance/projecttracking.md",
-      "ts": "2026-03-11T21:58:49Z",
+      "ts": "2026-03-13T07:05:18Z",
       "status": "written"
     },
     {
-      "file": ".dev/governance/projecttracking.md",
-      "ts": "2026-03-11T22:02:42Z",
+      "file": ".dev/governance/AGENTS.md",
+      "ts": "2026-03-13T07:51:04Z",
       "status": "written"
     },
     {
-      "file": ".dev/governance/projecttracking.md",
-      "ts": "2026-03-12T13:31:28Z",
+      "file": "AGENTS.md",
+      "ts": "2026-03-13T07:51:30Z",
       "status": "written"
     },
     {
-      "file": ".dev/sessions/NEXT_SESSION.md",
-      "ts": "2026-03-12T13:31:28Z",
-      "status": "written"
-    },
-    {
-      "file": ".dev/spec/SPEC.md",
-      "ts": "2026-03-12T13:31:50Z",
+      "file": "src/templates/AGENTS.md",
+      "ts": "2026-03-13T07:51:42Z",
       "status": "written"
     }
   ]

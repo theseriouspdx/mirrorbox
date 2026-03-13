@@ -8,7 +8,7 @@ const net = require('net');
 const path = require('path');
 
 const DEFAULT_TIMEOUT_MS = 12000;
-const INIT_TIMEOUT_STEPS = [6000, 12000, 25000];
+const INIT_TIMEOUT_STEPS = [6000, 12000, 25000, 45000];
 
 function canonicalPath(p) {
   try {
@@ -42,110 +42,21 @@ function hashProjectId(projectRoot) {
     .slice(0, 16);
 }
 
-function parseManifest(manifestPath) {
-  if (!fs.existsSync(manifestPath)) {
-    return { ok: false, error: `manifest missing: ${manifestPath}`, manifestPath };
-  }
-
-  let manifest;
-  try {
-    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  } catch (err) {
-    return { ok: false, error: `manifest invalid JSON (${manifestPath}): ${err.message}`, manifestPath };
-  }
-
-  if (manifest.manifest_version !== 3) {
-    return {
-      ok: false,
-      error: `manifest_version mismatch (${manifestPath}): expected 3, got ${manifest.manifest_version}`,
-      manifestPath,
-      manifest,
-    };
-  }
-  if (!Number.isInteger(manifest.port) || manifest.port <= 0) {
-    return {
-      ok: false,
-      error: `manifest invalid port (${manifestPath}): ${manifest.port}`,
-      manifestPath,
-      manifest,
-    };
-  }
-  if (manifest.status !== 'ready') {
-    return {
-      ok: false,
-      error: `manifest not ready (${manifestPath}): status=${manifest.status}`,
-      manifestPath,
-      manifest,
-    };
-  }
-
-  return { ok: true, manifestPath, manifest };
-}
-
 function resolveCandidates() {
   const cwdRoot = canonicalPath(process.cwd());
-  const expectedProjectId = hashProjectId(cwdRoot);
-  const manifestPaths = [
-    path.join(cwdRoot, '.dev', 'run', 'mcp.json'),
-    path.join(cwdRoot, '.mbo', 'run', 'mcp.json'),
-  ];
-
   const candidates = [];
   const diagnostics = [];
 
-  const envPort = Number.parseInt(process.env.MBO_PORT || '', 10);
-  if (Number.isInteger(envPort) && envPort > 0) {
-    candidates.push({
-      endpoint: { host: '127.0.0.1', port: envPort, path: '/mcp' },
-      source: 'MBO_PORT',
-      score: 1000,
-      matchedRoot: false,
-      matchedProjectId: false,
-      isEnvOverride: true,
-    });
-  }
+  candidates.push({
+    endpoint: { host: '127.0.0.1', port: 7337, path: '/mcp' },
+    source: 'fixed-port',
+    score: 1000,
+    matchedRoot: true,
+    matchedProjectId: true,
+    isEnvOverride: false,
+  });
 
-  for (const manifestPath of manifestPaths) {
-    const parsed = parseManifest(manifestPath);
-    if (!parsed.ok) {
-      diagnostics.push(parsed.error);
-      continue;
-    }
-
-    const { manifest } = parsed;
-    const manifestRoot = canonicalPath(manifest.project_root || cwdRoot);
-    const matchedRoot = sameFilesystemPath(manifestRoot, cwdRoot);
-    const matchedProjectId = manifest.project_id === expectedProjectId;
-    let score = 0;
-    if (matchedRoot) score += 200;
-    if (matchedProjectId) score += 80;
-    if (manifestPath.includes('/.dev/run/')) score += 20;
-
-    candidates.push({
-      endpoint: { host: '127.0.0.1', port: manifest.port, path: '/mcp' },
-      source: manifestPath,
-      score,
-      matchedRoot,
-      matchedProjectId,
-      isEnvOverride: false,
-    });
-  }
-
-  const dedup = new Map();
-  for (const c of candidates) {
-    const key = `${c.endpoint.host}:${c.endpoint.port}`;
-    const existing = dedup.get(key);
-    if (!existing || c.score > existing.score) dedup.set(key, c);
-  }
-
-  let ordered = Array.from(dedup.values()).sort((a, b) => b.score - a.score);
-  const hasProjectIdMatch = ordered.some((c) => c.matchedProjectId);
-  if (hasProjectIdMatch) {
-    // Keep env overrides and canonical-root matches in the candidate set.
-    // This prevents false-negative project_id drift from excluding the live dynamic endpoint.
-    ordered = ordered.filter((c) => c.matchedProjectId || c.matchedRoot || c.isEnvOverride);
-  }
-  return { candidates: ordered, diagnostics, cwdRoot, expectedProjectId };
+  return { candidates, diagnostics, cwdRoot, expectedProjectId: hashProjectId(cwdRoot) };
 }
 
 async function callMCP(endpoint, method, params = {}, sessionId = null, timeoutMs = DEFAULT_TIMEOUT_MS) {
@@ -247,6 +158,8 @@ function isRetryableError(err) {
   const msg = String(err && err.message ? err.message : err || '');
   return (
     msg.includes('timeout') ||
+    msg.includes('INDEXING_IN_PROGRESS') ||
+    msg.includes('MCP HTTP 503') ||
     msg.includes('ECONNRESET') ||
     msg.includes('socket hang up') ||
     msg.includes('EPIPE')
@@ -354,8 +267,9 @@ async function initializeWithFallback(candidates, diagnose = false) {
     try {
       await postProbe(candidate.endpoint);
     } catch (err) {
-      errors.push(`${endpointTag} POST probe failed: ${err.message}`);
-      continue;
+      // Advisory-only: a busy server can timeout probe during startup/refresh.
+      // Keep going and let initialize timeouts be the authoritative health check.
+      errors.push(`${endpointTag} POST probe warning: ${err.message}`);
     }
 
     let initErr = null;
@@ -399,9 +313,7 @@ const { diagnose, op, arg } = parseInvocation(process.argv.slice(2));
       }
       console.error(`[MCP QUERY] cwd=${cwdRoot} expected_project_id=${expectedProjectId}`);
     }
-    if (candidates.length === 0) {
-      throw new Error('No valid MCP endpoint candidates found in manifest files or MBO_PORT.');
-    }
+    if (candidates.length === 0) throw new Error('No MCP endpoint candidates available.');
 
     const session = await initializeWithFallback(candidates, diagnose);
     const sid = session.sessionId;

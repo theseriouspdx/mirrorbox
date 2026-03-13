@@ -1,95 +1,150 @@
-# MBO MCP Server
+# MBO Graph Server — MCP Reference
 
-## Overview
+## Architecture (as of 2026-03-13)
 
-MBO exposes an MCP HTTP endpoint for graph operations.
+The MBO graph server is a **launchd-owned system daemon**. It runs at login,
+restarts automatically on crash, and is always available at a fixed address.
+MBO the CLI tool is a client. It does not start, stop, or manage the server.
 
-- Runtime mode: project-scoped endpoint written to `/.mbo/run/mcp.json`
-- Dev mode: internal controller endpoint under `.dev/run/`
+**Fixed endpoint:** `http://127.0.0.1:7337/mcp`
+**Health check:** `GET http://127.0.0.1:7337/health`
 
-For runtime usage, treat `/.mbo/run/mcp.json` as the source of truth.
+No manifest files. No port discovery. No sentinel polling. No session negotiation.
 
-## Runtime Start Flow
+---
+
+## Setup (macOS)
 
 ```bash
-cd /path/to/project
-mbo
+mbo setup
 ```
 
-On successful startup, MBO writes:
+This installs the launchd plist and starts the server. Run once after install.
+The server will start automatically at every login from that point forward.
 
-- `/.mbo/run/mcp.ready`
-- `/.mbo/run/mcp.session` (when initialized)
-- `/.mbo/run/mcp.json` (endpoint manifest)
+To verify it's running:
+```bash
+curl http://127.0.0.1:7337/health
+launchctl list | grep mbo
+```
 
-## Endpoint Manifest
+To remove:
+```bash
+mbo teardown
+```
 
-`/.mbo/run/mcp.json`
+---
 
+## Client Configuration
+
+`.mcp.json` (Claude CLI):
 ```json
 {
-  "url": "http://127.0.0.1:<port>/mcp",
-  "port": 12345,
-  "pid": 99999,
-  "mode": "runtime",
-  "project_root": "/abs/project/root",
-  "project_id": "<sha16>",
-  "started_at": "2026-03-12T12:00:00.000Z"
+  "mcpServers": {
+    "mbo-graph": {
+      "url": "http://127.0.0.1:7337/mcp"
+    }
+  }
 }
 ```
 
-## Query Helpers
+`.gemini/settings.json` (Gemini CLI):
+```json
+{
+  "mcpServers": {
+    "mbo-graph": {
+      "url": "http://127.0.0.1:7337/mcp"
+    }
+  }
+}
+```
 
-Local helper scripts now use manifest discovery:
+Both files are static config. They never need updating after setup.
 
-- `mcp_query.js`
-- `mcp_http_query.js`
+---
 
-Run from the target project root so they can resolve `./.mbo/run/mcp.json`.
-
-Examples:
+## Querying
 
 ```bash
-node ./mcp_query.js tools_list
 node ./mcp_query.js graph_server_info
 node ./mcp_query.js graph_search "open tasks"
+node ./mcp_query.js tools_list
 ```
+
+---
+
+## Docker / CI Environments
+
+launchd is not available in Docker or CI. Use the thin wrapper:
+
+```bash
+./scripts/mbo-ci-start.sh
+# then run your agents
+```
+
+This starts the server, waits for `/health`, and exits. It is not a supervisor.
+If the server crashes during your job, agents will get connection refused. That
+is the correct behavior — restart the wrapper.
+
+For CI pipelines (GitHub Actions example):
+```yaml
+- name: Start MBO graph server
+  run: ./scripts/mbo-ci-start.sh &
+- name: Run agents
+  run: your-agent-command
+```
+
+---
+
+## Linux / Windows
+
+Current `mbo setup` / `mbo teardown` implementation is launchd-focused (macOS).
+For Linux/Windows, run MCP in-process for CI/dev via:
+
+```bash
+./scripts/mbo-ci-start.sh
+```
+
+Systemd/Windows service installers are not part of this task's implementation.
+
+---
 
 ## Troubleshooting
 
-1. `ECONNREFUSED` from helper script
-- Check `/.mbo/run/mcp.json` exists in the current project.
-- Ensure `mbo` is running from that project.
+**`Connection refused` on port 7337**
+Server is not running. On macOS:
+```bash
+launchctl load -w ~/Library/LaunchAgents/com.mbo.mcp.plist
+```
+Or run `mbo setup` again.
 
-2. `project_root mismatch` from `node ./mcp_query.js ...`
-- This is an intentional safety guard to prevent querying the wrong MCP context.
-- If you see only case drift (for example `/Users/johnserious/mbo` vs `/Users/johnserious/MBO`), restart MCP from the canonical project path and regenerate the manifest.
-- Validate with:
+**Server crashes in a loop**
+Check logs: `tail -f .dev/logs/mcp-stderr.log`
+launchd will back off after repeated crashes (ThrottleInterval: 10s).
 
+**Agent connects to wrong project**
+The server enforces project_id isolation. If your agent is hitting the wrong
+project, check that it is running from the correct project root. The server
+will reject RPC requests from unmatched project contexts.
+
+**Checking server identity**
 ```bash
 node ./mcp_query.js graph_server_info
 ```
+Returns: `project_root`, `project_id`, `uptime`, `node_count`, `is_scanning`.
 
-- `cwd` and `manifest.project_root` must match exactly after canonicalization.
+---
 
-3. `project_id mismatch` in Operator
-- Connected MCP belongs to a different project root.
-- Restart from the intended project directory.
+## What no longer exists
 
-4. Session-close appears slow
-- Session-close and rebuild are timeout-bounded; rerun `mbo` from project root.
+The following were removed in Milestone 1.1-H23:
 
-5. Handshake fails with `EXTERNAL_MUTATION_DETECTED` / hydration mode
-- This indicates baseline drift in `.journal/state.json` relative to current `src`.
-- Recovery sequence:
+- `scripts/mbo-start.sh` — replaced by launchd
+- `scripts/mbo-watchdog.sh` — replaced by launchd KeepAlive
+- `src/utils/resolve-manifest.js` — no manifest to resolve
+- `.mbo/run/mcp.json` manifest files — no dynamic discovery
+- `.mbo/run/mcp.ready` sentinel files — no sentinel polling
+- Dynamic port selection — port is fixed at 7337
+- Session ID persistence/restore — stateless per-request
 
-```bash
-python3 bin/handshake.py --reset
-python3 bin/handshake.py --pulse
-mbo auth src
-```
-
-## Dev Mode Notes
-
-Dev mode remains internal to controller workflows and may use `.dev/run/*` metadata.
-Runtime multi-project behavior is keyed to `/.mbo/run/mcp.json`.
+*Last updated: 2026-03-13*

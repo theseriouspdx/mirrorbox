@@ -9,6 +9,19 @@
 
 (None. Milestone 0.5 SUCCESS. Pre-0.6 Audit PASS.)
 
+### BUG-068: Temporary MCP suspension to prevent non-productive troubleshooting loops | Milestone: 1.1 | RESOLVED
+- **Location:** `AGENTS.md`, runtime operational policy
+- **Severity:** P0 (operational blocker)
+- **Status:** RESOLVED — 2026-03-13 — architectural root cause identified and superseded by Task 1.1-H23
+- **Description:** MCP runtime instability (initialize hangs, restart races, stale manifest/port behavior) caused repeated troubleshooting churn and blocked productive agent work.
+- **Resolution:** Not a code fix — an architectural decision. MBO stops managing MCP process lifecycle entirely. launchd owns the server. The entire class of failures (port negotiation, manifest drift, session ID races, watchdog stampedes) is eliminated by design. See Task 1.1-H23.
+
+### BUG-069: MCP architecture requires OS-level process management (launchd daemon migration) | Milestone: 1.1 | COMPLETED
+- **Location:** `src/graph/mcp-server.js`, `src/auth/operator.js`, `scripts/`, `docs/mcp.md`
+- **Severity:** P0 (blocks all reliable multi-agent MCP usage)
+- **Status:** COMPLETED — 2026-03-13 — Migration to launchd daemon on port 7337 finalized.
+- **Root cause:** MBO's self-managed MCP lifecycle was brittle. Migration eliminates all self-management failure modes.
+
 ### BUG-053: Runtime MCP initialize loop fails on Streamable HTTP (`Server already initialized`) | Milestone: 1.1 | COMPLETED
 - **Location:** `src/auth/operator.js` (`startMCP`, `_initializeMCPWithRetry`, `_sendMCPHttp`)
 - **Severity:** P0
@@ -61,17 +74,19 @@
   - `node mcp_query.js --diagnose "graph_search('Canonicalize AGENTS.md')"`
     - shows stable candidate order + explicit endpoint-specific failure reasons.
 
-### BUG-066: Streamable HTTP initialize can hang when request is routed to a reused transport instance | Milestone: 1.1 | FIXED (pending live restart validation)
+### BUG-066: Streamable HTTP initialize can hang when request is routed to a reused transport instance | Milestone: 1.1 | COMPLETED
 - **Location:** `src/graph/mcp-server.js`
 - **Severity:** P0
-- **Status:** FIXED IN CODE — 2026-03-13 (runtime restart pending for live proof)
+- **Status:** COMPLETED — 2026-03-13
 - **Root cause:** The `/mcp` POST router could route a new `initialize` request onto an existing session transport under mixed client behavior. On Streamable HTTP, initialize is transport-session scoped; re-init on a reused initialized transport can stall/no-response from the client perspective.
 - **Fix implemented:**
   1. Added `isInitializeRequest(parsedBody)` helper.
   2. For every initialize request, server now always creates a fresh transport and handles initialize there.
   3. Non-initialize requests continue using session-id routing and stale-session transparent recovery.
-- **Validation currently completed:** `node --check src/graph/mcp-server.js`.
-- **Live validation pending:** restart dev MCP process so it loads patched server binary, then re-run initialize probes.
+- **Validation:**
+  - `node --check src/graph/mcp-server.js`
+  - `curl http://127.0.0.1:7337/health` returned `{"status":"ok",...}`
+  - Direct initialize probe returned HTTP 200 with `mcp-session-id` and JSON-RPC initialize result
 
 ### BUG-067: `mbo auth` should remain usable in controller repo while runtime/init stay guarded | Milestone: 1.1 | FIXED
 - **Location:** `bin/mbo.js`
@@ -220,15 +235,15 @@
 - **Severity:** P1
 - **Status:** RESOLVED as part of BUG-057 fix (1.1-H15). No separate patch needed.
 
-### BUG-059: Port mismatch — `MBO_PORT` env var may diverge between Operator and MCP manifest | Milestone: 1.1 | OPEN
+### BUG-059: Port mismatch — `MBO_PORT` env var may diverge between Operator and MCP manifest | Milestone: 1.1 | SUPERSEDED
 - **Location:** `src/auth/operator.js`, `scripts/mbo-start.sh`
 - **Severity:** P2
-- **Status:** OPEN — needs investigation of how `MBO_PORT` is set in Operator launch environment.
+- **Status:** SUPERSEDED — 2026-03-13 — eliminated by Task 1.1-H23. No manifest, no dynamic port. Port is fixed at 7337. `MBO_PORT` env var removed.
 
-### BUG-060: SSE `/stream` endpoint lacks keepalive heartbeat — proxy timeouts silently destroy stream | Milestone: 1.1 | OPEN
+### BUG-060: SSE `/stream` endpoint lacks keepalive heartbeat — proxy timeouts silently destroy stream | Milestone: 1.1 | SUPERSEDED
 - **Location:** `src/graph/mcp-server.js`
 - **Severity:** P2
-- **Status:** OPEN — deferred. No heartbeat means aggressive proxy/load-balancer timeouts can silently destroy the SSE connection.
+- **Status:** SUPERSEDED — 2026-03-13 — eliminated by Task 1.1-H23. Server binds loopback only (127.0.0.1), no proxy layer. SSE keepalive not required in this topology.
 
 ### BUG-061: Merkle scope drift + MCP query path drift can cause false mismatch and wrong-server access | Milestone: 1.1 | OPEN
 - **Location:** `bin/handshake.py`, `src/relay/pile.js`, `mcp_query.js`, `src/utils/resolve-manifest.js`
@@ -298,4 +313,4 @@
 
 ---
 
-*Last updated: 2026-03-13*
+*Last updated: 2026-03-13 — BUG-068 resolved, BUG-069 opened, BUG-059/060 superseded by launchd daemon migration (Task 1.1-H23)*

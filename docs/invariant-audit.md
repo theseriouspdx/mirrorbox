@@ -15,6 +15,8 @@ Milestone 1.0 (Production Alpha) requires these tests to pass before the orchest
 | **Inv 8** | Redaction | Ensures secrets (API keys, tokens) never enter the persistent state. |
 | **Inv 10** | Entropy Tax | Enforces Max LOC (500), Complexity (15), and Nesting (3) limits. |
 | **Inv 11** | Bootstrapping | Ensures `bin/validator.py` is present and active. |
+| **Inv 13** | Atomic Backup | Topology-preserving backup to `.dev/bak/` before mutation. |
+| **Inv 14** | Write-File Lock | Prohibits `write_file` for overwriting existing files. |
 
 ## Running the Audit
 

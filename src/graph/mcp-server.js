@@ -17,200 +17,6 @@ const {
 const path = require('path');
 const fs = require('fs');
 
-const MCP_MANIFEST_VERSION = 3;
-const MCP_LOCK_STALE_MS = 15000;
-
-function getRunDir(mode, root) {
-  return mode === 'dev' ? path.join(root, '.dev/run') : path.join(root, '.mbo/run');
-}
-
-function getManifestPath(mode, root) {
-  return path.join(getRunDir(mode, root), 'mcp.json');
-}
-
-function getLockPath(mode, root) {
-  return path.join(getRunDir(mode, root), 'mcp.lock');
-}
-
-function getInstanceFilePath(mode, root) {
-  return path.join(getRunDir(mode, root), 'mcp.instance');
-}
-
-function canonicalizeJSON(value) {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map((v) => canonicalizeJSON(v)).join(',')}]`;
-  const keys = Object.keys(value).sort();
-  const entries = keys.map((k) => `${JSON.stringify(k)}:${canonicalizeJSON(value[k])}`);
-  return `{${entries.join(',')}}`;
-}
-
-function buildManifestChecksum(manifestWithoutChecksum) {
-  return createHash('sha256')
-    .update(Buffer.from(canonicalizeJSON(manifestWithoutChecksum), 'utf8'))
-    .digest('hex');
-}
-
-function safeReadJSON(filePath) {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-function writeFileAtomic(filePath, content) {
-  const dir = path.dirname(filePath);
-  const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
-  fs.mkdirSync(dir, { recursive: true });
-  const fd = fs.openSync(tmpPath, 'w');
-  try {
-    fs.writeFileSync(fd, content, 'utf8');
-    fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
-  }
-  fs.renameSync(tmpPath, filePath);
-  const dirFd = fs.openSync(dir, 'r');
-  try {
-    fs.fsyncSync(dirFd);
-  } finally {
-    fs.closeSync(dirFd);
-  }
-}
-
-function readProcessStartMs(pid) {
-  try {
-    const out = require('child_process').execSync(`ps -o lstart= -p ${pid}`, { encoding: 'utf8' }).trim();
-    if (!out) return null;
-    const ms = Date.parse(out);
-    return Number.isFinite(ms) ? Math.floor(ms / 1000) * 1000 : null;
-  } catch {
-    return null;
-  }
-}
-
-function isLiveProcess(pid, startMs) {
-  if (!Number.isInteger(pid) || pid <= 1) return false;
-  try {
-    process.kill(pid, 0);
-  } catch {
-    return false;
-  }
-  if (!Number.isInteger(startMs) || startMs <= 0) return true;
-  const actual = readProcessStartMs(pid);
-  return Number.isInteger(actual) && actual === startMs;
-}
-
-function releaseLock(lockPath, ownerNonce) {
-  const lock = safeReadJSON(lockPath);
-  if (!lock || lock.nonce !== ownerNonce) return;
-  try {
-    fs.unlinkSync(lockPath);
-  } catch {}
-}
-
-function acquireStartupLock(mode, root) {
-  const lockPath = getLockPath(mode, root);
-  const now = Date.now();
-  const processStartMs = readProcessStartMs(process.pid) || now;
-  const lock = {
-    pid: process.pid,
-    process_start_ms: processStartMs,
-    nonce: randomUUID(),
-    acquired_at: new Date(now).toISOString(),
-  };
-
-  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-
-  for (let attempt = 0; attempt < 40; attempt++) {
-    try {
-      const fd = fs.openSync(lockPath, 'wx', 0o600);
-      fs.writeFileSync(fd, JSON.stringify(lock, null, 2), 'utf8');
-      fs.fsyncSync(fd);
-      fs.closeSync(fd);
-      return lock;
-    } catch (err) {
-      if (err.code !== 'EEXIST') throw err;
-
-      const existing = safeReadJSON(lockPath);
-      const acquiredMs = existing && existing.acquired_at ? Date.parse(existing.acquired_at) : 0;
-      const staleByAge = !Number.isFinite(acquiredMs) || (Date.now() - acquiredMs > MCP_LOCK_STALE_MS);
-      const staleByLiveness = !existing || !isLiveProcess(existing.pid, existing.process_start_ms);
-
-      if (staleByAge || staleByLiveness) {
-        try {
-          fs.unlinkSync(lockPath);
-        } catch {}
-        continue;
-      }
-
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
-    }
-  }
-
-  throw new Error(`Failed to acquire MCP startup lock at ${lockPath}`);
-}
-
-function validateManifestSchema(manifest) {
-  if (!manifest || typeof manifest !== 'object') return false;
-  const required = [
-    'manifest_version', 'checksum', 'project_root', 'project_id', 'pid', 'process_start_ms',
-    'port', 'mode', 'epoch', 'instance_id', 'started_at', 'last_verified_at', 'status',
-    'restart_count', 'incident_reason'
-  ];
-  for (const key of required) {
-    if (!(key in manifest)) return false;
-  }
-  if (manifest.manifest_version !== MCP_MANIFEST_VERSION) return false;
-  if (!Number.isInteger(manifest.pid) || manifest.pid <= 0) return false;
-  if (!Number.isInteger(manifest.process_start_ms) || manifest.process_start_ms <= 0) return false;
-  if (!Number.isInteger(manifest.port) || manifest.port <= 0) return false;
-  if (!Number.isInteger(manifest.epoch) || manifest.epoch < 0) return false;
-  if (!Number.isInteger(manifest.restart_count) || manifest.restart_count < 0) return false;
-  if (!['starting', 'ready', 'incident', 'stopped'].includes(manifest.status)) return false;
-  if (typeof manifest.instance_id !== 'string' || manifest.instance_id.length < 8) return false;
-  if (typeof manifest.project_root !== 'string' || !path.isAbsolute(manifest.project_root)) return false;
-  if (typeof manifest.started_at !== 'string' || !Number.isFinite(Date.parse(manifest.started_at))) return false;
-  if (typeof manifest.last_verified_at !== 'string' || !Number.isFinite(Date.parse(manifest.last_verified_at))) return false;
-  return true;
-}
-
-function validateManifestChecksum(manifest) {
-  if (!validateManifestSchema(manifest)) return false;
-  const { checksum, ...withoutChecksum } = manifest;
-  return checksum === buildManifestChecksum(withoutChecksum);
-}
-
-function buildManifest({ mode, root, port, projectId, pid, processStartMs, epoch, instanceId, status, restartCount, incidentReason, startedAt }) {
-  const now = new Date().toISOString();
-  const manifestWithoutChecksum = {
-    manifest_version: MCP_MANIFEST_VERSION,
-    url: `http://127.0.0.1:${port}/mcp`,
-    project_root: root,
-    project_id: projectId,
-    pid,
-    process_start_ms: processStartMs,
-    port,
-    mode,
-    epoch,
-    instance_id: instanceId,
-    started_at: startedAt,
-    last_verified_at: now,
-    status,
-    restart_count: restartCount,
-    incident_reason: incidentReason,
-  };
-  return {
-    ...manifestWithoutChecksum,
-    checksum: buildManifestChecksum(manifestWithoutChecksum),
-  };
-}
-
-function writeManifestAtomic(mode, root, manifest) {
-  const manifestPath = getManifestPath(mode, root);
-  writeFileAtomic(manifestPath, JSON.stringify(manifest, null, 2));
-}
-
 const eventStore = require('../state/event-store');
 const { DBManager } = require('../state/db-manager.js');
 const GraphStore = require('./graph-store.js');
@@ -227,8 +33,10 @@ function parseArgs() {
   const args = process.argv.slice(2);
   let mode = 'runtime';
   let root = PROJECT_ROOT;
+  let port = 7337;
   for (const arg of args) {
     if (arg.startsWith('--mode=')) mode = arg.split('=')[1];
+    else if (arg.startsWith('--port=')) port = parseInt(arg.split('=')[1], 10) || 7337;
     else if (arg.startsWith('--root=')) {
       const rawRoot = arg.split('=')[1];
       // Canonicalize when available to align with operator-side root checks.
@@ -237,7 +45,7 @@ function parseArgs() {
       catch { root = rawRoot; }
     }
   }
-  return { mode, root };
+  return { mode, root, port };
 }
 
 // ─── GraphService Singleton ───────────────────────────────────────────────────
@@ -744,14 +552,6 @@ async function safeHandleTransportRequest(transport, req, res, parsedBody) {
   }
 }
 
-function isInitializeRequest(parsedBody) {
-  if (!parsedBody || typeof parsedBody !== 'object') return false;
-  if (Array.isArray(parsedBody)) {
-    return parsedBody.some((msg) => msg && typeof msg === 'object' && msg.method === 'initialize');
-  }
-  return parsedBody.method === 'initialize';
-}
-
 function safeSSEWrite(res, data) {
   if (res.destroyed || res.writableEnded) return false;
   try { res.write(data); return true; } catch (_) { return false; }
@@ -790,51 +590,25 @@ async function createSession(graphService, mode, sessions) {
 }
 
 async function main() {
-  const { mode, root } = parseArgs();
-  const PORT = parseInt(process.env.MBO_PORT || '3737', 10);
-  const runDir = getRunDir(mode, root);
-  const manifestPath = getManifestPath(mode, root);
-  const lockPath = getLockPath(mode, root);
-  const instanceFilePath = getInstanceFilePath(mode, root);
-  const processStartMs = readProcessStartMs(process.pid) || Math.floor(Date.now() / 1000) * 1000;
-  const startedAt = new Date(processStartMs).toISOString();
-  const startupLock = acquireStartupLock(mode, root);
-
-  const previousManifest = safeReadJSON(manifestPath);
-  const hasValidPrevious = validateManifestChecksum(previousManifest);
-  const previousEpoch = hasValidPrevious ? Number(previousManifest.epoch || 0) : 0;
-  const previousRestartCount = hasValidPrevious ? Number(previousManifest.restart_count || 0) : 0;
-  const epoch = previousEpoch + 1;
-  const instanceId = randomUUID();
+  const { mode, root, port } = parseArgs();
+  const PORT = Number.isFinite(port) ? port : 7337;
 
   console.error(`[MCP] ${new Date().toISOString()} Starting Graph MCP Server (${mode}) on port ${PORT}...`);
 
   const graphService = new GraphService(mode, root);
   const sessions = new Map();
 
-  const writeManifest = (status, incidentReason = null, restartCount = previousRestartCount + 1) => {
-    const manifest = buildManifest({
-      mode,
-      root,
-      port: PORT,
-      projectId: graphService.projectId,
-      pid: process.pid,
-      processStartMs,
-      epoch,
-      instanceId,
-      startedAt,
-      status,
-      restartCount,
-      incidentReason,
-    });
-    writeManifestAtomic(mode, root, manifest);
-    return manifest;
-  };
-
-  writeManifest('starting', null, 0);
-
   const httpServer = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+
+    if (url.pathname === '/health' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        status: 'ok',
+        project_root: root,
+        uptime: Math.floor(process.uptime()),
+      }));
+    }
     
     // Section 21: Event Streaming Endpoint (SSE)
     if (url.pathname === '/stream') {
@@ -865,41 +639,26 @@ async function main() {
 
     if (url.pathname !== '/mcp') {
       res.writeHead(404, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Not found. Use /mcp or /stream.' }));
+      return res.end(JSON.stringify({ error: 'Not found. Use /mcp, /stream, or /health.' }));
     }
 
     try {
       if (req.method === 'POST') {
-        let body = '';
-        await new Promise((resolve, reject) => {
-          req.on('data', (chunk) => { body += chunk; });
-          req.on('end', resolve);
-          req.on('error', reject);
-        });
-        let parsedBody;
-        try { parsedBody = JSON.parse(body); } catch (_) { parsedBody = undefined; }
-        const initRequest = isInitializeRequest(parsedBody);
         const sessionId = req.headers['mcp-session-id'];
-
-        // Streamable HTTP sessions are scoped to a specific transport instance.
-        // For initialize, always start a fresh transport so re-initialize cannot be
-        // routed onto an already-initialized transport and hang the client.
-        if (initRequest) {
-          const transport = await createSession(graphService, mode, sessions);
-          return await safeHandleTransportRequest(transport, req, res, parsedBody);
-        }
 
         if (sessionId) {
           const transport = sessions.get(sessionId);
           if (!transport) {
             console.error(`[MCP] ${new Date().toISOString()} TRANSPARENT_RECOVERY: stale session ${sessionId} — creating new session`);
             const newTransport = await createSession(graphService, mode, sessions);
-            return await safeHandleTransportRequest(newTransport, req, res, parsedBody);
+            return await safeHandleTransportRequest(newTransport, req, res);
           }
-          return await safeHandleTransportRequest(transport, req, res, parsedBody);
+          return await safeHandleTransportRequest(transport, req, res);
         }
+
+        // No session header: treat as fresh/initialize flow on a new transport.
         const transport = await createSession(graphService, mode, sessions);
-        return await safeHandleTransportRequest(transport, req, res, parsedBody);
+        return await safeHandleTransportRequest(transport, req, res);
       } else if (req.method === 'GET' || req.method === 'DELETE') {
         const sessionId = req.headers['mcp-session-id'];
         if (!sessionId) {
@@ -933,16 +692,6 @@ async function main() {
   httpServer.headersTimeout = 35000;
   httpServer.listen(PORT, '127.0.0.1', () => {
     console.error(`[MCP] ${new Date().toISOString()} Graph MCP Server (${mode}) listening on http://127.0.0.1:${PORT}/mcp`);
-    try {
-      fs.mkdirSync(runDir, { recursive: true });
-      const sentinelPath = path.join(runDir, 'mcp.ready');
-      fs.writeFileSync(sentinelPath, new Date().toISOString());
-      writeManifest('ready', null, 0);
-      releaseLock(lockPath, startupLock.nonce);
-      writeFileAtomic(instanceFilePath, `${instanceId}\n`);
-    } catch (e) {
-      console.error(`[MCP] ${new Date().toISOString()} WARN: Could not write sentinel file: ${e.message}`);
-    }
     if (mode === 'dev') {
       graphService.autoRefreshDevIfStale()
         .catch((err) => {
@@ -956,25 +705,25 @@ async function main() {
     for (const transport of sessions.values()) {
       try { await transport.close(); } catch (_) {}
     }
-    try {
-      writeManifest(reason ? 'incident' : 'stopped', reason, 0);
-    } catch (e) {
-      console.error(`[MCP] ${new Date().toISOString()} WARN: Failed to persist shutdown manifest: ${e.message}`);
-    }
     await graphService.shutdown();
     httpServer.close(() => {
-      releaseLock(lockPath, startupLock.nonce);
-      try { fs.unlinkSync(instanceFilePath); } catch (_) {}
       console.error(`[MCP] ${new Date().toISOString()} HTTP server closed.`);
       process.exit(0);
     });
   };
 
-  process.on('SIGINT', () => shutdown());
-  process.on('SIGTERM', () => shutdown());
-  process.on('uncaughtException', (error) => {
+process.on('SIGINT', () => shutdown());
+process.on('SIGTERM', () => shutdown());
+process.on('uncaughtException', (error) => {
+    const message = String((error && error.message) || error || 'uncaught_exception');
+    if (isStreamDestroyedError(error)) {
+      // LSP/jsonrpc layers may emit stream-destroyed during shutdown/reconnect windows.
+      // This is noisy but non-fatal to MCP HTTP serving; do not kill the server.
+      console.error(`[MCP] ${new Date().toISOString()} Suppressed non-fatal stream error in uncaughtException: ${message}`);
+      return;
+    }
     console.error(`[CRITICAL] ${new Date().toISOString()} Uncaught Exception:`, error);
-    shutdown(error.message || 'uncaught_exception');
+    shutdown(message);
   });
 }
 

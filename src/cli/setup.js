@@ -4,12 +4,140 @@ const fs   = require('fs');
 const os   = require('os');
 const path = require('path');
 const rl_  = require('readline');
+const { execSync, spawnSync } = require('child_process');
+const http = require('http');
 
 const { detectProviders }           = require('./detect-providers');
 const { detectShell, appendExportIfMissing } = require('./shell-profile');
 
 const CONFIG_DIR  = path.join(os.homedir(), '.mbo');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
+const LAUNCH_AGENTS_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents');
+const PLIST_NAME = 'com.mbo.mcp.plist';
+const PLIST_PATH = path.join(LAUNCH_AGENTS_DIR, PLIST_NAME);
+
+function xmlEscape(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function buildPlist({ projectRoot, nodePath }) {
+  const root = xmlEscape(projectRoot);
+  const node = xmlEscape(nodePath);
+  const nodeBin = xmlEscape(path.dirname(nodePath));
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mbo.mcp</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${node}</string>
+    <string>${root}/src/graph/mcp-server.js</string>
+    <string>--port=7337</string>
+    <string>--mode=dev</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>${root}</string>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${nodeBin}:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>${root}/.dev/logs/mcp-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>${root}/.dev/logs/mcp-stderr.log</string>
+</dict>
+</plist>
+`;
+}
+
+function waitForHealth(timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  const attempt = () => new Promise((resolve) => {
+    const req = http.get('http://127.0.0.1:7337/health', (res) => {
+      let body = '';
+      res.on('data', (c) => { body += c.toString(); });
+      res.on('end', () => {
+        if (res.statusCode !== 200) return resolve(false);
+        try {
+          const json = JSON.parse(body);
+          resolve(json && json.status === 'ok');
+        } catch {
+          resolve(false);
+        }
+      });
+    });
+    req.on('error', () => resolve(false));
+    req.setTimeout(1200, () => req.destroy());
+  });
+
+  return new Promise(async (resolve) => {
+    while (Date.now() < deadline) {
+      if (await attempt()) return resolve(true);
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    resolve(false);
+  });
+}
+
+async function installMCPDaemon(projectRoot = process.env.MBO_PROJECT_ROOT || process.cwd()) {
+  const resolvedRoot = path.resolve(projectRoot);
+  fs.mkdirSync(path.join(resolvedRoot, '.dev', 'logs'), { recursive: true });
+  fs.mkdirSync(LAUNCH_AGENTS_DIR, { recursive: true });
+
+  let nodePath = '';
+  try {
+    nodePath = execSync('which node', { encoding: 'utf8' }).trim();
+  } catch {
+    throw new Error('Could not resolve node binary via `which node`.');
+  }
+  if (!nodePath) {
+    throw new Error('Node binary path is empty.');
+  }
+
+  const plist = buildPlist({ projectRoot: resolvedRoot, nodePath });
+  fs.writeFileSync(PLIST_PATH, plist, 'utf8');
+
+  const unload = spawnSync('launchctl', ['unload', '-w', PLIST_PATH], { encoding: 'utf8' });
+  if ((unload.status || 0) !== 0 && !(unload.stderr || '').includes('No such process')) {
+    // best-effort unload; non-fatal here
+  }
+
+  const load = spawnSync('launchctl', ['load', '-w', PLIST_PATH], { encoding: 'utf8' });
+  if ((load.status || 0) !== 0) {
+    throw new Error(`launchctl load failed: ${(load.stderr || load.stdout || '').trim()}`);
+  }
+
+  const healthy = await waitForHealth(10000);
+  if (!healthy) {
+    throw new Error('Graph server did not become healthy at http://127.0.0.1:7337/health within 10s.');
+  }
+}
+
+function runTeardown() {
+  const unload = spawnSync('launchctl', ['unload', '-w', PLIST_PATH], { encoding: 'utf8' });
+  if ((unload.status || 0) !== 0 && !(unload.stderr || '').includes('No such process')) {
+    throw new Error(`launchctl unload failed: ${(unload.stderr || unload.stdout || '').trim()}`);
+  }
+  try {
+    fs.unlinkSync(PLIST_PATH);
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+}
 
 // ANSI helpers
 const R   = '\x1b[0m';
@@ -226,4 +354,11 @@ async function runSetup() {
   }
 }
 
-module.exports = { runSetup, validateConfig, CONFIG_PATH };
+module.exports = {
+  runSetup,
+  installMCPDaemon,
+  runTeardown,
+  validateConfig,
+  CONFIG_PATH,
+  PLIST_PATH,
+};

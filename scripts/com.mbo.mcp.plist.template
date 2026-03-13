@@ -7,10 +7,10 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/bash</string>
-        <string>%%MBO_ROOT%%/scripts/mbo-start.sh</string>
+        <string>%%NVM_NODE_BIN%%/node</string>
+        <string>%%MBO_ROOT%%/src/graph/mcp-server.js</string>
+        <string>--port=7337</string>
         <string>--mode=dev</string>
-        <string>--agent=launchd</string>
     </array>
 
     <!-- Working directory must be repo root for relative path resolution -->

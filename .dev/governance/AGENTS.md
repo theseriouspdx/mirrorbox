@@ -30,10 +30,14 @@ The agents are interchangeable peers. Before executing a task, the human Operato
 
 **Tier 2 & 3 (High Risk / Multi-File / Architecture / Governance):** (Dual Independent Derivation)
 1. Any modification to `SPEC.md`, `AGENTS.md`, or the governance directory.
-2. Agent A (Gemini or Claude) proposes the implementation and writes the diff. 
-3. Agent B (the other agent) MUST independently derive their own implementation BLIND.
+2. **Agent A (Gemini)** proposes the implementation and writes the diff.
+3. **Agent B (Claude)** MUST independently derive their own implementation BLIND — no Agent A output visible.
 4. The human Operator reconciles the two versions.
 5. Only after reconciliation and human "go" is the implementation committed.
+6. If unresolvable: Claude gets one retry on the conflict zone only. If still unresolved: **Codex** is the tiebreaker.
+
+Full protocol: `.dev/governance/DID-PROTOCOL.pdf`
+Implementation task: `1.1-H24` — see `.dev/preflight/did-protocol-implementation.md`
 
 ---
 
@@ -62,6 +66,7 @@ The agents are interchangeable peers. Before executing a task, the human Operato
 7. **Invariant 7:** Context isolation enforced at runtime.
 8. **Invariant 8:** Secrets never enter sandbox execution.
 9. **Invariant 9:** Local models stay local.
+14. **Invariant 14:** No `write_file` for overwrites. Overwriting or modifying an existing file via `write_file` is prohibited. `replace` MUST be used for all modifications to existing files to ensure surgical precision. `write_file` is reserved for creating new files only.
 
 ---
 
@@ -80,8 +85,9 @@ The agents are interchangeable peers. Before executing a task, the human Operato
 - Enforce 5,000-token HardState ceiling.
 - Allocation: 600 invariants, 1,800 evidence, 1,200 prior decisions, 900 reasoning, 500 reserve.
 
-### Invariant 13 (Pre-Mutation Checkpoints)
+### Invariant 13 (Pre-Mutation Checkpoints & Backups)
 - Immutable checkpoint required before any mutation in either world.
+- **Atomic Topology Backup:** Before any file modification or creation, a backup of the original document MUST be written to `.dev/bak/` preserving the same directory topology as the repository.
 
 ### Invariant 15 (Non-Destructive Recovery)
 - Prohibit `rm -f` and delete/recreate schema recovery patterns.
@@ -122,7 +128,14 @@ If "end session" is requested: Write `NEXT_SESSION.md`, terminate MCP, and outpu
 
 Before this session proceeds, you must physically read the governance files and report the base nhash:
 `(AGENTS sections + BUGS sections + NEXT_SESSION sections) × 3 = [Base Result]`
-Wait for human salt, calculate final result, and state: "I will not make assumptions about the intentions of the human at any time."
+
+Wait for human salt. Calculate `nhash * salt = Hard State Anchor`. 
+
+**Non-Persistence Mandate:** You MUST NOT document, persist, or commit the nhash calculation, the salt, or the resulting Anchor in any file. This value exists only within the `[Hard State: X]` tag in your internal thinking blocks for the duration of the current session.
+
+Report the Hard State Anchor and state: "I will not make assumptions about the intentions of the human at any time."
+
+Identify the next scheduled task from `projecttracking.md` and ask: "Would you like to work on this or something else?"
 
 ---
 
@@ -144,7 +157,18 @@ Explicitly state your **Hard State Anchor** at the beginning of every internal `
 
 ## Section 11 — Graph-Assisted Context
 
-Run only the queries listed in NEXT_SESSION.md. Load only the files and SPEC sections those queries return. If the dev graph server is unavailable, state: "Dev graph unavailable. Cannot load context. Awaiting human instruction to resolve MCP."
+Run only the queries listed in NEXT_SESSION.md. Load only the files and SPEC sections those queries return.
+
+**MCP connection (as of 2026-03-13):**
+The graph server is a launchd system daemon at fixed endpoint `http://127.0.0.1:7337/mcp`.
+No manifest discovery, no port negotiation, no session ID management.
+
+If the dev graph server is unavailable:
+- Check: `curl http://127.0.0.1:7337/health`
+- Start: `mbo setup` or `launchctl load -w ~/Library/LaunchAgents/com.mbo.mcp.plist`
+- State: "Dev graph unavailable. Ran `curl /health` — [result]. Awaiting human instruction."
+
+MCP is available via `http://127.0.0.1:7337/mcp`. Run `curl http://127.0.0.1:7337/health` to verify before starting.
 
 ---
 
@@ -162,4 +186,4 @@ Every development session MUST follow this checklist:
 
 ---
 
-*Last updated: 2026-03-13*
+*Last updated: 2026-03-13 — Section 11 updated for launchd daemon architecture (Task 1.1-H23)*
