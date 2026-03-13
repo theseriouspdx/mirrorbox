@@ -668,38 +668,40 @@ class GraphService {
     }
 
     console.error(`[MCP] ${new Date().toISOString()} Dev mode: Graph stale/uninitialized — running auto graph_rescan...`);
-    this.isScanning = true;
-    try {
-      const diagnostics = {
-        scannedFiles: 0,
-        failedFiles: [],
-      };
-
-      if (fs.existsSync(specPath)) {
-        try {
-          await this.scanner.scanFile(specPath, this.root);
-          diagnostics.scannedFiles += 1;
-        } catch (e) {
-          diagnostics.failedFiles.push({ path: '.dev/spec/SPEC.md', error: e.message });
-        }
-      }
-
-      await this.scanner.scanDirectorySafe(srcPath, this.root, diagnostics);
+    return this.enqueueWrite(async () => {
+      this.isScanning = true;
       try {
-        await this.scanner.enrich(this.root);
-      } catch (e) {
-        diagnostics.failedFiles.push({ path: '<enrich>', error: e.message });
-      }
+        const diagnostics = {
+          scannedFiles: 0,
+          failedFiles: [],
+        };
 
-      this.indexRevision = this.db.incrementIndexRevision();
-      this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
-      const summary = this._summarizeAndPersistScan(diagnostics, 'dev_auto_refresh');
-      console.error(
-        `[MCP] ${new Date().toISOString()} Dev auto-refresh complete. index_revision=${this.indexRevision}, status=${summary.status}, scanned=${summary.scanned_files}, failed=${summary.failed_files}, critical=${summary.critical_failures}`
-      );
-    } finally {
-      this.isScanning = false;
-    }
+        if (fs.existsSync(specPath)) {
+          try {
+            await this.scanner.scanFile(specPath, this.root);
+            diagnostics.scannedFiles += 1;
+          } catch (e) {
+            diagnostics.failedFiles.push({ path: '.dev/spec/SPEC.md', error: e.message });
+          }
+        }
+
+        await this.scanner.scanDirectorySafe(srcPath, this.root, diagnostics);
+        try {
+          await this.scanner.enrich(this.root);
+        } catch (e) {
+          diagnostics.failedFiles.push({ path: '<enrich>', error: e.message });
+        }
+
+        this.indexRevision = this.db.incrementIndexRevision();
+        this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
+        const summary = this._summarizeAndPersistScan(diagnostics, 'dev_auto_refresh');
+        console.error(
+          `[MCP] ${new Date().toISOString()} Dev auto-refresh complete. index_revision=${this.indexRevision}, status=${summary.status}, scanned=${summary.scanned_files}, failed=${summary.failed_files}, critical=${summary.critical_failures}`
+        );
+      } finally {
+        this.isScanning = false;
+      }
+    });
   }
 
   async shutdown() {
@@ -711,6 +713,40 @@ class GraphService {
       console.error(`[GraphService] ${new Date().toISOString()} Checkpoint failed: ${e.message}`);
     }
   }
+}
+
+function isSocketGone(req, res) {
+  return Boolean(req.destroyed || req.aborted || res.destroyed || res.writableEnded);
+}
+
+function isStreamDestroyedError(err) {
+  if (!err) return false;
+  const msg = String(err.message || '');
+  return (
+    err.code === 'ERR_STREAM_DESTROYED' ||
+    err.code === 'ERR_HTTP_HEADERS_SENT' ||
+    /stream was destroyed/i.test(msg) ||
+    /write after end/i.test(msg)
+  );
+}
+
+async function safeHandleTransportRequest(transport, req, res, parsedBody) {
+  if (isSocketGone(req, res)) return;
+  try {
+    if (typeof parsedBody === 'undefined') return await transport.handleRequest(req, res);
+    return await transport.handleRequest(req, res, parsedBody);
+  } catch (err) {
+    if (isStreamDestroyedError(err) && isSocketGone(req, res)) {
+      console.error(`[MCP] ${new Date().toISOString()} Suppressed late write on closed stream: ${err.message}`);
+      return;
+    }
+    throw err;
+  }
+}
+
+function safeSSEWrite(res, data) {
+  if (res.destroyed || res.writableEnded) return false;
+  try { res.write(data); return true; } catch (_) { return false; }
 }
 
 async function createSession(graphService, mode, sessions) {
@@ -802,15 +838,19 @@ async function main() {
         'Access-Control-Allow-Origin': '*'
       });
       const onEvent = (event) => {
+        if (res.destroyed || res.writableEnded) {
+          eventStore.removeListener('event', onEvent);
+          return;
+        }
         if (targetWorld && event.world_id !== targetWorld) return;
-        res.write(`data: ${JSON.stringify(event)}\n\n`);
+        safeSSEWrite(res, `data: ${JSON.stringify(event)}\n\n`);
       };
-      res.write(`retry: 10000\n`);
-      res.write(`data: ${JSON.stringify({ type: 'connected', world_id: targetWorld || 'all', timestamp: Date.now() })}\n\n`);
+      safeSSEWrite(res, `retry: 10000\n`);
+      safeSSEWrite(res, `data: ${JSON.stringify({ type: 'connected', world_id: targetWorld || 'all', timestamp: Date.now() })}\n\n`);
       eventStore.on('event', onEvent);
       req.on('close', () => {
         eventStore.removeListener('event', onEvent);
-        res.end();
+        if (!res.destroyed && !res.writableEnded) res.end();
       });
       return;
     }
@@ -836,12 +876,12 @@ async function main() {
           if (!transport) {
             console.error(`[MCP] ${new Date().toISOString()} TRANSPARENT_RECOVERY: stale session ${sessionId} — creating new session`);
             const newTransport = await createSession(graphService, mode, sessions);
-            return await newTransport.handleRequest(req, res, parsedBody);
+            return await safeHandleTransportRequest(newTransport, req, res, parsedBody);
           }
-          return await transport.handleRequest(req, res, parsedBody);
+          return await safeHandleTransportRequest(transport, req, res, parsedBody);
         }
         const transport = await createSession(graphService, mode, sessions);
-        return await transport.handleRequest(req, res, parsedBody);
+        return await safeHandleTransportRequest(transport, req, res, parsedBody);
       } else if (req.method === 'GET' || req.method === 'DELETE') {
         const sessionId = req.headers['mcp-session-id'];
         if (!sessionId) {
@@ -853,12 +893,16 @@ async function main() {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({ error: 'Session not found' }));
         }
-        return await transport.handleRequest(req, res);
+        return await safeHandleTransportRequest(transport, req, res);
       } else {
         res.writeHead(405, { Allow: 'GET, POST, DELETE' });
         res.end();
       }
     } catch (err) {
+      if (isStreamDestroyedError(err) && isSocketGone(req, res)) {
+        console.error(`[MCP] ${new Date().toISOString()} Ignoring request error on closed stream: ${err.message}`);
+        return;
+      }
       console.error(`[MCP] ${new Date().toISOString()} Request handler error:`, err);
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json' });

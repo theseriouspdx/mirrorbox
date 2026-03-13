@@ -154,6 +154,28 @@
   5. Added operator circuit breaker: `3` restart failures within `30s` opens incident and writes explicit `incident_reason`.
   6. Added integration smoke test for manifest validity, restart rollover, and corrupt-manifest recovery.
 
+### BUG-057: MCP stream-destroyed incident — server entering incident state on client disconnect during scan | Milestone: 1.1 | COMPLETED
+- **Location:** `src/graph/mcp-server.js`
+- **Severity:** P0
+- **Status:** COMPLETED — 2026-03-13
+- **Root cause:** Three compounding issues: (1) `uncaughtException` handler called `shutdown()` on `ERR_STREAM_DESTROYED` — a stale-session artifact — killing a healthy server. (2) `transport.handleRequest` call sites had no guard against destroyed streams. (3) `autoRefreshDevIfStale` ran outside `enqueueWrite`, allowing `isScanning` to race with queued write operations.
+- **Fix (Task 1.1-H15):** DID reconciliation across Claude/Gemini/Codex. Final patch: `safeHandleTransportRequest` wrapper catches stream-destroyed errors at the call site with dual condition (`isStreamDestroyedError && isSocketGone`). `safeSSEWrite` guards the `/stream` SSE endpoint. SSE listener self-removes on destroyed stream. `autoRefreshDevIfStale` body wrapped in `enqueueWrite` to serialize with other write operations.
+
+### BUG-058: `autoRefreshDevIfStale` race with queued writes — `isScanning` flag not serialized | Milestone: 1.1 | OPEN
+- **Location:** `src/graph/mcp-server.js`
+- **Severity:** P1
+- **Status:** RESOLVED as part of BUG-057 fix (1.1-H15). No separate patch needed.
+
+### BUG-059: Port mismatch — `MBO_PORT` env var may diverge between Operator and MCP manifest | Milestone: 1.1 | OPEN
+- **Location:** `src/auth/operator.js`, `scripts/mbo-start.sh`
+- **Severity:** P2
+- **Status:** OPEN — needs investigation of how `MBO_PORT` is set in Operator launch environment.
+
+### BUG-060: SSE `/stream` endpoint lacks keepalive heartbeat — proxy timeouts silently destroy stream | Milestone: 1.1 | OPEN
+- **Location:** `src/graph/mcp-server.js`
+- **Severity:** P2
+- **Status:** OPEN — deferred. No heartbeat means aggressive proxy/load-balancer timeouts can silently destroy the SSE connection.
+
 ### BUG-056: Tokenmiser dashboard using NaN placeholders for tokenizer/pricing data | Milestone: 1.1 | OPEN
 - **Location:** `src/state/stats-manager.js`, `src/cli/tokenmiser-dashboard.js`
 - **Severity:** P1

@@ -47,3 +47,4 @@
 | 1.1-H12 | Canonicalize AGENTS.md — update root doc, create src/templates/AGENTS.md for subject projects | OPEN |
 | 1.1-H13 | Directory structure cleanup — move root strays to scripts/, delete scratch files, update .gitignore | OPEN |
 | 1.1-H14 | Multi-agent dev workflow design — role assignments for Claude/Gemini/Codex/Claude Desktop, DID protocol across tools, handoff format | OPEN |
+| 1.1-H15 | Fix BUG-057: MCP stream-destroyed incident — safeHandleTransportRequest + SSE guard + autoRefreshDevIfStale queue serialization | COMPLETED |

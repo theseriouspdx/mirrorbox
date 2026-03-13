@@ -3,6 +3,15 @@
 
 ---
 
+### [1.1.7] — 2026-03-13
+#### Fixed
+- **1.1-H15 BUG-057: MCP stream-destroyed incident**: Server no longer enters `incident` state when clients disconnect during long-running graph scans.
+  - `safeHandleTransportRequest`: wraps all `transport.handleRequest` call sites — suppresses `ERR_STREAM_DESTROYED` / write-after-end only when dual condition is true (`isStreamDestroyedError && isSocketGone`); all other errors re-throw normally.
+  - `safeSSEWrite`: guards `/stream` SSE endpoint writes; listener self-removes on destroyed stream; `res.end()` guarded in `req.on('close')`.
+  - `autoRefreshDevIfStale`: body wrapped in `enqueueWrite` — serializes startup auto-rescan with `graph_rescan` and `graph_update_task` writes, preventing `isScanning` flag race.
+  - Fix derived via 3-agent DID (Claude/Gemini/Codex) with tiebreaker arbitration on two unresolved questions.
+- **BUG-058**: Resolved as part of 1.1-H15 (`autoRefreshDevIfStale` queue serialization).
+
 ### [1.1.6] — 2026-03-12
 #### Fixed
 - **1.1-H05 Authoritative Launch Sequence**: Full MCP server detachment and startup robustness across macOS terminal, launchd, Docker, and CI vendor environments.
