@@ -2129,6 +2129,17 @@ const DB_PATH = path.join(PROJECT_ROOT, '.mbo', 'mirrorbox.db');
 ```
 No module may infer DB path from source tree location.
 
+### 28.10 Human Auth Gate (One-Command Contract)
+1. Human write authorization MUST be exposed as a single command: `mbo auth <path> [--force]`.
+2. `mbo auth` MUST NOT invoke setup flow. It must only report auth state and perform auth.
+3. Human approval MUST be verified through OS-native secure storage/user-presence (Keychain on macOS), not an environment sentinel.
+4. Risky scopes (for example `.`) MUST require explicit high-risk confirmation at auth time.
+5. Non-interactive contexts without human presence verification MUST fail closed.
+
+### 28.11 Docker Deferral Note (Auth)
+Docker auth-path behavior is deferred by design and will be specified when Docker auth integration is implemented.
+Until then, host-side human auth is authoritative; containerized flows must not bypass human-gated auth policy.
+
 ---
 
 ## Section 29 — Tokenmiser Contract (Milestone 1.1)
