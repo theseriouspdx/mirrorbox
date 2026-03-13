@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Tokenmiser [IN PROGRESS]
-**Next Action:** 1.0-09 — Sovereign Loop [IN PROGRESS] / Review open hardening tasks
+**Next Action:** Temporary MCP-disabled operations mode active (2026-03-13) — execute legacy workflow while MCP redesign requirements are finalized
 
 ---
 
@@ -44,10 +44,14 @@
 | 1.1-H09 | Implement Tokenmiser Value-Tracking ($chars/4 baseline) | COMPLETED |
 | 1.1-H10 | Implement SHIFT+T Stats Overlay & Persistence (.mbo/stats.json) | COMPLETED |
 | 1.1-H11 | Implement Agent Header status bar (Green/Red metrics) | COMPLETED |
-| 1.1-H12 | Canonicalize AGENTS.md — update root doc, create src/templates/AGENTS.md for subject projects | OPEN |
+| 1.1-H12 | Canonicalize AGENTS.md — update root doc, create src/templates/AGENTS.md for subject projects | COMPLETED |
 | 1.1-H13 | Directory structure cleanup — move root strays to scripts/, delete scratch files, update .gitignore | OPEN |
 | 1.1-H14 | Multi-agent dev workflow design — role assignments for Claude/Gemini/Codex/Claude Desktop, DID protocol across tools, handoff format | OPEN |
 | 1.1-H15 | Fix BUG-057: MCP stream-destroyed incident — safeHandleTransportRequest + SSE guard + autoRefreshDevIfStale queue serialization | COMPLETED |
 | 1.1-H16 | Fix BUG-061: Merkle scope drift + MCP query path drift (manifest-only endpoint + canonical root assertion + preflight command hardening) | COMPLETED |
 | 1.1-H17 | Fix BUG-062: In-app human-mediated auth flow (no CLI dependency) + self-run/non-TTY auth usability | COMPLETED |
 | 1.1-H18 | Fix BUG-064: mcp_query initialize timeout via wrong endpoint selection and weak fallback | COMPLETED |
+| 1.1-H19 | Fix BUG-065: preserve dynamic env endpoint + POST preflight to avoid TCP-only MCP hangs | COMPLETED |
+| 1.1-H20 | Fix BUG-066: always route initialize to fresh transport instance in MCP server | IN PROGRESS |
+| 1.1-H21 | Fix BUG-067: keep `mbo auth` usable in controller repo while runtime remains guarded | COMPLETED |
+| 1.1-H22 | Temporary MCP-disabled operations mode in controller repo; route agents to legacy workflow | ACTIVE TEMPORARY OVERRIDE |

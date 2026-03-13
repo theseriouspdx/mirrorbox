@@ -1,6 +1,32 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.13] — 2026-03-13
+#### Fixed
+- **BUG-066: initialize routing robustness in `src/graph/mcp-server.js`**
+  - Added initialize request detection and forced initialize handling onto a fresh `StreamableHTTPServerTransport` instance.
+  - Prevents initialize from being routed onto an already-initialized transport session.
+- **BUG-067: controller-repo auth usability (`bin/mbo.js`)**
+  - Confirmed and documented branch-level behavior: `mbo auth` remains allowed globally, while runtime/init stay protected by controller guard.
+
+#### Validation
+- `node --check src/graph/mcp-server.js`
+- `node --check bin/mbo.js`
+- Live initialize probe validation pending runtime restart (current live MCP PID predates this patch).
+
+### [1.1.12] — 2026-03-13
+#### Fixed
+- **BUG-065: dynamic MCP endpoint filtering + TCP-only false healthy probe in `mcp_query.js`**
+  - Preserved explicit env endpoint (`MBO_PORT`) through candidate narrowing via `isEnvOverride`.
+  - Relaxed project-id narrowing to keep canonical-root matches (`matchedRoot`) so case/path alias drift does not drop the live local endpoint.
+  - Added HTTP POST preflight before initialize. Endpoints that accept TCP but hang on POST/initialize are now skipped quickly with explicit diagnostics.
+
+#### Validation
+- `MBO_PORT=61024 node mcp_query.js --diagnose graph_search "Canonicalize AGENTS.md"`
+  - endpoint `61024` is attempted first and rejected with explicit `POST probe timeout`.
+- `node mcp_query.js --diagnose "graph_search('Canonicalize AGENTS.md')"`
+  - candidate order is deterministic and endpoint-specific failure reasons are emitted.
+
 ### [1.1.11] — 2026-03-13
 #### Fixed
 - **BUG-064: `mcp_query.js` initialize timeout under dual-manifest drift**

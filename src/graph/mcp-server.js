@@ -744,6 +744,14 @@ async function safeHandleTransportRequest(transport, req, res, parsedBody) {
   }
 }
 
+function isInitializeRequest(parsedBody) {
+  if (!parsedBody || typeof parsedBody !== 'object') return false;
+  if (Array.isArray(parsedBody)) {
+    return parsedBody.some((msg) => msg && typeof msg === 'object' && msg.method === 'initialize');
+  }
+  return parsedBody.method === 'initialize';
+}
+
 function safeSSEWrite(res, data) {
   if (res.destroyed || res.writableEnded) return false;
   try { res.write(data); return true; } catch (_) { return false; }
@@ -870,7 +878,17 @@ async function main() {
         });
         let parsedBody;
         try { parsedBody = JSON.parse(body); } catch (_) { parsedBody = undefined; }
+        const initRequest = isInitializeRequest(parsedBody);
         const sessionId = req.headers['mcp-session-id'];
+
+        // Streamable HTTP sessions are scoped to a specific transport instance.
+        // For initialize, always start a fresh transport so re-initialize cannot be
+        // routed onto an already-initialized transport and hang the client.
+        if (initRequest) {
+          const transport = await createSession(graphService, mode, sessions);
+          return await safeHandleTransportRequest(transport, req, res, parsedBody);
+        }
+
         if (sessionId) {
           const transport = sessions.get(sessionId);
           if (!transport) {

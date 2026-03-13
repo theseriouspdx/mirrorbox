@@ -40,6 +40,46 @@
   6. Added handling for `Server already initialized` responses that still return session headers.
   7. Added `--diagnose` mode and function-style invocation parsing (`graph_search('...')`) to make operational debugging deterministic.
 
+### BUG-065: MCP endpoint accepts TCP but hangs POST/initialize; env override filtered behind project_id preference | Milestone: 1.1 | COMPLETED
+- **Location:** `mcp_query.js`
+- **Severity:** P0
+- **Status:** COMPLETED — 2026-03-13
+- **Reproduction (2026-03-13):**
+  1. `MBO_PORT=61024 node mcp_query.js --diagnose graph_search "Canonicalize AGENTS.md"`
+  2. Prior behavior: candidate filter kept only `project_id` matches, dropping `MBO_PORT` and falling back to stale `3737`.
+  3. Direct probes showed `61024` accepted TCP/GET but hung `POST /mcp` initialize until timeout (no response body).
+- **Root cause:**
+  1. Candidate narrowing was too strict: once any `project_id` match existed, non-matching candidates (including explicit `MBO_PORT`) were removed.
+  2. Health preflight was TCP-only, so endpoints that accepted socket connect but could not complete MCP POST/initialize were treated as healthy.
+- **Fix implemented (minimal app fix):**
+  1. Marked explicit env candidate as `isEnvOverride` and retained it through project-id filtering.
+  2. Relaxed project-id narrowing to keep canonical-root matches and env overrides (`matchedProjectId || matchedRoot || isEnvOverride`).
+  3. Added fast HTTP POST preflight (`postProbe`) before initialize, so TCP-open but POST-hung endpoints are skipped deterministically.
+- **Validation:**
+  - `MBO_PORT=61024 node mcp_query.js --diagnose graph_search "Canonicalize AGENTS.md"`
+    - shows `61024` attempted first; skipped via `POST probe timeout`; stale `3737` reported `ECONNREFUSED`.
+  - `node mcp_query.js --diagnose "graph_search('Canonicalize AGENTS.md')"`
+    - shows stable candidate order + explicit endpoint-specific failure reasons.
+
+### BUG-066: Streamable HTTP initialize can hang when request is routed to a reused transport instance | Milestone: 1.1 | FIXED (pending live restart validation)
+- **Location:** `src/graph/mcp-server.js`
+- **Severity:** P0
+- **Status:** FIXED IN CODE — 2026-03-13 (runtime restart pending for live proof)
+- **Root cause:** The `/mcp` POST router could route a new `initialize` request onto an existing session transport under mixed client behavior. On Streamable HTTP, initialize is transport-session scoped; re-init on a reused initialized transport can stall/no-response from the client perspective.
+- **Fix implemented:**
+  1. Added `isInitializeRequest(parsedBody)` helper.
+  2. For every initialize request, server now always creates a fresh transport and handles initialize there.
+  3. Non-initialize requests continue using session-id routing and stale-session transparent recovery.
+- **Validation currently completed:** `node --check src/graph/mcp-server.js`.
+- **Live validation pending:** restart dev MCP process so it loads patched server binary, then re-run initialize probes.
+
+### BUG-067: `mbo auth` should remain usable in controller repo while runtime/init stay guarded | Milestone: 1.1 | FIXED
+- **Location:** `bin/mbo.js`
+- **Severity:** P1
+- **Status:** FIXED — 2026-03-13
+- **Description:** User reported `mbo auth src --force` blocked by controller-run guard message, despite auth being intended as a global operation. Runtime/init guard should remain strict.
+- **Fix implemented:** Explicitly documented/enforced auth-path behavior in `runAuthCommand` comments and kept guard checks scoped to runtime/init branches only.
+
 ---
 
 ## Section 2 — P1: Must Fix Before Milestone Complete

@@ -26,6 +26,8 @@ function runSetupCommand() {
 }
 
 function runAuthCommand(argv) {
+  // Auth/config operations are allowed from any repo (including controller).
+  // Runtime/init remain guarded by isSelfRunDisallowed.
   const args = argv.slice(3);
   const handshakePath = path.join(PACKAGE_ROOT, 'bin', 'handshake.py');
 

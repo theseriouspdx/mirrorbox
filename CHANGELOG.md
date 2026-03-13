@@ -3,6 +3,37 @@
 
 ---
 
+### [1.1.11] — 2026-03-13
+#### Added
+- **Task 1.1-H12: Canonicalize AGENTS.md & Create Starter Template**
+  - root `AGENTS.md` and `.dev/governance/AGENTS.md` now share a unified v1.0 structure (12 sections).
+  - Synchronized session handshake, nhash, and Gate 0 protocols across all governance docs.
+  - Created `src/templates/AGENTS.md` as a project-agnostic starter template for subject projects.
+
+### [1.1.10] — 2026-03-13
+#### Fixed
+- **BUG-066: initialize transport routing in MCP server**
+  - `src/graph/mcp-server.js` now detects initialize requests and always serves them via a fresh transport instance.
+  - Prevents initialize from being routed onto a pre-initialized session transport under mixed-client reconnect patterns.
+- **BUG-067: preserve `mbo auth` behavior from controller repo**
+  - `bin/mbo.js` auth path remains globally available; runtime/init guard stays enforced separately.
+
+#### Validation
+- `node --check src/graph/mcp-server.js`
+- `node --check bin/mbo.js`
+- `node --check mcp_query.js`
+
+### [1.1.9] — 2026-03-13
+#### Fixed
+- **BUG-065: `mcp_query.js` dynamic endpoint robustness under live MCP drift**
+  - Preserved explicit `MBO_PORT` candidate during endpoint narrowing (env override is no longer dropped when a `project_id` match exists).
+  - Relaxed candidate filtering to keep canonical-root matches, mitigating case-variant path hash drift (`/Users/.../MBO` vs `/Users/.../mbo`).
+  - Added fast POST preflight before initialize to detect/skip endpoints that accept TCP but hang MCP POST requests.
+
+#### Validation
+- `MBO_PORT=61024 node mcp_query.js --diagnose graph_search "Canonicalize AGENTS.md"`
+- `node mcp_query.js --diagnose "graph_search('Canonicalize AGENTS.md')"`
+
 ### [1.1.8] — 2026-03-13
 #### Fixed
 - **BUG-064: `mcp_query.js` initialize timeout under dual-manifest drift**

@@ -101,6 +101,7 @@ function resolveCandidates() {
       score: 1000,
       matchedRoot: false,
       matchedProjectId: false,
+      isEnvOverride: true,
     });
   }
 
@@ -126,6 +127,7 @@ function resolveCandidates() {
       score,
       matchedRoot,
       matchedProjectId,
+      isEnvOverride: false,
     });
   }
 
@@ -139,7 +141,9 @@ function resolveCandidates() {
   let ordered = Array.from(dedup.values()).sort((a, b) => b.score - a.score);
   const hasProjectIdMatch = ordered.some((c) => c.matchedProjectId);
   if (hasProjectIdMatch) {
-    ordered = ordered.filter((c) => c.matchedProjectId);
+    // Keep env overrides and canonical-root matches in the candidate set.
+    // This prevents false-negative project_id drift from excluding the live dynamic endpoint.
+    ordered = ordered.filter((c) => c.matchedProjectId || c.matchedRoot || c.isEnvOverride);
   }
   return { candidates: ordered, diagnostics, cwdRoot, expectedProjectId };
 }
@@ -271,6 +275,43 @@ function tcpProbe(endpoint, timeoutMs = 1500) {
   });
 }
 
+function postProbe(endpoint, timeoutMs = 2500) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+
+    const body = JSON.stringify({ probe: true });
+    const req = http.request({
+      host: endpoint.host,
+      port: endpoint.port,
+      path: endpoint.path,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/event-stream',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    }, (res) => {
+      // Any timely HTTP response proves the endpoint can read/process POST,
+      // even if payload is intentionally invalid.
+      res.resume();
+      finish(resolve, true);
+    });
+
+    req.setTimeout(timeoutMs, () => {
+      req.destroy();
+      finish(reject, new Error(`POST probe timeout ${endpoint.host}:${endpoint.port}`));
+    });
+    req.on('error', (err) => finish(reject, err));
+    req.write(body);
+    req.end();
+  });
+}
+
 function parseInvocation(argv) {
   const args = argv.filter((a) => a !== '--diagnose');
   const diagnose = argv.length !== args.length;
@@ -307,6 +348,13 @@ async function initializeWithFallback(candidates, diagnose = false) {
       await tcpProbe(candidate.endpoint);
     } catch (err) {
       errors.push(`${endpointTag} probe failed: ${err.message}`);
+      continue;
+    }
+
+    try {
+      await postProbe(candidate.endpoint);
+    } catch (err) {
+      errors.push(`${endpointTag} POST probe failed: ${err.message}`);
       continue;
     }
 
