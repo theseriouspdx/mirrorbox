@@ -1,6 +1,22 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.9] — 2026-03-13
+#### Changed
+- **Auth flow no longer detours through setup:** `mbo auth <scope> [--force]` now routes directly to handshake flow in `bin/handshake.py`.
+- **Session status clarity:** expired sessions now print as `Expired` instead of misleading `Active` with negative TTL.
+- **Human override controls:** `--force` allows explicit Merkle mismatch bypass with warning/audit logging; risky scope `.` requires explicit confirmation.
+- **Auth toggle behavior:** repeating `mbo auth` for the currently active scope now revokes that session and prints resulting state.
+
+#### Docs / Tracking
+- BUG-062 updated to `IN PROGRESS` with partial implementation details and remaining close criteria.
+- Task `1.1-H17` moved to `IN PROGRESS` in `projecttracking.md`.
+
+#### Validation
+- `node -c bin/mbo.js`
+- `python3 -m py_compile bin/handshake.py`
+- `mbo auth status`
+
 ### [1.1.8] — 2026-03-13
 #### Added
 - **BUG-061 logged and tracked:** Merkle scope drift + MCP query path drift now tracked in `BUGS.md` and `projecttracking.md` (`1.1-H16`).

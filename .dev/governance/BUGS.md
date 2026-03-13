@@ -187,16 +187,20 @@
   3. Standardize MCP preflight command path to `node ./mcp_query.js ...` and reject non-manifest endpoint fallbacks.
   4. Add regression tests for case-variant project roots and non-`src` edits to ensure no false lockout.
 
-### BUG-062: Auth bootstrap unusable in-app/self-run contexts (CLI dependency and non-TTY failure) | Milestone: 1.1 | OPEN
-- **Location:** `bin/mbo.js`, `src/cli/setup.js`, `src/index.js`, onboarding/auth UX
+### BUG-062: Auth bootstrap unusable in-app/self-run contexts (CLI dependency and non-TTY failure) | Milestone: 1.1 | IN PROGRESS
+- **Location:** `bin/mbo.js`, `bin/handshake.py`, `src/cli/setup.js`, `src/index.js`, onboarding/auth UX
 - **Severity:** P1
-- **Status:** OPEN — 2026-03-13
-- **Description:** `mbo auth` remains coupled to CLI/TTY setup semantics and is not reliably usable where users are already inside the app flow. In self-run or non-TTY contexts, auth/setup can fail and force obscure fallback commands, creating first-run lockout and violating discoverability.
-- **Fix Required:**
-  1. Implement in-app human-mediated auth flow (no external CLI dependency once inside app).
-  2. Distinguish global auth/config operations from project runtime operations in command routing and UX.
-  3. Provide explicit recovery UX when auth is missing (guided prompt/action path from within app).
-  4. Keep credentials in global config/secure store and preserve mirror/subject isolation invariants.
+- **Status:** IN PROGRESS — 2026-03-13
+- **Description:** `mbo auth` previously routed through setup flow and produced misleading session output in normal app/agent workflows. This created first-run lockout and high-friction recovery in self-run/non-TTY contexts.
+- **Implemented (partial):**
+  1. `mbo auth <scope> [--force]` now routes directly to `bin/handshake.py` (no setup wizard detour).
+  2. `--status` now prints `Expired` for elapsed sessions (never false `Active`).
+  3. `--force` supports human override for Merkle mismatch, with explicit warning + audit logging.
+  4. `.` scope is supported only with `--force` and explicit high-risk confirmation prompt.
+  5. Re-running `mbo auth` with the same active scope now toggles and revokes that session.
+- **Remaining for full close:**
+  1. Replace env-sentinel auth gating with OS-native secure user-presence flow (Keychain on macOS).
+  2. Finalize non-interactive/container auth policy contract (Docker deferred per SPEC 28.11).
 
 ### BUG-056: Tokenmiser dashboard using NaN placeholders for tokenizer/pricing data | Milestone: 1.1 | OPEN
 - **Location:** `src/state/stats-manager.js`, `src/cli/tokenmiser-dashboard.js`

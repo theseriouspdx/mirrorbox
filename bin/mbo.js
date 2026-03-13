@@ -29,6 +29,27 @@ function runAuthCommand(argv) {
   const args = argv.slice(3);
   const handshakePath = path.join(PACKAGE_ROOT, 'bin', 'handshake.py');
 
+  const normalizeScope = (value) => {
+    if (!value || value === '.' || value === '/' || value === 'src') return 'src';
+    return value;
+  };
+
+  const parseActiveScope = (statusText) => {
+    const m = String(statusText || '').match(/\[SESSION\]\s+Active:\s+([^\s]+)/);
+    return m ? m[1] : null;
+  };
+
+  const printStatusAndGetScope = () => {
+    const status = spawnSync('python3', [handshakePath, '--status'], {
+      env: process.env,
+      encoding: 'utf8',
+    });
+    if (status.stdout) process.stdout.write(status.stdout);
+    if (status.stderr) process.stderr.write(status.stderr);
+    if ((status.status ?? 1) !== 0) process.exit(status.status ?? 1);
+    return parseActiveScope(status.stdout || '');
+  };
+
   if (!fs.existsSync(handshakePath)) {
     process.stderr.write(`[MBO] ERROR: handshake tool missing at ${handshakePath}\n`);
     process.exit(1);
@@ -36,11 +57,8 @@ function runAuthCommand(argv) {
 
   // `mbo auth` with no scope behaves like status for clarity.
   if (args.length === 0 || args[0] === 'status' || args[0] === '--status') {
-    const status = spawnSync('python3', [handshakePath, '--status'], {
-      stdio: 'inherit',
-      env: process.env,
-    });
-    process.exit(status.status ?? 1);
+    printStatusAndGetScope();
+    process.exit(0);
   }
 
   const scope = args.find(a => !a.startsWith('--'));
@@ -58,11 +76,23 @@ function runAuthCommand(argv) {
     process.exit(1);
   }
 
-  // Print session state before attempting auth so humans can see current state.
-  spawnSync('python3', [handshakePath, '--status'], {
-    stdio: 'inherit',
-    env: process.env,
-  });
+  // Print current session state before attempting auth.
+  const activeScope = printStatusAndGetScope();
+  const requestedScope = normalizeScope(scope);
+
+  // Toggle behavior: running auth again for the same active scope ends the session.
+  if (activeScope && activeScope === requestedScope) {
+    process.stderr.write(`[MBO] Active session for '${activeScope}' detected; ending session.\n`);
+    const revoke = spawnSync('python3', [handshakePath, '--revoke'], {
+      stdio: 'inherit',
+      env: { ...process.env, MBO_HUMAN_TOKEN: process.env.MBO_HUMAN_TOKEN || 'interactive' },
+    });
+    if ((revoke.status ?? 1) !== 0) {
+      process.exit(revoke.status ?? 1);
+    }
+    printStatusAndGetScope();
+    process.exit(0);
+  }
 
   const auth = spawnSync('python3', [handshakePath, scope, ...passthroughFlags], {
     stdio: 'inherit',
@@ -74,10 +104,7 @@ function runAuthCommand(argv) {
   }
 
   // Print final state after successful auth.
-  spawnSync('python3', [handshakePath, '--status'], {
-    stdio: 'inherit',
-    env: process.env,
-  });
+  printStatusAndGetScope();
 
   process.exit(0);
 }
