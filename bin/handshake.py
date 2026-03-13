@@ -12,10 +12,12 @@ AUDIT_LOG = JOURNAL_DIR / "audit.log"
 SESSION_TTL_SECONDS = 1800
 PULSE_INTERVAL = 300
 
+
 def _sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     h.update(path.read_bytes())
     return h.hexdigest()
+
 
 def compute_merkle_root(src_dir: Path, base_root: Optional[Path] = None, file_list: Optional[list[Path]] = None) -> str:
     leaves = []
@@ -44,7 +46,8 @@ def compute_merkle_root(src_dir: Path, base_root: Optional[Path] = None, file_li
         leaf = hashlib.sha256(f"{relative}:{content_hash}".encode()).hexdigest()
         leaves.append(leaf)
 
-    if not leaves: return hashlib.sha256(b"__mbo_empty_src__").hexdigest()
+    if not leaves:
+        return hashlib.sha256(b"__mbo_empty_src__").hexdigest()
     layer = leaves
     while len(layer) > 1:
         next_layer = []
@@ -55,14 +58,19 @@ def compute_merkle_root(src_dir: Path, base_root: Optional[Path] = None, file_li
         layer = next_layer
     return layer[0]
 
+
 def load_canonical_state() -> dict:
-    if not STATE_FILE.exists(): print("[GATE] DENIED: state.json not found. Run bin/init_state.py", file=sys.stderr); sys.exit(1)
+    if not STATE_FILE.exists():
+        print("[GATE] DENIED: state.json not found. Run bin/init_state.py", file=sys.stderr)
+        sys.exit(1)
     return json.loads(STATE_FILE.read_text())
+
 
 def log_audit(event):
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     with open(AUDIT_LOG, "a") as f:
         f.write(f"[{timestamp}] {event}\n")
+
 
 def check_integrity(silent=False):
     state = load_canonical_state()
@@ -73,55 +81,78 @@ def check_integrity(silent=False):
         return False
 
     current_root = compute_merkle_root(SRC_DIR)
-    
+
     # If a session is active, we expect changes in the specific cell_scope.
     # But for 1.0 Alpha, we enforce global integrity at handshake.
     if current_root != state["merkle_root"]:
         log_audit("EXTERNAL_MUTATION_DETECTED")
         if not silent:
-            print(f"[GATE] CRITICAL: Merkle mismatch detected.", file=sys.stderr)
+            print("[GATE] CRITICAL: Merkle mismatch detected.", file=sys.stderr)
             print(f"Expected: {state['merkle_root']}", file=sys.stderr)
             print(f"Actual:   {current_root}", file=sys.stderr)
             print(f"Scope:    {scope}", file=sys.stderr)
         return False
     return True
 
+
 def lock_src():
     for item in SRC_DIR.rglob("*"):
-        if item.is_file(): item.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+        if item.is_file():
+            item.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
     # Lock src/ dir itself to prevent new file/dir creation
     SRC_DIR.chmod(stat.S_IRUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
     # Write deny sentinel so agents can detect lockout without parsing session.lock
     DENY_SENTINEL.parent.mkdir(parents=True, exist_ok=True)
     DENY_SENTINEL.write_text(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
 
-def handshake(cell_name):
+
+def _confirm_risky_scope(cell_name: str, force: bool):
+    if cell_name not in (".", "/", ""):
+        return
+    if not force:
+        print("[GATE] DENIED: Scope '.' is high risk. Re-run with --force and explicit confirmation.", file=sys.stderr)
+        sys.exit(1)
+    print("[GATE] WARNING: Scope '.' grants write access across src/. This can break your project in irreversible ways.", file=sys.stderr)
+    if not sys.stdin.isatty():
+        print("[GATE] DENIED: Risk confirmation for '.' requires a TTY.", file=sys.stderr)
+        sys.exit(1)
+    answer = input("Continue? (yes/no): ").strip().lower()
+    if answer != "yes":
+        print("[GATE] Cancelled by user.", file=sys.stderr)
+        sys.exit(1)
+
+
+def handshake(cell_name: str, force: bool = False):
     if SESSION_LOCK.exists():
         lock_data = json.loads(SESSION_LOCK.read_text())
         if time.time() < lock_data["expires_at"]:
             print(f"[GATE] DENIED: Session active for {lock_data['cell_scope']}.", file=sys.stderr)
             sys.exit(1)
-    
+
     if not check_integrity():
-        print("[GATE] Triggering HYDRATION MODE. Manual intervention required.", file=sys.stderr)
-        sys.exit(1)
+        if force:
+            print("[GATE] WARNING: Forcing handshake despite Merkle mismatch.", file=sys.stderr)
+            log_audit(f"HANDSHAKE_FORCED_MERKLE_BYPASS: {cell_name}")
+        else:
+            print("[GATE] Triggering HYDRATION MODE. Manual intervention required.", file=sys.stderr)
+            sys.exit(1)
 
-    # Reject '.' — too broad, agents must name an explicit scope
-    if cell_name in (".", "/", ""):
-        print("[GATE] DENIED: Scope '.' is too broad. Use 'src', 'bin', or a named subdirectory.", file=sys.stderr)
-        sys.exit(1)
+    _confirm_risky_scope(cell_name, force)
 
-    # Special case: 'src' grants the entire src/ directory
-    if cell_name == "src":
+    # Special case: '.' and 'src' grant entire src/ directory
+    if cell_name in (".", "/", "", "src"):
         cell_path = SRC_DIR
+        granted_scope = "src"
     else:
         cell_path = SRC_DIR / "cells" / cell_name
         if not cell_path.exists():
             # Allow non-cell src paths if they exist
             cell_path = SRC_DIR / cell_name
             if not cell_path.exists():
-                print(f"[GATE] DENIED: Path {cell_name} missing.", file=sys.stderr); sys.exit(1)
-            
+                print(f"[GATE] DENIED: Path {cell_name} missing.", file=sys.stderr)
+                sys.exit(1)
+        granted_scope = cell_name
+
     lock_src()
     # Restore src/ dir to traversable after lock_src locked it
     SRC_DIR.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
@@ -130,14 +161,23 @@ def handshake(cell_name):
     # Grant write access to the specific cell/path
     if cell_path.is_dir():
         for item in cell_path.rglob("*"):
-            if item.is_file(): item.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+            if item.is_file():
+                item.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
     else:
         cell_path.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
 
-    token = {"token": str(uuid.uuid4()), "cell_scope": cell_name, "expires_at": time.time() + SESSION_TTL_SECONDS}
+    token = {
+        "token": str(uuid.uuid4()),
+        "cell_scope": granted_scope,
+        "expires_at": time.time() + SESSION_TTL_SECONDS,
+    }
     SESSION_LOCK.write_text(json.dumps(token))
-    log_audit(f"HANDSHAKE_GRANTED: {cell_name}")
-    print(f"[GATE] Handshake complete. Scope: {cell_name}")
+    if force:
+        log_audit(f"HANDSHAKE_GRANTED_FORCED: requested={cell_name}, granted={granted_scope}")
+    else:
+        log_audit(f"HANDSHAKE_GRANTED: {granted_scope}")
+    print(f"[GATE] Handshake complete. Scope: {granted_scope}")
+
 
 DENY_SENTINEL = MBO_ROOT / ".dev" / "run" / "write.deny"
 
@@ -145,14 +185,14 @@ HELP_TEXT = """
 mboauth — MBO Sovereign Factory handshake tool
 
 USAGE (human):
-  mboauth auth <scope>    Grant write access to src/<scope> (requires MBO_HUMAN_TOKEN)
-  mboauth revoke          End session, lock src/, generate handoff (requires MBO_HUMAN_TOKEN)
-  mboauth reset           Rebaseline Merkle root after commits to src/ (git must be clean)
+  mboauth auth <scope> [--force]    Grant write access to src/<scope> (requires MBO_HUMAN_TOKEN)
+  mboauth revoke                    End session, lock src/, generate handoff (requires MBO_HUMAN_TOKEN)
+  mboauth reset                     Rebaseline Merkle root after commits to src/ (git must be clean)
 
 USAGE (agent-safe, no token required):
-  mboauth status          Show active session scope and expiry
-  mboauth pulse           Integrity check — verify src/ matches baseline
-  mboauth --help          Show this message
+  mboauth status                    Show active session scope and expiry
+  mboauth pulse                     Integrity check — verify src/ matches baseline
+  mboauth --help                    Show this message
 
 SCOPE EXAMPLES:
   mboauth auth relay
@@ -166,14 +206,19 @@ NOTES:
 """
 
 if __name__ == "__main__":
-    if not JOURNAL_DIR.exists(): JOURNAL_DIR.mkdir(parents=True)
+    if not JOURNAL_DIR.exists():
+        JOURNAL_DIR.mkdir(parents=True)
     if len(sys.argv) < 2 or sys.argv[1] in ("--help", "help"):
-        print(HELP_TEXT); sys.exit(0)
+        print(HELP_TEXT)
+        sys.exit(0)
+
+    force = "--force" in sys.argv[2:]
 
     # Friendly subcommand aliases
     if sys.argv[1] == "auth":
         if len(sys.argv) < 3:
-            print("Usage: mbo auth <scope>", file=sys.stderr); sys.exit(1)
+            print("Usage: mbo auth <scope> [--force]", file=sys.stderr)
+            sys.exit(1)
         sys.argv[1] = sys.argv[2]
     elif sys.argv[1] in ("revoke", "status", "pulse", "reset"):
         sys.argv[1] = f"--{sys.argv[1]}"
@@ -201,7 +246,8 @@ if __name__ == "__main__":
                 print(f"[SESSION] Active: {data['cell_scope']} (Expires in {remaining}s)")
             else:
                 print(f"[SESSION] Expired: {data['cell_scope']} (Expired {-remaining}s ago)")
-        else: print("[SESSION] None")
+        else:
+            print("[SESSION] None")
     elif arg == "--revoke":
         lock_src()
         SESSION_LOCK.unlink(missing_ok=True)
@@ -232,4 +278,4 @@ if __name__ == "__main__":
         init()
         log_audit("MERKLE_REBASELINE")
     else:
-        handshake(arg)
+        handshake(arg, force=force)
