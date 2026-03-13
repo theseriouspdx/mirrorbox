@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
+const net = require('net');
 const path = require('path');
-const { resolveManifest } = require('./src/utils/resolve-manifest');
+
+const DEFAULT_TIMEOUT_MS = 12000;
+const INIT_TIMEOUT_STEPS = [6000, 12000, 25000];
 
 function canonicalPath(p) {
   try {
@@ -30,21 +34,117 @@ function sameFilesystemPath(a, b) {
   return a.toLowerCase() === b.toLowerCase();
 }
 
-function resolveEndpoint() {
-  const cwdRoot = canonicalPath(process.cwd());
-  const { manifest } = resolveManifest({ root: cwdRoot });
-  const manifestRoot = canonicalPath(manifest.project_root || cwdRoot);
-  if (!sameFilesystemPath(manifestRoot, cwdRoot)) {
-    throw new Error(
-      `[MCP QUERY] project_root mismatch. cwd=${cwdRoot} manifest.project_root=${manifestRoot}. ` +
-      'Run from the intended project root and retry.'
-    );
-  }
-  return { host: '127.0.0.1', port: manifest.port, path: '/mcp' };
+function hashProjectId(projectRoot) {
+  return crypto
+    .createHash('sha256')
+    .update(Buffer.from(projectRoot, 'utf8'))
+    .digest('hex')
+    .slice(0, 16);
 }
 
-async function callMCP(method, params = {}, sessionId = null) {
-  const ep = resolveEndpoint();
+function parseManifest(manifestPath) {
+  if (!fs.existsSync(manifestPath)) {
+    return { ok: false, error: `manifest missing: ${manifestPath}`, manifestPath };
+  }
+
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch (err) {
+    return { ok: false, error: `manifest invalid JSON (${manifestPath}): ${err.message}`, manifestPath };
+  }
+
+  if (manifest.manifest_version !== 3) {
+    return {
+      ok: false,
+      error: `manifest_version mismatch (${manifestPath}): expected 3, got ${manifest.manifest_version}`,
+      manifestPath,
+      manifest,
+    };
+  }
+  if (!Number.isInteger(manifest.port) || manifest.port <= 0) {
+    return {
+      ok: false,
+      error: `manifest invalid port (${manifestPath}): ${manifest.port}`,
+      manifestPath,
+      manifest,
+    };
+  }
+  if (manifest.status !== 'ready') {
+    return {
+      ok: false,
+      error: `manifest not ready (${manifestPath}): status=${manifest.status}`,
+      manifestPath,
+      manifest,
+    };
+  }
+
+  return { ok: true, manifestPath, manifest };
+}
+
+function resolveCandidates() {
+  const cwdRoot = canonicalPath(process.cwd());
+  const expectedProjectId = hashProjectId(cwdRoot);
+  const manifestPaths = [
+    path.join(cwdRoot, '.dev', 'run', 'mcp.json'),
+    path.join(cwdRoot, '.mbo', 'run', 'mcp.json'),
+  ];
+
+  const candidates = [];
+  const diagnostics = [];
+
+  const envPort = Number.parseInt(process.env.MBO_PORT || '', 10);
+  if (Number.isInteger(envPort) && envPort > 0) {
+    candidates.push({
+      endpoint: { host: '127.0.0.1', port: envPort, path: '/mcp' },
+      source: 'MBO_PORT',
+      score: 1000,
+      matchedRoot: false,
+      matchedProjectId: false,
+    });
+  }
+
+  for (const manifestPath of manifestPaths) {
+    const parsed = parseManifest(manifestPath);
+    if (!parsed.ok) {
+      diagnostics.push(parsed.error);
+      continue;
+    }
+
+    const { manifest } = parsed;
+    const manifestRoot = canonicalPath(manifest.project_root || cwdRoot);
+    const matchedRoot = sameFilesystemPath(manifestRoot, cwdRoot);
+    const matchedProjectId = manifest.project_id === expectedProjectId;
+    let score = 0;
+    if (matchedRoot) score += 200;
+    if (matchedProjectId) score += 80;
+    if (manifestPath.includes('/.dev/run/')) score += 20;
+
+    candidates.push({
+      endpoint: { host: '127.0.0.1', port: manifest.port, path: '/mcp' },
+      source: manifestPath,
+      score,
+      matchedRoot,
+      matchedProjectId,
+    });
+  }
+
+  const dedup = new Map();
+  for (const c of candidates) {
+    const key = `${c.endpoint.host}:${c.endpoint.port}`;
+    const existing = dedup.get(key);
+    if (!existing || c.score > existing.score) dedup.set(key, c);
+  }
+
+  let ordered = Array.from(dedup.values()).sort((a, b) => b.score - a.score);
+  const hasProjectIdMatch = ordered.some((c) => c.matchedProjectId);
+  if (hasProjectIdMatch) {
+    ordered = ordered.filter((c) => c.matchedProjectId);
+  }
+  return { candidates: ordered, diagnostics, cwdRoot, expectedProjectId };
+}
+
+async function callMCP(endpoint, method, params = {}, sessionId = null, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const body = JSON.stringify({
     jsonrpc: '2.0',
     id: 1,
@@ -70,9 +170,9 @@ async function callMCP(method, params = {}, sessionId = null) {
     };
 
     const req = http.request({
-      host: ep.host,
-      port: ep.port,
-      path: ep.path,
+      host: endpoint.host,
+      port: endpoint.port,
+      path: endpoint.path,
       method: 'POST',
       headers
     }, (res) => {
@@ -100,8 +200,13 @@ async function callMCP(method, params = {}, sessionId = null) {
           }
         }
       });
+      res.on('error', (err) => finish(reject, err));
       res.on('end', () => {
         if (settled) return;
+        if (res.statusCode && res.statusCode >= 400) {
+          finish(reject, new Error(`MCP HTTP ${res.statusCode}: ${responseBody || 'no response body'}`));
+          return;
+        }
         try {
           if (responseBody.includes('data:')) {
              const lines = responseBody.split('\n');
@@ -124,7 +229,7 @@ async function callMCP(method, params = {}, sessionId = null) {
       });
     });
 
-    req.setTimeout(30000, () => {
+    req.setTimeout(timeoutMs, () => {
       finish(reject, new Error(`MCP request timeout for method=${method}`));
       req.destroy();
     });
@@ -134,48 +239,137 @@ async function callMCP(method, params = {}, sessionId = null) {
   });
 }
 
-async function withRetry(fn, retries = 3, delayMs = 500) {
-  let lastErr = null;
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      const msg = String(err && err.message ? err.message : err || '');
-      const retryable =
-        msg.includes('timeout') ||
-        msg.includes('ECONNRESET') ||
-        msg.includes('socket hang up') ||
-        msg.includes('EPIPE');
-      if (!retryable || i === retries - 1) break;
-      await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
-    }
-  }
-  throw lastErr;
+function isRetryableError(err) {
+  const msg = String(err && err.message ? err.message : err || '');
+  return (
+    msg.includes('timeout') ||
+    msg.includes('ECONNRESET') ||
+    msg.includes('socket hang up') ||
+    msg.includes('EPIPE')
+  );
 }
 
-const [,, command, ...args] = process.argv;
+function tcpProbe(endpoint, timeoutMs = 1500) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(endpoint.port, endpoint.host);
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.on('connect', () => {
+      socket.destroy();
+      finish(resolve, true);
+    });
+    socket.on('timeout', () => {
+      socket.destroy();
+      finish(reject, new Error(`TCP probe timeout ${endpoint.host}:${endpoint.port}`));
+    });
+    socket.on('error', (err) => finish(reject, err));
+  });
+}
+
+function parseInvocation(argv) {
+  const args = argv.filter((a) => a !== '--diagnose');
+  const diagnose = argv.length !== args.length;
+  const raw = args[0];
+  if (!raw) return { diagnose, op: null, arg: null };
+
+  const fnMatch = raw.match(/^([a-z_]+)\((.*)\)$/i);
+  if (fnMatch) {
+    const fn = fnMatch[1];
+    const inner = fnMatch[2].trim();
+    if (fn === 'graph_search') {
+      const qMatch = inner.match(/^['\"]([\s\S]*)['\"]$/);
+      return { diagnose, op: fn, arg: qMatch ? qMatch[1] : inner };
+    }
+    return { diagnose, op: fn, arg: null };
+  }
+
+  return { diagnose, op: raw, arg: args[1] || null };
+}
+
+async function initializeWithFallback(candidates, diagnose = false) {
+  const errors = [];
+
+  for (const candidate of candidates) {
+    const endpointTag = `${candidate.endpoint.host}:${candidate.endpoint.port}`;
+    if (diagnose) {
+      console.error(
+        `[MCP QUERY] Trying ${endpointTag} (source=${candidate.source}, score=${candidate.score}, ` +
+        `root_match=${candidate.matchedRoot}, id_match=${candidate.matchedProjectId})`
+      );
+    }
+
+    try {
+      await tcpProbe(candidate.endpoint);
+    } catch (err) {
+      errors.push(`${endpointTag} probe failed: ${err.message}`);
+      continue;
+    }
+
+    let initErr = null;
+    for (const timeoutMs of INIT_TIMEOUT_STEPS) {
+      try {
+        const init = await callMCP(candidate.endpoint, 'initialize', {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'mcp-query-script', version: '1.1.0' }
+        }, null, timeoutMs);
+
+        if (init && init.error) {
+          const message = String(init.error.message || JSON.stringify(init.error));
+          if (message.includes('Server already initialized') && init.sessionId) {
+            return { endpoint: candidate.endpoint, sessionId: init.sessionId };
+          }
+          throw new Error(message);
+        }
+
+        return { endpoint: candidate.endpoint, sessionId: init.sessionId };
+      } catch (err) {
+        initErr = err;
+        if (!isRetryableError(err)) break;
+      }
+    }
+
+    errors.push(`${endpointTag} initialize failed: ${initErr ? initErr.message : 'unknown error'}`);
+  }
+
+  throw new Error(errors.join('\n'));
+}
+
+const { diagnose, op, arg } = parseInvocation(process.argv.slice(2));
 
 (async () => {
   try {
-    const init = await withRetry(() => callMCP('initialize', {
-      protocolVersion: '2024-11-05',
-      capabilities: {},
-      clientInfo: { name: 'mcp-query-script', version: '1.0.0' }
-    }));
-    const sid = init.sessionId;
+    const { candidates, diagnostics, cwdRoot, expectedProjectId } = resolveCandidates();
+    if (diagnose && diagnostics.length > 0) {
+      for (const d of diagnostics) {
+        console.error(`[MCP QUERY] ${d}`);
+      }
+      console.error(`[MCP QUERY] cwd=${cwdRoot} expected_project_id=${expectedProjectId}`);
+    }
+    if (candidates.length === 0) {
+      throw new Error('No valid MCP endpoint candidates found in manifest files or MBO_PORT.');
+    }
+
+    const session = await initializeWithFallback(candidates, diagnose);
+    const sid = session.sessionId;
 
     let res;
-    if (command === 'graph_server_info') {
-      res = await callMCP('tools/call', { name: 'graph_server_info', arguments: {} }, sid);
-    } else if (command === 'graph_search') {
-      res = await callMCP('tools/call', { name: 'graph_search', arguments: { pattern: args[0] } }, sid);
-    } else if (command === 'graph_rescan') {
-      res = await callMCP('tools/call', { name: 'graph_rescan', arguments: {} }, sid);
-    } else if (command === 'tools_list') {
-      res = await callMCP('tools/list', {}, sid);
+    if (op === 'graph_server_info') {
+      res = await callMCP(session.endpoint, 'tools/call', { name: 'graph_server_info', arguments: {} }, sid);
+    } else if (op === 'graph_search') {
+      res = await callMCP(session.endpoint, 'tools/call', { name: 'graph_search', arguments: { pattern: arg } }, sid);
+    } else if (op === 'graph_rescan') {
+      res = await callMCP(session.endpoint, 'tools/call', { name: 'graph_rescan', arguments: {} }, sid);
+    } else if (op === 'tools_list') {
+      res = await callMCP(session.endpoint, 'tools/list', {}, sid);
     } else {
-      console.log('Usage: node ./mcp_query.js [graph_server_info | graph_search <pattern> | graph_rescan | tools_list]');
+      console.log('Usage: node ./mcp_query.js [--diagnose] [graph_server_info | graph_search <pattern> | graph_rescan | tools_list]');
+      console.log('Also supports function style: node ./mcp_query.js "graph_search(\'pattern\')"');
       return;
     }
     console.log(JSON.stringify(res, null, 2));

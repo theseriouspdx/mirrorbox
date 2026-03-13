@@ -3,6 +3,21 @@
 
 ---
 
+### [1.1.8] — 2026-03-13
+#### Fixed
+- **BUG-064: `mcp_query.js` initialize timeout under dual-manifest drift**
+  - Replaced single-manifest endpoint selection with validated candidate resolution across both `.dev/run/mcp.json` and `.mbo/run/mcp.json`.
+  - Added project identity scoring (`project_root` canonical match + `project_id` hash match) and hard preference for matching project IDs when present.
+  - Added endpoint TCP preflight probe and multi-candidate fallback before initialize.
+  - Added adaptive initialize timeouts (`6000ms`, `12000ms`, `25000ms`) for slow cold-start servers.
+  - Added compatibility handling for `Server already initialized` responses that still include `mcp-session-id`.
+  - Added `--diagnose` mode and function-style invocation parsing (`graph_search('...')`) for deterministic in-app troubleshooting.
+
+#### Validation
+- `node --check mcp_query.js`
+- `node mcp_query.js --diagnose "graph_search('Canonicalize AGENTS.md')"`
+  - In this tool sandbox, localhost probes return `EPERM`; diagnostics now report endpoint-specific probe failures explicitly.
+
 ### [1.1.7] — 2026-03-13
 #### Fixed
 - **1.1-H15 BUG-057: MCP stream-destroyed incident**: Server no longer enters `incident` state when clients disconnect during long-running graph scans.

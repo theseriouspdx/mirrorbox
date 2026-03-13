@@ -26,6 +26,20 @@
   - `_sendMCPHttp`: reads `Content-Type` header; if `text/event-stream`, parses SSE frames and extracts the first `data:` payload before JSON-parsing.
   - `shutdown`: deletes `.dev/run/mcp.session` on clean shutdown to prevent stale ID reuse after server kill.
 
+### BUG-064: `mcp_query.js` initialize timeout due to wrong endpoint selection under dual manifests | Milestone: 1.1 | COMPLETED
+- **Location:** `mcp_query.js`
+- **Severity:** P0
+- **Status:** COMPLETED — 2026-03-13
+- **Root cause:** Client endpoint resolution trusted first-ready manifest precedence (or ad-hoc env overrides), which can target a live MCP from a different project/root under multi-run conditions. This surfaced as repeated `MCP request timeout for method=initialize` even when a healthy local server existed for the current repo.
+- **Fix implemented (minimal + robust):**
+  1. Added manifest candidate resolution across `.dev/run/mcp.json` and `.mbo/run/mcp.json` with strict validation (`manifest_version`, `status`, `port`).
+  2. Added project identity scoring (`project_root` canonical match + `project_id` hash match to current cwd).
+  3. Added fail-safe filter: when any `project_id` match exists, non-matching candidates are rejected.
+  4. Added endpoint preflight TCP probe before initialize; unhealthy listeners are skipped automatically.
+  5. Added initialize fallback across candidates with adaptive timeout steps (`6s`, `12s`, `25s`) for cold starts.
+  6. Added handling for `Server already initialized` responses that still return session headers.
+  7. Added `--diagnose` mode and function-style invocation parsing (`graph_search('...')`) to make operational debugging deterministic.
+
 ---
 
 ## Section 2 — P1: Must Fix Before Milestone Complete
@@ -179,12 +193,16 @@
 ### BUG-061: Merkle scope drift + MCP query path drift can cause false mismatch and wrong-server access | Milestone: 1.1 | OPEN
 - **Location:** `bin/handshake.py`, `src/relay/pile.js`, `mcp_query.js`, `src/utils/resolve-manifest.js`
 - **Severity:** P0
-- **Status:** OPEN — 2026-03-13
-- **Description:** Two coupled drift failures remain active: (1) Merkle scope mismatch (`handshake.py` validates `src/` baseline while `pile.js` computes project-root hashes), so non-`src` changes can trigger false promotion mismatches; (2) preflight query usage still appears as `mcp_query.js ...` in operator flows, which fails with `command not found` unless `node` is explicit and can bypass manifest-root assertions when stale scripts are used.
-- **Fix Required:**
+- **Status:** PARTIAL FIXED — 2026-03-13
+- **Description:** Two coupled drift failures were tracked: (1) Merkle scope mismatch (`handshake.py` validates `src/` baseline while `pile.js` computes project-root hashes), so non-`src` changes can trigger false promotion mismatches; (2) preflight query usage still appears as `mcp_query.js ...` in operator flows, which fails with `command not found` unless `node` is explicit and can bypass manifest-root assertions when stale scripts are used.
+- **Implemented:**
+  1. `mcp_query.js` endpoint selection now validates/ranks manifests and prefers matching `project_id` for current cwd.
+  2. Added multi-candidate fallback with preflight TCP probe + adaptive initialize timeouts.
+  3. Added `--diagnose` and function-style query parsing to standardize preflight invocation.
+- **Remaining:**
   1. Introduce explicit Merkle scope contract (`src` vs `approved_files` vs `project`) and enforce one scope per operation pair.
   2. Update Pile verification to hash the approved promotion set (or identical explicit scope on both worlds), not full project root by default.
-  3. Standardize MCP preflight command path to `node ./mcp_query.js ...` and reject non-manifest endpoint fallbacks.
+  3. Standardize MCP preflight command path to `node ./mcp_query.js ...` in all operator flows.
   4. Add regression tests for case-variant project roots and non-`src` edits to ensure no false lockout.
 
 ### BUG-062: Auth bootstrap unusable in-app/self-run contexts (CLI dependency and non-TTY failure) | Milestone: 1.1 | COMPLETED

@@ -1,6 +1,22 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.11] — 2026-03-13
+#### Fixed
+- **BUG-064: `mcp_query.js` initialize timeout under dual-manifest drift**
+  - Replaced single-manifest endpoint pick with validated candidate resolution from both `.dev/run/mcp.json` and `.mbo/run/mcp.json`.
+  - Added project identity scoring (`project_root` canonical match + `project_id` hash match).
+  - Added strict preference filter: if any candidate matches current-project `project_id`, non-matching endpoints are ignored.
+  - Added endpoint TCP preflight probe and multi-candidate fallback.
+  - Added adaptive initialize timeout steps (`6000ms`, `12000ms`, `25000ms`) for slow cold starts.
+  - Added compatibility path for `Server already initialized` responses when session header is present.
+  - Added diagnostic mode (`--diagnose`) and function-style invocation parsing (`graph_search('...')`) to standardize operator preflight calls.
+
+#### Validation
+- `node --check mcp_query.js`
+- `node mcp_query.js --diagnose "graph_search('Canonicalize AGENTS.md')"`
+  - In this tool sandbox, localhost probes return `EPERM`; diagnostics now make this explicit and endpoint-specific.
+
 ### [1.1.10] — 2026-03-13
 #### Changed
 - **Keychain-backed one-command auth (`bin/handshake.py`, `bin/mbo.js`):**
