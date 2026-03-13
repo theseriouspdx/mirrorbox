@@ -122,6 +122,14 @@ def _confirm_risky_scope(cell_name: str, force: bool):
         sys.exit(1)
 
 
+def _has_human_auth() -> bool:
+    # One-command UX: interactive humans can auth without env sentinel.
+    # Non-interactive contexts still require explicit token and remain fail-closed.
+    if os.environ.get("MBO_HUMAN_TOKEN", ""):
+        return True
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
 def handshake(cell_name: str, force: bool = False):
     if SESSION_LOCK.exists():
         lock_data = json.loads(SESSION_LOCK.read_text())
@@ -185,11 +193,11 @@ HELP_TEXT = """
 mboauth — MBO Sovereign Factory handshake tool
 
 USAGE (human):
-  mboauth auth <scope> [--force]    Grant write access to src/<scope> (requires MBO_HUMAN_TOKEN)
-  mboauth revoke                    End session, lock src/, generate handoff (requires MBO_HUMAN_TOKEN)
+  mboauth auth <scope> [--force]    Grant write access to src/<scope>
+  mboauth revoke                    End session, lock src/, generate handoff
   mboauth reset                     Rebaseline Merkle root after commits to src/ (git must be clean)
 
-USAGE (agent-safe, no token required):
+USAGE (agent-safe):
   mboauth status                    Show active session scope and expiry
   mboauth pulse                     Integrity check — verify src/ matches baseline
   mboauth --help                    Show this message
@@ -200,7 +208,6 @@ SCOPE EXAMPLES:
   mboauth auth index.js
 
 NOTES:
-  - alias mboauth='MBO_HUMAN_TOKEN=1 python3 ~/MBO/bin/handshake.py'
   - src/ is locked (555) when no session is active; writes are blocked
   - Session TTL: 30 minutes
 """
@@ -223,14 +230,11 @@ if __name__ == "__main__":
     elif sys.argv[1] in ("revoke", "status", "pulse", "reset"):
         sys.argv[1] = f"--{sys.argv[1]}"
 
-    # Human-only guard: grant and revoke require MBO_HUMAN_TOKEN in environment.
-    # Agents may only run --status, --pulse, and --reset without the token.
-    HUMAN_TOKEN = os.environ.get("MBO_HUMAN_TOKEN", "")
     arg = sys.argv[1]
     is_grant = not arg.startswith("--")
     is_revoke = arg == "--revoke"
-    if (is_grant or is_revoke) and not HUMAN_TOKEN:
-        print("[GATE] DENIED: Grant/revoke requires MBO_HUMAN_TOKEN env var. Agents may only run --status, --pulse, or --reset.", file=sys.stderr)
+    if (is_grant or is_revoke) and not _has_human_auth():
+        print("[GATE] DENIED: Human approval required. Run from an interactive terminal or provide MBO_HUMAN_TOKEN.", file=sys.stderr)
         sys.exit(1)
 
     if arg == "--merkle-root":
