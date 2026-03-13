@@ -26,6 +26,42 @@ class Pile {
     return r.stdout.trim();
   }
 
+  _normalizeApprovedFiles(approvedFiles) {
+    if (!Array.isArray(approvedFiles) || approvedFiles.length === 0) {
+      throw new Error('[Pile] approvedFiles is empty; cannot compute Merkle scope.');
+    }
+    const cleaned = approvedFiles
+      .filter((f) => typeof f === 'string' && f.trim().length > 0)
+      .map((f) => f.replace(/^\.\//, '').replace(/^\/+/, ''));
+    if (cleaned.length === 0) {
+      throw new Error('[Pile] approvedFiles contains no valid paths.');
+    }
+    return Array.from(new Set(cleaned)).sort();
+  }
+
+  _hashApprovedFiles(rootDir, approvedFiles) {
+    const files = this._normalizeApprovedFiles(approvedFiles);
+    const joined = files.join('\n').replace(/'/g, "'\\''");
+    const script = [
+      'import sys',
+      'from pathlib import Path',
+      'from handshake import compute_merkle_root',
+      `root = Path('${rootDir.replace(/'/g, "'\\''")}').resolve()`,
+      `files = '''${joined}'''.splitlines()`,
+      'targets = [root / f for f in files]',
+      'print(compute_merkle_root(root, base_root=root, file_list=targets))',
+    ].join('\n');
+    const r = spawnSync('python3', ['-c', script], {
+      encoding: 'utf8',
+      env: { ...process.env, PYTHONPATH: path.join(MBO_ROOT, 'bin') },
+      cwd: MBO_ROOT,
+    });
+    if (r.status !== 0) {
+      throw new Error(`[Pile] Approved-files Merkle computation failed: ${r.stderr || r.stdout}`);
+    }
+    return r.stdout.trim();
+  }
+
   promote(taskId, approvedFiles) {
     // Step 1: acquire lock
     if (fs.existsSync(PILE_LOCK)) {
@@ -41,8 +77,9 @@ class Pile {
       // Step 2: quiesce — pre-mutation checkpoint
       stateManager.checkpoint('mirror');
 
-      // Step 3: merkle baseline
-      const preMerkle = this._merkleRoot(MBO_ROOT);
+      // Step 3: Merkle baseline over approved files only (SPEC scope contract).
+      const normalizedApproved = this._normalizeApprovedFiles(approvedFiles);
+      const preMerkle = this._hashApprovedFiles(MBO_ROOT, normalizedApproved);
 
       // Step 5: checkpoint subject
       const cpResult = spawnSync('rsync', ['--archive', '--link-dest', subjectRoot, `${subjectRoot}/`, `${cpPath}/`], { encoding: 'utf8' });
@@ -55,8 +92,8 @@ class Pile {
       ], { encoding: 'utf8' });
       if (rsync.status !== 0) throw new Error(`[Pile] rsync failed: ${rsync.stderr}`);
 
-      // Step 7: verify merkle
-      const postMerkle = this._merkleRoot(subjectRoot);
+      // Step 7: verify Merkle over the same approved-file scope in Subject.
+      const postMerkle = this._hashApprovedFiles(subjectRoot, normalizedApproved);
       if (postMerkle !== preMerkle) {
         this._rollback(subjectRoot, cpPath, taskId);
         throw new Error('[Pile] Merkle mismatch post-promotion. Rolled back.');

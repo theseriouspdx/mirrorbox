@@ -1,6 +1,36 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.8] — 2026-03-13
+#### Added
+- **BUG-061 logged and tracked:** Merkle scope drift + MCP query path drift now tracked in `BUGS.md` and `projecttracking.md` (`1.1-H16`).
+- **BUG-062 logged and tracked:** Auth bootstrap usability failure for in-app/self-run/non-TTY contexts tracked in `BUGS.md` and `projecttracking.md` (`1.1-H17`).
+
+#### Changed
+- **`mcp_query.js` hardening:**
+  - Enforced manifest-only endpoint resolution via `src/utils/resolve-manifest.js`.
+  - Added canonical project-root assertion: helper now fails fast if `cwd` and `manifest.project_root` diverge.
+  - Updated usage examples to explicit `node ./mcp_query.js ...` invocation.
+- **Merkle scope contract explicitness (`bin/handshake.py`, `bin/init_state.py`):**
+  - `state.json` now persists `merkle_scope` (currently `src`).
+  - Integrity mismatch output now includes scope.
+  - `--merkle-root` now computes relative to the requested target root to avoid ambiguous path semantics.
+- **Pile verification scope fix (`src/relay/pile.js`):**
+  - Promotion pre/post Merkle verification now hashes the normalized `approvedFiles` set, not whole project roots.
+  - Eliminates false mismatch incidents caused by unrelated non-approved file changes.
+
+#### Operational Recovery Note
+- If handshake fails with `EXTERNAL_MUTATION_DETECTED` after tracked/approved source changes, rebaseline before auth:
+  1. `python3 bin/handshake.py --reset`
+  2. `python3 bin/handshake.py --pulse` (expect `[PULSE] OK`)
+  3. `MBO_HUMAN_TOKEN=1 bin/handshake.py src`
+
+#### Validation
+- `node -c mcp_query.js`
+- `python3 -m py_compile bin/handshake.py bin/init_state.py`
+- `node -c src/relay/pile.js`
+- `python3 bin/handshake.py --pulse`
+
 ### [1.1.7] — 2026-03-12
 #### Added
 - **TOKENMISER Dashboard and StatsManager refactor (Task 1.1-07, 1.1-08):**

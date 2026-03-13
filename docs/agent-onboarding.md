@@ -125,6 +125,24 @@ Run `graph_rescan()` first, then:
 - `graph_query_callers("node_id")` — who calls this?
 - `graph_update_task({ task_id, status })` — update task state
 
+### MCP Query Helper Safety Notes
+
+- Always invoke with Node explicitly:
+
+```bash
+node ./mcp_query.js tools_list
+node ./mcp_query.js graph_search "open tasks"
+```
+
+- If helper returns `project_root mismatch`, stop and recover MCP manifest from the canonical project path before continuing.
+- If handshake returns `EXTERNAL_MUTATION_DETECTED`, run hydration recovery before requesting write auth:
+
+```bash
+python3 bin/handshake.py --reset
+python3 bin/handshake.py --pulse
+MBO_HUMAN_TOKEN=1 bin/handshake.py src
+```
+
 ---
 
 ## Session End

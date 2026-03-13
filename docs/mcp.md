@@ -61,12 +61,33 @@ node ./mcp_query.js graph_search "open tasks"
 - Check `/.mbo/run/mcp.json` exists in the current project.
 - Ensure `mbo` is running from that project.
 
-2. `project_id mismatch` in Operator
+2. `project_root mismatch` from `node ./mcp_query.js ...`
+- This is an intentional safety guard to prevent querying the wrong MCP context.
+- If you see only case drift (for example `/Users/johnserious/mbo` vs `/Users/johnserious/MBO`), restart MCP from the canonical project path and regenerate the manifest.
+- Validate with:
+
+```bash
+node ./mcp_query.js graph_server_info
+```
+
+- `cwd` and `manifest.project_root` must match exactly after canonicalization.
+
+3. `project_id mismatch` in Operator
 - Connected MCP belongs to a different project root.
 - Restart from the intended project directory.
 
-3. Session-close appears slow
+4. Session-close appears slow
 - Session-close and rebuild are timeout-bounded; rerun `mbo` from project root.
+
+5. Handshake fails with `EXTERNAL_MUTATION_DETECTED` / hydration mode
+- This indicates baseline drift in `.journal/state.json` relative to current `src`.
+- Recovery sequence:
+
+```bash
+python3 bin/handshake.py --reset
+python3 bin/handshake.py --pulse
+MBO_HUMAN_TOKEN=1 bin/handshake.py src
+```
 
 ## Dev Mode Notes
 
