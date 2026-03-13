@@ -62,6 +62,13 @@ async function callMCP(method, params = {}, sessionId = null) {
   }
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+
     const req = http.request({
       host: ep.host,
       port: ep.port,
@@ -71,8 +78,30 @@ async function callMCP(method, params = {}, sessionId = null) {
     }, (res) => {
       let responseBody = '';
       const sid = res.headers['mcp-session-id'];
-      res.on('data', (chunk) => { responseBody += chunk.toString(); });
+      res.on('data', (chunk) => {
+        responseBody += chunk.toString();
+
+        // Streamable HTTP may keep SSE responses open; resolve on first valid data frame.
+        const events = responseBody.split('\n\n');
+        for (const event of events) {
+          const line = event.split('\n').find((l) => l.startsWith('data:'));
+          if (!line) continue;
+          const data = line.slice(5).trim();
+          if (!data || data === '[DONE]') continue;
+          try {
+            const json = JSON.parse(data);
+            if (json && (json.result !== undefined || json.error !== undefined)) {
+              finish(resolve, { result: json.result, error: json.error, sessionId: sid, raw: responseBody });
+              req.destroy();
+              return;
+            }
+          } catch {
+            // Wait for more data.
+          }
+        }
+      });
       res.on('end', () => {
+        if (settled) return;
         try {
           if (responseBody.includes('data:')) {
              const lines = responseBody.split('\n');
@@ -81,21 +110,25 @@ async function callMCP(method, params = {}, sessionId = null) {
                  const data = line.slice(5).trim();
                  if (data && data !== '[DONE]') {
                    const json = JSON.parse(data);
-                   resolve({ result: json.result, sessionId: sid, raw: responseBody });
+                   finish(resolve, { result: json.result, error: json.error, sessionId: sid, raw: responseBody });
                    return;
                  }
                }
              }
           }
           const json = JSON.parse(responseBody);
-          resolve({ result: json.result, sessionId: sid, raw: responseBody });
+          finish(resolve, { result: json.result, error: json.error, sessionId: sid, raw: responseBody });
         } catch (e) {
-          reject(new Error(`Failed to parse response: ${responseBody}`));
+          finish(reject, new Error(`Failed to parse response: ${responseBody}`));
         }
       });
     });
 
-    req.on('error', reject);
+    req.setTimeout(8000, () => {
+      finish(reject, new Error(`MCP request timeout for method=${method}`));
+      req.destroy();
+    });
+    req.on('error', (err) => finish(reject, err));
     req.write(body);
     req.end();
   });
