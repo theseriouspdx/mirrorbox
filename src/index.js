@@ -94,41 +94,99 @@ async function main() {
     }
     // ctrl+c (exit)
     if (key.ctrl && key.name === 'c') {
-      process.exit();
+      rl.close();
     }
   });
 
-  rl.on('line', async (line) => {
+  // §34.4: Proactive write helper.
+  const write = (msg) => {
+    process.stdout.write('\n' + String(msg) + '\n');
+    rl.prompt(true);
+  };
+
+  let _auditRunning = false;
+
+  rl.on('line', (line) => {
     const trimmed = line.trim();
     if (!trimmed && !operator.sandboxFocus) {
       rl.prompt();
       return;
     }
 
-    // §6A Audit Gate: resolve pending audit before processing new input
-    if (operator.stateSummary && operator.stateSummary.pendingAudit) {
-      if (trimmed === 'approved') {
-        const ctx = operator.stateSummary.pendingAuditContext || {};
-        await operator.runStage8(ctx.classification || {}, ctx.routing || {});
-        operator.stateSummary.pendingAudit = null;
-        operator.stateSummary.pendingAuditContext = null;
-        process.stdout.write('[AUDIT] Approved. State synced.\n');
-      } else if (trimmed === 'reject') {
-        const files = operator.stateSummary.pendingAudit.modifiedFiles || [];
-        await operator.runStage7Rollback(files);
-        operator.stateSummary.pendingAudit = null;
-        process.stdout.write('[AUDIT] Rejected. Rolled back. Re-entering Stage 3.\n');
-      } else {
-        process.stdout.write('[AUDIT] Pending audit — respond "approved" or "reject".\n');
-      }
-      rl.prompt();
+    // §34.2: Status, stop, and session continuity — bypass pipeline guard.
+    const lower = trimmed.toLowerCase();
+    if (lower === 'status' || lower === "what's going on?") {
+      write(operator.getStatus());
+      return;
+    }
+    if (lower === 'history' || lower === 'what were we working on last time') {
+      write(`Last Task: ${operator.stateSummary.progressSummary || 'none'}`);
+      return;
+    }
+    if (lower === 'stop' || lower === 'abort' || lower === "stop what you're doing") {
+      operator.requestAbort();
+      write('[OPERATOR] Abort requested. Hard-killing active model tasks...');
       return;
     }
 
-    const result = await operator.processMessage(trimmed);
-    process.stdout.write(dashboard.renderHeader());
-    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-    rl.prompt();
+    // Steering Integration: Catch input when pipeline is running
+    if (operator._pipelineRunning) {
+      operator.userHintBuffer.push(trimmed);
+      write('[OPERATOR] User hint captured. It will be injected into the next iteration.');
+      return;
+    }
+
+    // §6A Audit Gate: resolve pending audit before processing new input
+    if (operator.stateSummary && operator.stateSummary.pendingAudit) {
+      if (_auditRunning) {
+        write('[AUDIT] Audit operation already in progress — please wait.');
+        return;
+      }
+      if (trimmed === 'approved') {
+        const ctx = operator.stateSummary.pendingAuditContext || {};
+        _auditRunning = true;
+        operator.runStage8(ctx.classification || {}, ctx.routing || {})
+          .then(() => {
+            operator.stateSummary.pendingAudit = null;
+            operator.stateSummary.pendingAuditContext = null;
+            _auditRunning = false;
+            write('[AUDIT] Approved. State synced.');
+          })
+          .catch(err => {
+            _auditRunning = false;
+            write(`[AUDIT ERROR] ${err.message}`);
+          });
+      } else if (trimmed === 'reject') {
+        const files = operator.stateSummary.pendingAudit.modifiedFiles || [];
+        _auditRunning = true;
+        operator.runStage7Rollback(files)
+          .then(() => {
+            operator.stateSummary.pendingAudit = null;
+            _auditRunning = false;
+            write('[AUDIT] Rejected. Rolled back. Type "go" to retry.');
+          })
+          .catch(err => {
+            _auditRunning = false;
+            write(`[AUDIT ERROR] ${err.message}`);
+          });
+      } else {
+        write('[AUDIT] Pending audit — respond "approved" or "reject".');
+      }
+      return;
+    }
+
+    // §34: Fire pipeline as background task — input loop remains unblocked.
+    operator.processMessage(trimmed)
+      .then(result => {
+        operator._pipelineRunning = false;
+        if (result && result.status !== 'started') {
+          write(dashboard.renderHeader() + '\n' + JSON.stringify(result, null, 2));
+        }
+      })
+      .catch(err => {
+        operator._pipelineRunning = false;
+        write(`[OPERATOR] ${err.message}`);
+      });
   });
 
   rl.on('close', async () => {

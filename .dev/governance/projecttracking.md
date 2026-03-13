@@ -56,8 +56,12 @@
 | 1.1-H21 | Fix BUG-067: keep `mbo auth` usable in controller repo while runtime remains guarded | COMPLETED |
 | 1.1-H22 | Temporary MCP-disabled operations mode in controller repo; route agents to legacy workflow | SUPERSEDED — see 1.1-H23 |
 | 1.1-H23 | Migrate MCP to launchd-owned system daemon — fixed port 7337, delete mbo-start.sh/watchdog/manifests, surgery on mcp-server.js + operator.js, add mbo setup/teardown | COMPLETED |
-| 1.1-H24 | Implement DID protocol in operator pipeline — wire Gemini-as-A, Claude-as-B, Codex tiebreaker into callModel routing; enforce blind derivation context isolation; add reconciliation output format and retry gate | OPEN — Tier 3, DID required, preflight at `.dev/preflight/did-protocol-implementation.md` |
+| 1.1-H24 | Implement DID protocol in operator pipeline — wire Gemini-as-A, Claude-as-B, Codex tiebreaker into callModel routing; enforce blind derivation context isolation; add reconciliation output format and retry gate | COMPLETED — 2026-03-13 — DID v2 reconciled logic implemented in src/auth/did-orchestrator.js |
 | 1.1-H25 | Security Hardening: restore Section 8 Affirmation Protocol (non-persistence), implement Invariant 13 (Topology Backups) and Invariant 14 (Write-File Overwrite Lock) | COMPLETED |
+| 1.1-H26 | Implement Persona Store & Entropy Gate — personalities/ directory, default .md files for all 5 roles, .mbo/persona.json schema, ~/.orchestrator/personas/ user library, persona injection into callModel, Operator extraction pass replacing validateOutputSchema() JSON check, Entropy Score computation in Stage 1.5, hard stop at Entropy > 10, agent-onboarding.md Stage 1.5 update, AGENTS.md Section 13 | OPEN — Tier 2, DID required, design in DESIGN_DECISIONS.md DDR-001/002/003/004 |
+| 1.1-H27 | Implement Agent Output Streaming (Section 33) — persona-consistent character output, inter-agent conversation visibility, per-agent streaming flags in operator config | OPEN |
+| 1.1-H28 | Implement Persistent Operator Window (Section 34) — transition from process-per-task to persistent loop, mbo-start watchdog integration, session history persistence | COMPLETED — 2026-03-13 — Persistent REPL with background pipeline, abort, and status reporting implemented. |
+| 1.1-H29 | Implement Context Minimization & Tiered Routing (Section 35) — spec refinement gate, model-specific token budgeting, prompt caching for static governance docs | OPEN |
 
 Audit addendum (2026-03-13):
 - Task `1.1-H12` is functionally complete, but its original closing commit (`becf656`) bundled unrelated fixes (`1.1-H19`/`1.1-H20`/`1.1-H21`).

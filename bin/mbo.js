@@ -247,10 +247,21 @@ if (process.argv[2] === 'setup') {
     process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
     process.exit(2);
   }
-  const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
-    stdio: 'inherit',
-    env: { ...process.env, MBO_PROJECT_ROOT: PROJECT_ROOT },
-    cwd: PROJECT_ROOT,
-  });
-  child.on('exit', (code) => process.exit(code ?? 0));
+  // Task 1.1-H28: Persistent Operator Loop
+  function spawnOperator() {
+    const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
+      stdio: 'inherit',
+      env: { ...process.env, MBO_PROJECT_ROOT: PROJECT_ROOT },
+      cwd: PROJECT_ROOT,
+    });
+    child.on('exit', (code) => {
+      if (code !== 0 && code !== null) {
+        process.stderr.write(`[MBO] Operator exited with code ${code}. Respawning...\n`);
+        setTimeout(spawnOperator, 1000);
+      } else {
+        process.exit(0);
+      }
+    });
+  }
+  spawnOperator();
 }

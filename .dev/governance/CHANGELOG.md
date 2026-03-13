@@ -1,6 +1,21 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.17] — 2026-03-13
+#### Added
+- **Persistent Operator (Task 1.1-H28):** 
+  - Operator REPL in `src/index.js` now features a non-blocking background pipeline. 
+  - Added `status`, `history`, and `stop`/`abort` commands. 
+  - Integrated `AbortController` into `Operator` and `callModel` for model-call cancellation.
+  - Implemented `bin/mbo.js` respawn loop for operator process persistence.
+  - Persistent session history storage in `.mbo/session_history.json`.
+- **DID Protocol v2 (Task 1.1-H24):** 
+  - Implemented the hardened DID autonomous bounce loop in `src/auth/did-orchestrator.js`.
+  - Added role-specific prompt builders in `src/auth/did-prompts.js` supporting RATIONALE, DIFF, and VERDICT.
+  - Implemented blind isolation via content hashing of previous agent outputs.
+  - Integrated surgical tiebreaker package delivery (DDR-007).
+  - Wired DID into Stage 3 planning for Tiers 2 and 3.
+
 ### [1.1.16] — 2026-03-13
 #### Governance
 - **Restored Section 8 Affirmation Protocol:** Re-implemented the `nhash * salt = Hard State Anchor` calculation and the mandatory "I will not make assumptions..." pledge sequence in `AGENTS.md`.

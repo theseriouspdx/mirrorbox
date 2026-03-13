@@ -22,3 +22,6 @@ mirrorbox.db*
 
 # Generated plist (from scripts/com.mbo.mcp.plist.template via mbo-launchd-install.sh)
 scripts/com.mbo.mcp.plist
+
+# DID artifacts
+.dev/did/

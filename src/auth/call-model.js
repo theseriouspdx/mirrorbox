@@ -109,7 +109,8 @@ function wrapContext(context) {
 /**
  * Section 10: Ensures models that MUST return JSON do so.
  */
-function validateOutputSchema(role, response) {
+function validateOutputSchema(role, response, options = {}) {
+  if (options.expectJson === false) return;
   const mustBeJson = new Set(['classifier', 'reviewer', 'architecturePlanner', 'componentPlanner', 'tiebreaker']);
   if (!mustBeJson.has(role)) return;
   
@@ -154,7 +155,7 @@ function getOpenRouterKey() {
 
 // ── Provider dispatch implementations ────────────────────────────────────────
 
-function dispatchCLI(config, systemPrompt, userPrompt) {
+function dispatchCLI(config, systemPrompt, userPrompt, signal = null) {
   return new Promise((resolve, reject) => {
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
     const proc = spawn(config.binary, ['-p', fullPrompt], {
@@ -166,6 +167,12 @@ function dispatchCLI(config, systemPrompt, userPrompt) {
     proc.stdout.on('data', d => stdout += d);
     proc.stderr.on('data', d => stderr += d);
 
+    const onAbort = () => {
+      proc.kill('SIGTERM');
+      reject(new Error(`CLI dispatch aborted for ${config.model}`));
+    };
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+
     const timeout = setTimeout(() => {
       proc.kill('SIGTERM');
       reject(new Error(`CLI dispatch timeout for ${config.model}`));
@@ -173,7 +180,11 @@ function dispatchCLI(config, systemPrompt, userPrompt) {
 
     proc.on('close', (code) => {
       clearTimeout(timeout);
-      if (code !== 0) return reject(new Error(`CLI exited ${code}: ${stderr.slice(0, 500)}`));
+      if (signal) signal.removeEventListener('abort', onAbort);
+      if (code !== 0) {
+        if (signal && signal.aborted) return; // handled by onAbort
+        return reject(new Error(`CLI exited ${code}: ${stderr.slice(0, 500)}`));
+      }
       
       // Clean response: remove status lines like "Loaded cached credentials."
       const cleaned = stdout.split('\n')
@@ -186,7 +197,7 @@ function dispatchCLI(config, systemPrompt, userPrompt) {
   });
 }
 
-function dispatchOpenRouter(model, systemPrompt, userPrompt) {
+function dispatchOpenRouter(model, systemPrompt, userPrompt, signal = null) {
   return new Promise((resolve, reject) => {
     const key = getOpenRouterKey();
     if (!key) return reject(new Error('OpenRouter key not configured'));
@@ -210,7 +221,8 @@ function dispatchOpenRouter(model, systemPrompt, userPrompt) {
         'HTTP-Referer': 'https://github.com/mbo-orchestrator',
         'X-Title': 'Mirror Box Orchestrator'
       },
-      timeout: 120000
+      timeout: 120000,
+      signal
     };
 
     const req = https.request(options, (res) => {
@@ -229,14 +241,17 @@ function dispatchOpenRouter(model, systemPrompt, userPrompt) {
         }
       });
     });
-    req.on('error', reject);
+    req.on('error', (err) => {
+      if (err.name === 'AbortError') return reject(new Error('OpenRouter request aborted'));
+      reject(err);
+    });
     req.on('timeout', () => { req.destroy(); reject(new Error('OpenRouter request timeout')); });
     req.write(body);
     req.end();
   });
 }
 
-function dispatchLocal(url, systemPrompt, userPrompt) {
+function dispatchLocal(url, systemPrompt, userPrompt, signal = null) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({
       model: 'default',
@@ -254,7 +269,8 @@ function dispatchLocal(url, systemPrompt, userPrompt) {
       path: parsedUrl.pathname,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      timeout: 120000
+      timeout: 120000,
+      signal
     };
 
     const req = http.request(options, (res) => {
@@ -272,7 +288,10 @@ function dispatchLocal(url, systemPrompt, userPrompt) {
         }
       });
     });
-    req.on('error', reject);
+    req.on('error', (err) => {
+      if (err.name === 'AbortError') return reject(new Error('Local model request aborted'));
+      reject(err);
+    });
     req.on('timeout', () => { req.destroy(); reject(new Error('Local model request timeout')); });
     req.write(body);
     req.end();
@@ -285,7 +304,7 @@ function dispatchLocal(url, systemPrompt, userPrompt) {
  * Section 10: The only path to any model. Enforces firewall, redaction, event logging.
  * Invariant 6: No model call may bypass callModel.
  */
-async function callModel(role, prompt, context = {}, hardState = null, protectedHashes = [], runId = null) {
+async function callModel(role, prompt, context = {}, hardState = null, protectedHashes = [], runId = null, options = {}) {
   verifyToolAgnosticism(prompt);
   verifyBlindIsolation(prompt, protectedHashes);
 
@@ -300,6 +319,7 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
   const hardStateBlock = wrapHardState(hardState);
   const systemPrompt = `${FIREWALL_DIRECTIVE}\n\n${HARD_STATE_DIRECTIVE}\n${hardStateBlock}\n\n${contextBlock}`.trim();
   const userPrompt = prompt;
+  const signal = options.signal || null;
 
   // Task 1.1-H09: Calculate "Raw" Baseline estimate (Without MBO optimization)
   // Measured on unoptimized inputs: current sessionHistory + raw context
@@ -317,14 +337,14 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
   let usageData = null;
   try {
     if (config.provider === 'cli') {
-      const result = await dispatchCLI(config, systemPrompt, userPrompt);
+      const result = await dispatchCLI(config, systemPrompt, userPrompt, signal);
       response = typeof result === 'string' ? result : result.text;
       usageData = result.usage || null;
     } else if (config.provider === 'openrouter') {
-      const result = await dispatchOpenRouter(config.model, systemPrompt, userPrompt);
+      const result = await dispatchOpenRouter(config.model, systemPrompt, userPrompt, signal);
       response = result.text; usageData = result.usage;
     } else if (config.provider === 'local') {
-      const result = await dispatchLocal(config.url, systemPrompt, userPrompt);
+      const result = await dispatchLocal(config.url, systemPrompt, userPrompt, signal);
       response = result.text; usageData = result.usage;
     } else {
       throw new Error(`[callModel] Unknown provider type: ${config.provider}`);
@@ -370,7 +390,7 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
   }
 
   // Section 10: Structural validation
-  validateOutputSchema(role, response);
+  validateOutputSchema(role, response, options);
 
   // Section 10: Injection heuristic check
   if (checkInjectionHeuristic(response)) {
