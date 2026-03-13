@@ -4,6 +4,8 @@
 
 MBO uses a **handshake + sentinel** model to ensure only human-authorized writes reach the source tree. No agent may write to `src/` without a valid session token scoped to a specific path.
 
+On macOS, `mbo auth` now enforces OS-native user presence (Touch ID/password via LocalAuthentication/Keychain path) before any grant/revoke action.
+
 Two independent protection layers:
 
 | Layer | File | Checked by |
@@ -64,6 +66,20 @@ No expired session is reported as active.
 
 ---
 
+## Human Auth Model
+
+- `mbo auth <scope> [--force]` remains the only user-facing auth command.
+- `mbo auth` still prints status before and after mutations.
+- macOS requires OS user-presence for auth mutations (`grant`/`revoke`/same-scope toggle revoke).
+- Non-interactive sessions are fail-closed by default.
+- Explicit CI policy is supported only when all required controls are set:
+  - `CI=1`
+  - `MBO_CI_AUTH_APPROVED=1`
+  - Optional action allowlist: `MBO_CI_AUTH_ACTIONS=grant,revoke` (or `*`)
+  - Optional scope allowlist: `MBO_CI_AUTH_SCOPES=src,auth/operator` (or `*`)
+
+---
+
 ## Risky Scope (`.`)
 
 Scope `.` maps to full `src` scope and is high risk.
@@ -111,6 +127,7 @@ Agents must never write `src/` directly — always use `impl_step.sh`.
 ```text
 Human: mbo auth <scope> [--force]
   → prints session status
+  → requires macOS user-presence for mutation (Touch ID/password)
   → Merkle integrity check
   → optional force-path warning + audit logging
   → lock_src(): chmod src/**/* to 444, write write.deny

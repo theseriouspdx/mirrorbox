@@ -1,6 +1,29 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.10] — 2026-03-13
+#### Changed
+- **Keychain-backed one-command auth (`bin/handshake.py`, `bin/mbo.js`):**
+  - Removed env-sentinel (`MBO_HUMAN_TOKEN`) dependency for grant/revoke.
+  - `mbo auth <path> [--force]` remains the single user command.
+  - macOS auth mutation paths now require OS user-presence checks for grant/revoke/toggle (`LocalAuthentication` prompt with Keychain-backed fallback).
+  - Non-interactive contexts are fail-closed by default; CI bypass requires explicit policy contract (`CI=1`, `MBO_CI_AUTH_APPROVED=1`, optional `MBO_CI_AUTH_ACTIONS` / `MBO_CI_AUTH_SCOPES`).
+  - Same-scope toggle revoke behavior retained and now follows the same human-presence gate.
+  - Existing force warning path for Merkle mismatch and risky `.` confirmation flow preserved.
+
+#### Docs / Tracking
+- Updated `docs/auth.md` with macOS user-presence model and CI policy contract.
+- Updated onboarding/operator docs to use `mbo auth` instead of token alias examples.
+- BUG-062 marked `COMPLETED`; added BUG-063 to track stricter deterministic biometric/user-presence fallback hardening.
+- Task `1.1-H17` marked `COMPLETED` in `projecttracking.md`.
+
+#### Validation
+- `node -c bin/mbo.js`
+- `python3 -m py_compile bin/handshake.py`
+- `python3 bin/handshake.py --status`
+- `CI=1 python3 bin/handshake.py src` (expect deny)
+- `CI=1 MBO_CI_AUTH_APPROVED=1 MBO_CI_AUTH_ACTIONS=grant MBO_CI_AUTH_SCOPES=src python3 bin/handshake.py src --force` (policy path, may still fail on Merkle/scope checks)
+
 ### [1.1.9] — 2026-03-13
 #### Changed
 - **Auth flow no longer detours through setup:** `mbo auth <scope> [--force]` now routes directly to handshake flow in `bin/handshake.py`.

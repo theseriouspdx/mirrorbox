@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import hashlib, json, os, stat, sys, time, uuid, subprocess
+import hashlib, json, os, shutil, stat, subprocess, sys, time, uuid
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +11,10 @@ SESSION_LOCK = JOURNAL_DIR / "session.lock"
 AUDIT_LOG = JOURNAL_DIR / "audit.log"
 SESSION_TTL_SECONDS = 1800
 PULSE_INTERVAL = 300
+KEYCHAIN_SERVICE = "com.mbo.auth.user-presence"
+CI_POLICY_FLAG = "MBO_CI_AUTH_APPROVED"
+CI_POLICY_SCOPES = "MBO_CI_AUTH_SCOPES"
+CI_POLICY_ACTIONS = "MBO_CI_AUTH_ACTIONS"
 
 
 def _sha256_file(path: Path) -> str:
@@ -122,12 +126,163 @@ def _confirm_risky_scope(cell_name: str, force: bool):
         sys.exit(1)
 
 
-def _has_human_auth() -> bool:
-    # One-command UX: interactive humans can auth without env sentinel.
-    # Non-interactive contexts still require explicit token and remain fail-closed.
-    if os.environ.get("MBO_HUMAN_TOKEN", ""):
-        return True
+def _is_interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _is_ci_context() -> bool:
+    ci = os.environ.get("CI", "").strip().lower()
+    return ci in ("1", "true", "yes")
+
+
+def _csv_set(env_key: str) -> set[str]:
+    raw = os.environ.get(env_key, "").strip()
+    if not raw:
+        return set()
+    return {x.strip() for x in raw.split(",") if x.strip()}
+
+
+def _ci_policy_allows(action: str, scope: Optional[str] = None) -> bool:
+    # Explicit CI-only policy contract. Default is fail-closed.
+    if os.environ.get(CI_POLICY_FLAG, "").strip() != "1":
+        return False
+    if not _is_ci_context():
+        return False
+
+    actions = _csv_set(CI_POLICY_ACTIONS)
+    if actions and "*" not in actions and action not in actions:
+        return False
+
+    scopes = _csv_set(CI_POLICY_SCOPES)
+    if scope is not None and scopes and "*" not in scopes and scope not in scopes:
+        return False
+
+    return True
+
+
+def _keychain_account() -> str:
+    # Scope keychain entry to this repo path to avoid cross-project collisions.
+    return f"{os.environ.get('USER', 'unknown')}:{MBO_ROOT.resolve()}"
+
+
+def _ensure_keychain_item() -> bool:
+    account = _keychain_account()
+    check = subprocess.run(
+        ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", account],
+        capture_output=True,
+        text=True,
+    )
+    if check.returncode == 0:
+        return True
+
+    seed = hashlib.sha256(f"{account}:{KEYCHAIN_SERVICE}".encode()).hexdigest()
+    create = subprocess.run(
+        [
+            "security",
+            "add-generic-password",
+            "-U",
+            "-s",
+            KEYCHAIN_SERVICE,
+            "-a",
+            account,
+            "-w",
+            seed,
+            "-T",
+            "/usr/bin/security",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    return create.returncode == 0
+
+
+def _macos_local_auth_prompt(action: str, scope: Optional[str]) -> bool:
+    if shutil.which("swift") is None:
+        return False
+
+    scope_text = scope or "none"
+    reason = f"Authorize mbo auth {action} ({scope_text})"
+    script = r'''
+import LocalAuthentication
+import Foundation
+
+let context = LAContext()
+context.localizedCancelTitle = "Cancel"
+var error: NSError?
+if !context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) {
+    fputs("NO_POLICY\n", stderr)
+    exit(2)
+}
+let sem = DispatchSemaphore(value: 0)
+var ok = false
+context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: CommandLine.arguments[1]) { success, _ in
+    ok = success
+    sem.signal()
+}
+_ = sem.wait(timeout: .now() + 30)
+if ok {
+    print("OK")
+    exit(0)
+}
+fputs("DENIED\n", stderr)
+exit(1)
+'''
+
+    proc = subprocess.run(
+        ["swift", "-e", script, reason],
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode == 0
+
+
+def _macos_keychain_presence_check() -> bool:
+    if not _ensure_keychain_item():
+        print("[GATE] DENIED: Could not initialize Keychain presence item.", file=sys.stderr)
+        return False
+
+    account = _keychain_account()
+    # This lookup is Keychain-backed and may trigger OS user-presence prompts
+    # depending on keychain lock state and local security policy.
+    check = subprocess.run(
+        ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", account, "-w"],
+        capture_output=True,
+        text=True,
+    )
+    return check.returncode == 0
+
+
+def _require_human_presence(action: str, scope: Optional[str] = None) -> bool:
+    if _ci_policy_allows(action, scope):
+        return True
+
+    if not _is_interactive():
+        print(
+            (
+                "[GATE] DENIED: Non-interactive auth is blocked. "
+                f"For CI-only use set CI=1 {CI_POLICY_FLAG}=1 and optional "
+                f"{CI_POLICY_ACTIONS}/{CI_POLICY_SCOPES}."
+            ),
+            file=sys.stderr,
+        )
+        return False
+
+    if sys.platform == "darwin":
+        if shutil.which("security") is None:
+            print("[GATE] DENIED: macOS Keychain tool 'security' is unavailable.", file=sys.stderr)
+            return False
+
+        if _macos_local_auth_prompt(action, scope):
+            return True
+
+        if _macos_keychain_presence_check():
+            return True
+
+        print("[GATE] DENIED: macOS user-presence check failed.", file=sys.stderr)
+        return False
+
+    # Non-macOS fallback remains interactive-only.
+    return True
 
 
 def handshake(cell_name: str, force: bool = False):
@@ -233,8 +388,9 @@ if __name__ == "__main__":
     arg = sys.argv[1]
     is_grant = not arg.startswith("--")
     is_revoke = arg == "--revoke"
-    if (is_grant or is_revoke) and not _has_human_auth():
-        print("[GATE] DENIED: Human approval required. Run from an interactive terminal or provide MBO_HUMAN_TOKEN.", file=sys.stderr)
+    auth_action = "grant" if is_grant else ("revoke" if is_revoke else None)
+    auth_scope = arg if is_grant else None
+    if auth_action and not _require_human_presence(auth_action, auth_scope):
         sys.exit(1)
 
     if arg == "--merkle-root":

@@ -187,10 +187,10 @@
   3. Standardize MCP preflight command path to `node ./mcp_query.js ...` and reject non-manifest endpoint fallbacks.
   4. Add regression tests for case-variant project roots and non-`src` edits to ensure no false lockout.
 
-### BUG-062: Auth bootstrap unusable in-app/self-run contexts (CLI dependency and non-TTY failure) | Milestone: 1.1 | IN PROGRESS
+### BUG-062: Auth bootstrap unusable in-app/self-run contexts (CLI dependency and non-TTY failure) | Milestone: 1.1 | COMPLETED
 - **Location:** `bin/mbo.js`, `bin/handshake.py`, `src/cli/setup.js`, `src/index.js`, onboarding/auth UX
 - **Severity:** P1
-- **Status:** IN PROGRESS — 2026-03-13
+- **Status:** COMPLETED — 2026-03-13
 - **Description:** `mbo auth` previously routed through setup flow and produced misleading session output in normal app/agent workflows. This created first-run lockout and high-friction recovery in self-run/non-TTY contexts.
 - **Implemented (partial):**
   1. `mbo auth <scope> [--force]` now routes directly to `bin/handshake.py` (no setup wizard detour).
@@ -198,9 +198,15 @@
   3. `--force` supports human override for Merkle mismatch, with explicit warning + audit logging.
   4. `.` scope is supported only with `--force` and explicit high-risk confirmation prompt.
   5. Re-running `mbo auth` with the same active scope now toggles and revokes that session.
-- **Remaining for full close:**
-  1. Replace env-sentinel auth gating with OS-native secure user-presence flow (Keychain on macOS).
-  2. Finalize non-interactive/container auth policy contract (Docker deferred per SPEC 28.11).
+  6. Replaced env-sentinel auth gating with macOS Keychain-backed user-presence checks for grant/revoke/toggle paths.
+  7. Added explicit fail-closed non-interactive contract with CI-only approval policy (`CI=1`, `MBO_CI_AUTH_APPROVED=1`, optional action/scope allowlists).
+
+### BUG-063: macOS auth fallback path may pass via unlocked keychain without explicit biometric/password prompt | Milestone: 1.1 | OPEN
+- **Location:** `bin/handshake.py` (`_macos_keychain_presence_check`)
+- **Severity:** P2
+- **Status:** OPEN — 2026-03-13
+- **Description:** Primary auth path uses LocalAuthentication prompt; fallback path uses Keychain lookup which can succeed silently when keychain is already unlocked, depending on host policy. This is acceptable as a fallback but should be hardened to guarantee explicit user-presence semantics.
+- **Fix Required:** Move fallback to a keychain item that requires user-presence ACL (`SecAccessControl` with `biometryCurrentSet`/`userPresence`) and validate deterministic prompt behavior.
 
 ### BUG-056: Tokenmiser dashboard using NaN placeholders for tokenizer/pricing data | Milestone: 1.1 | OPEN
 - **Location:** `src/state/stats-manager.js`, `src/cli/tokenmiser-dashboard.js`

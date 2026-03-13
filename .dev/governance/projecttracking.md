@@ -49,4 +49,4 @@
 | 1.1-H14 | Multi-agent dev workflow design — role assignments for Claude/Gemini/Codex/Claude Desktop, DID protocol across tools, handoff format | OPEN |
 | 1.1-H15 | Fix BUG-057: MCP stream-destroyed incident — safeHandleTransportRequest + SSE guard + autoRefreshDevIfStale queue serialization | COMPLETED |
 | 1.1-H16 | Fix BUG-061: Merkle scope drift + MCP query path drift (manifest-only endpoint + canonical root assertion + preflight command hardening) | OPEN |
-| 1.1-H17 | Fix BUG-062: In-app human-mediated auth flow (no CLI dependency) + self-run/non-TTY auth usability | IN PROGRESS |
+| 1.1-H17 | Fix BUG-062: In-app human-mediated auth flow (no CLI dependency) + self-run/non-TTY auth usability | COMPLETED |

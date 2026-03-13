@@ -85,7 +85,7 @@ function runAuthCommand(argv) {
     process.stderr.write(`[MBO] Active session for '${activeScope}' detected; ending session.\n`);
     const revoke = spawnSync('python3', [handshakePath, '--revoke'], {
       stdio: 'inherit',
-      env: { ...process.env, MBO_HUMAN_TOKEN: process.env.MBO_HUMAN_TOKEN || 'interactive' },
+      env: process.env,
     });
     if ((revoke.status ?? 1) !== 0) {
       process.exit(revoke.status ?? 1);

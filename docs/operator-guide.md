@@ -47,18 +47,18 @@ graph_search("P0 bugs")
 
 ---
 
-## Auth Alias
+## Auth Entry
 
 ```bash
-alias mbo='MBO_HUMAN_TOKEN=1 python3 ~/MBO/bin/handshake.py'
+mbo auth <scope>
 ```
 
 | Command | Purpose |
 |---------|---------|
-| `mbo <scope>` | Grant write access to `src/<scope>` |
-| `mbo --status` | Check active session |
-| `mbo --revoke` | End session, lock `src/` |
-| `mbo --pulse` | Integrity check (no side effects) |
+| `mbo auth <scope>` | Grant write access to `src/<scope>` |
+| `mbo auth status` | Check active session |
+| `mbo auth <same-scope>` | Toggle revoke for active same scope |
+| `python3 bin/handshake.py --pulse` | Integrity check (no side effects) |
 
 Scope examples: `auth/operator`, `relay`, `cells/graph`, `index.js`
 
@@ -121,7 +121,7 @@ Do not type anything else into the REPL at this pause point.
 
 After approving an implementation:
 
-1. `mbo --revoke` (locks src/, writes write.deny)
+1. `mbo auth <same-active-scope>` (toggle revoke, locks src/, writes write.deny)
 2. `python3 bin/init_state.py` (recomputes Merkle root, updates state.json)
 3. `graph_update_task({ task_id: "X.X-XX", status: "COMPLETE" })`
 4. Update `.dev/governance/projecttracking.md` — mark task COMPLETE
@@ -160,10 +160,10 @@ Open tasks are tracked in `.dev/governance/projecttracking.md`.
 
 ```bash
 # Check handshake state
-mbo --status
+mbo auth status
 
 # Check Merkle integrity
-mbo --pulse
+python3 bin/handshake.py --pulse
 
 # Recompute and save Merkle baseline
 python3 bin/init_state.py

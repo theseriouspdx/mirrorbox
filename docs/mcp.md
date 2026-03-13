@@ -86,7 +86,7 @@ node ./mcp_query.js graph_server_info
 ```bash
 python3 bin/handshake.py --reset
 python3 bin/handshake.py --pulse
-MBO_HUMAN_TOKEN=1 bin/handshake.py src
+mbo auth src
 ```
 
 ## Dev Mode Notes
