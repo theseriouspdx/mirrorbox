@@ -14,11 +14,27 @@ function canonicalPath(p) {
   }
 }
 
+function sameFilesystemPath(a, b) {
+  try {
+    const sa = fs.statSync(a);
+    const sb = fs.statSync(b);
+    // On case-insensitive filesystems, dev+ino identity is the safest equality check.
+    if (Number.isFinite(sa.dev) && Number.isFinite(sa.ino) && Number.isFinite(sb.dev) && Number.isFinite(sb.ino)) {
+      return sa.dev === sb.dev && sa.ino === sb.ino;
+    }
+  } catch {
+    // Fall through to string-based checks.
+  }
+  if (a === b) return true;
+  // Best-effort fallback for case-insensitive path aliases.
+  return a.toLowerCase() === b.toLowerCase();
+}
+
 function resolveEndpoint() {
   const cwdRoot = canonicalPath(process.cwd());
   const { manifest } = resolveManifest({ root: cwdRoot });
   const manifestRoot = canonicalPath(manifest.project_root || cwdRoot);
-  if (manifestRoot !== cwdRoot) {
+  if (!sameFilesystemPath(manifestRoot, cwdRoot)) {
     throw new Error(
       `[MCP QUERY] project_root mismatch. cwd=${cwdRoot} manifest.project_root=${manifestRoot}. ` +
       'Run from the intended project root and retry.'
