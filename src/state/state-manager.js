@@ -4,8 +4,10 @@ const db = require('./db-manager');
 const eventStore = require('./event-store');
 const { randomUUID } = require('crypto');
 
-const STATE_JSON_PATH = path.join(__dirname, '../../data/state.json');
-const HANDOFF_MD_PATH = path.join(__dirname, '../../data/NEXT_SESSION.md');
+const RUNTIME_ROOT = path.resolve(process.env.MBO_PROJECT_ROOT || process.cwd());
+const CONTROLLER_ROOT = path.resolve(__dirname, '../..');
+const STATE_JSON_PATH = path.join(RUNTIME_ROOT, 'data/state.json');
+const HANDOFF_MD_PATH = path.join(RUNTIME_ROOT, 'NEXT_SESSION.md');
 
 class StateManager {
   /**
@@ -65,8 +67,11 @@ class StateManager {
    */
   generateHandoff() {
     const { spawnSync } = require('child_process');
-    const scriptPath = path.join(__dirname, '../../scripts/mbo-session-close.sh');
-    const result = spawnSync('bash', [scriptPath], { stdio: 'inherit' });
+    const scriptPath = path.join(CONTROLLER_ROOT, 'scripts/mbo-session-close.sh');
+    const result = spawnSync('bash', [scriptPath], {
+      stdio: 'inherit',
+      env: { ...process.env, MBO_PROJECT_ROOT: RUNTIME_ROOT }
+    });
     if (result.error || result.status !== 0) {
       console.error(`[StateManager] Handoff failed: ${result.error || result.status}`);
     }

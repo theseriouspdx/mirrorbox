@@ -15,6 +15,7 @@ const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 const LAUNCH_AGENTS_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents');
 const PLIST_NAME = 'com.mbo.mcp.plist';
 const PLIST_PATH = path.join(LAUNCH_AGENTS_DIR, PLIST_NAME);
+const DEFAULT_CONTROLLER_ROOT = path.resolve(__dirname, '../..');
 
 function xmlEscape(value) {
   return String(value)
@@ -25,8 +26,9 @@ function xmlEscape(value) {
     .replace(/'/g, '&apos;');
 }
 
-function buildPlist({ projectRoot, nodePath }) {
+function buildPlist({ projectRoot, controllerRoot, nodePath }) {
   const root = xmlEscape(projectRoot);
+  const controller = xmlEscape(controllerRoot);
   const node = xmlEscape(nodePath);
   const nodeBin = xmlEscape(path.dirname(nodePath));
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -38,9 +40,10 @@ function buildPlist({ projectRoot, nodePath }) {
   <key>ProgramArguments</key>
   <array>
     <string>${node}</string>
-    <string>${root}/src/graph/mcp-server.js</string>
+    <string>${controller}/src/graph/mcp-server.js</string>
     <string>--port=7337</string>
     <string>--mode=dev</string>
+    <string>--root=${root}</string>
   </array>
   <key>WorkingDirectory</key>
   <string>${root}</string>
@@ -98,6 +101,17 @@ async function installMCPDaemon(projectRoot = process.env.MBO_PROJECT_ROOT || pr
   fs.mkdirSync(path.join(resolvedRoot, '.dev', 'logs'), { recursive: true });
   fs.mkdirSync(LAUNCH_AGENTS_DIR, { recursive: true });
 
+  let controllerRoot = DEFAULT_CONTROLLER_ROOT;
+  try {
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+    const cfg = JSON.parse(raw);
+    if (cfg && typeof cfg.controllerRoot === 'string' && cfg.controllerRoot.trim()) {
+      controllerRoot = path.resolve(cfg.controllerRoot);
+    }
+  } catch {
+    // Fall back to the installed package root if config is absent/corrupt.
+  }
+
   let nodePath = '';
   try {
     nodePath = execSync('which node', { encoding: 'utf8' }).trim();
@@ -108,7 +122,7 @@ async function installMCPDaemon(projectRoot = process.env.MBO_PROJECT_ROOT || pr
     throw new Error('Node binary path is empty.');
   }
 
-  const plist = buildPlist({ projectRoot: resolvedRoot, nodePath });
+  const plist = buildPlist({ projectRoot: resolvedRoot, controllerRoot, nodePath });
   fs.writeFileSync(PLIST_PATH, plist, 'utf8');
 
   const unload = spawnSync('launchctl', ['unload', '-w', PLIST_PATH], { encoding: 'utf8' });
@@ -125,6 +139,35 @@ async function installMCPDaemon(projectRoot = process.env.MBO_PROJECT_ROOT || pr
   if (!healthy) {
     throw new Error('Graph server did not become healthy at http://127.0.0.1:7337/health within 10s.');
   }
+}
+
+function persistInstallMetadata(configPath = CONFIG_PATH, installRoot = process.cwd(), options = {}) {
+  const force = !!(options && options.force);
+  let current = {};
+  if (fs.existsSync(configPath)) {
+    try {
+      current = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    } catch {
+      current = {};
+    }
+  }
+  const resolvedRoot = path.resolve(installRoot);
+  const currentController = typeof current.controllerRoot === 'string' ? path.resolve(current.controllerRoot) : null;
+
+  // Preserve existing controllerRoot unless explicitly forced.
+  const controllerRoot = (!force && currentController)
+    ? currentController
+    : resolvedRoot;
+
+  const updated = {
+    ...current,
+    controllerRoot,
+    installRoot: controllerRoot,
+    updatedAt: new Date().toISOString(),
+  };
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, JSON.stringify(updated, null, 2), 'utf8');
+  return updated;
 }
 
 function runTeardown() {
@@ -359,6 +402,7 @@ module.exports = {
   installMCPDaemon,
   runTeardown,
   validateConfig,
+  persistInstallMetadata,
   CONFIG_PATH,
   PLIST_PATH,
 };

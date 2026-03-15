@@ -60,19 +60,40 @@ if [[ "${1:-}" == "--terminate-mcp" ]]; then
 fi
 
 # --- SESSION CLOSE PROTOCOL (Section 17) ---
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-DB_PATH="$ROOT_DIR/data/mirrorbox.db"
-BACKUP_DIR="$ROOT_DIR/data/backups"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONTROLLER_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [[ -n "${MBO_PROJECT_ROOT:-}" ]]; then
+  ROOT_DIR="$(cd "$MBO_PROJECT_ROOT" && pwd)"
+else
+  ROOT_DIR="$CONTROLLER_ROOT"
+fi
+DB_PATH_DATA="$ROOT_DIR/data/mirrorbox.db"
+DB_PATH_MBO="$ROOT_DIR/.mbo/mirrorbox.db"
+if [[ -f "$DB_PATH_DATA" ]]; then
+  DB_PATH="$DB_PATH_DATA"
+elif [[ -f "$DB_PATH_MBO" ]]; then
+  DB_PATH="$DB_PATH_MBO"
+else
+  DB_PATH=""
+fi
+if [[ "$DB_PATH" == "$DB_PATH_MBO" ]]; then
+  BACKUP_DIR="$ROOT_DIR/.mbo/backups"
+else
+  BACKUP_DIR="$ROOT_DIR/data/backups"
+fi
+NEXT_ROOT="$ROOT_DIR/NEXT_SESSION.md"
 NEXT_DEV="$ROOT_DIR/.dev/sessions/NEXT_SESSION.md"
 NEXT_DATA="$ROOT_DIR/data/NEXT_SESSION.md"
 GOVERNANCE_DIR="$ROOT_DIR/.dev/governance"
 
-if [[ ! -f "$DB_PATH" ]]; then
-  echo "ERROR: Database not found at $DB_PATH" >&2
+if [[ -z "$DB_PATH" || ! -f "$DB_PATH" ]]; then
+  echo "ERROR: Database not found at $DB_PATH_DATA or $DB_PATH_MBO" >&2
   exit 1
 fi
 
 mkdir -p "$BACKUP_DIR"
+mkdir -p "$(dirname "$NEXT_DEV")"
+mkdir -p "$(dirname "$NEXT_DATA")"
 
 # 1. PRAGMA integrity_check + smart backup
 STAMP="$(date +"%Y%m%d_%H%M%S")"
@@ -111,6 +132,9 @@ COMPLETED_COUNT="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tasks WHERE status =
 NEXT_TASK_ID="TBD"
 NEXT_TASK_DESC="TBD"
 TRACKING_FILE="$GOVERNANCE_DIR/projecttracking.md"
+if [[ ! -f "$TRACKING_FILE" && -f "$ROOT_DIR/projecttracking.md" ]]; then
+  TRACKING_FILE="$ROOT_DIR/projecttracking.md"
+fi
 
 if [[ -f "$TRACKING_FILE" ]]; then
   # 1. Identify the Current Milestone section
@@ -129,12 +153,21 @@ echo "[MBO] $(date -u +"%Y-%m-%dT%H:%M:%SZ") Generating Cold Storage Snapshot...
 SNAPSHOT_DIR="$ROOT_DIR/backups"
 SNAPSHOT_NAME="mirror_snapshot_$(date +"%Y%m%d_%H%M%S").zip"
 SNAPSHOT_PATH="$SNAPSHOT_DIR/$SNAPSHOT_NAME"
+mkdir -p "$SNAPSHOT_DIR"
 
-# Zip source and governance only — never data/ (contains multi-GB DB and backups)
-(cd "$ROOT_DIR" && zip -r "$SNAPSHOT_PATH" \
-    src/ bin/ scripts/ .dev/governance/ \
-    package.json package-lock.json \
-    -x "*/.DS_Store" "*/__pycache__/*" > /dev/null)
+# Zip code/governance paths when present — never data/ (can be very large).
+ZIP_INPUTS=()
+for p in src bin scripts .dev/governance package.json package-lock.json; do
+  [[ -e "$ROOT_DIR/$p" ]] && ZIP_INPUTS+=("$p")
+done
+if [[ ${#ZIP_INPUTS[@]} -gt 0 ]]; then
+  (cd "$ROOT_DIR" && zip -r "$SNAPSHOT_PATH" "${ZIP_INPUTS[@]}" \
+      -x "*/.DS_Store" "*/__pycache__/*" > /dev/null)
+else
+  # Keep a deterministic artifact even when no standard inputs exist.
+  (cd "$ROOT_DIR" && zip -r "$SNAPSHOT_PATH" . \
+      -x "data/*" "node_modules/*" "*/.DS_Store" "*/__pycache__/*" > /dev/null)
+fi
 
 SNAPSHOT_SHA="$(shasum -a 256 "$SNAPSHOT_PATH" | awk '{print $1}')"
 
@@ -143,7 +176,11 @@ ls -t "$BACKUP_DIR"/mirrorbox_*.bak 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1))
 ls -t "$SNAPSHOT_DIR"/mirror_snapshot_*.zip 2>/dev/null | tail -n +4 | xargs rm -f || true
 
 # DB health check: compare DB size to src/ size and warn if out of whack
-SRC_SIZE_BYTES="$(du -sk "$ROOT_DIR/src" | awk '{print $1 * 1024}')"
+if [[ -d "$ROOT_DIR/src" ]]; then
+  SRC_SIZE_BYTES="$(du -sk "$ROOT_DIR/src" | awk '{print $1 * 1024}')"
+else
+  SRC_SIZE_BYTES=0
+fi
 DB_SIZE_KB=$(( DB_SIZE_BYTES / 1024 ))
 SRC_SIZE_KB=$(( SRC_SIZE_BYTES / 1024 ))
 if [[ "$SRC_SIZE_KB" -gt 0 ]]; then
@@ -163,11 +200,15 @@ if [[ "$SRC_SIZE_KB" -gt 0 ]]; then
 fi
 
 # Rebuild DB: drop and regenerate from source scan (keeps DB tiny)
-echo "[MBO] Rebuilding mirrorbox.db from source..."
-if run_with_timeout 30 node "$ROOT_DIR/scripts/rebuild-mirror.js" 2>&1 | tail -2; then
-  echo "[MBO] DB rebuild complete."
+if [[ -d "$ROOT_DIR/src" && -f "$CONTROLLER_ROOT/scripts/rebuild-mirror.js" ]]; then
+  echo "[MBO] Rebuilding mirrorbox.db from source..."
+  if MBO_PROJECT_ROOT="$ROOT_DIR" run_with_timeout 30 node "$CONTROLLER_ROOT/scripts/rebuild-mirror.js" 2>&1 | tail -2; then
+    echo "[MBO] DB rebuild complete."
+  else
+    echo "[MBO] WARN: DB rebuild failed or timed out — backup preserved at $BACKUP_FILE" >&2
+  fi
 else
-  echo "[MBO] WARN: DB rebuild failed or timed out — backup preserved at $BACKUP_FILE" >&2
+  echo "[MBO] Skipping DB rebuild (no src/ or rebuild script unavailable for this runtime project)."
 fi
 
 # Best-effort dev graph freshness bump (non-fatal): if MCP dev server is running,
@@ -210,7 +251,7 @@ if lsof -ti:"$DEV_PORT" >/dev/null 2>&1; then
 fi
 
 # 3. Generate NEXT_SESSION.md Content
-cat > "$NEXT_DATA" <<EOF
+cat > "$NEXT_ROOT" <<EOF
 # NEXT_SESSION.md
 ## Mirror Box Orchestrator — Session Handoff
 
@@ -250,14 +291,15 @@ graph_search("${NEXT_TASK_DESC}")
 - Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 EOF
 
-# Copy to .dev/sessions as well
-cp "$NEXT_DATA" "$NEXT_DEV"
+# Sync all handoff locations for backward compatibility.
+cp "$NEXT_ROOT" "$NEXT_DATA"
+cp "$NEXT_ROOT" "$NEXT_DEV"
 
 # 4. nhash Seed Calculation (Section 8)
 # X: AGENTS.md NUMBERED sections (e.g. ## Section 1)
 # Y: BUGS.md NUMBERED sections
 echo "----------------------------------------------------"
-echo "Session Handoff Generated: $NEXT_DATA"
+echo "Session Handoff Generated: $NEXT_ROOT"
 echo "Backup Created: $BACKUP_FILE"
 echo "PRAGMA integrity_check: $INTEGRITY_RESULT"
 echo "SHA-256: $SHA256"
