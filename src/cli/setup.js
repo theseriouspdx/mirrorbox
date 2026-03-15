@@ -6,6 +6,7 @@ const path = require('path');
 const rl_  = require('readline');
 const { execSync, spawnSync } = require('child_process');
 const http = require('http');
+const crypto = require('crypto');
 
 const { detectProviders }           = require('./detect-providers');
 const { detectShell, appendExportIfMissing } = require('./shell-profile');
