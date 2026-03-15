@@ -450,5 +450,4 @@ module.exports = {
   validateConfig,
   persistInstallMetadata,
   CONFIG_PATH,
-  PLIST_PATH,
 };
