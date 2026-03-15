@@ -113,9 +113,27 @@ async function runMcpRecoveryCommand() {
   };
 
   const waitForHealth = async (timeoutMs = 30000) => {
+    const getPort = () => {
+      const devManifest = path.join(PROJECT_ROOT, '.dev/run/mcp.json');
+      const userManifest = path.join(PROJECT_ROOT, '.mbo/run/mcp.json');
+      try {
+        let m = null;
+        if (fs.existsSync(devManifest)) m = JSON.parse(fs.readFileSync(devManifest, 'utf8'));
+        else if (fs.existsSync(userManifest)) m = JSON.parse(fs.readFileSync(userManifest, 'utf8'));
+        if (m && m.port) return m.port;
+      } catch (_) {}
+      if (process.env.MBO_ALLOW_LEGACY_7337 === '1') return 7337;
+      return null;
+    };
+
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const h = run('curl', ['-sS', '-m', '2', 'http://127.0.0.1:7337/health'], { capture: true });
+      const port = getPort();
+      if (!port) {
+        await new Promise((r) => setTimeout(r, 500));
+        continue;
+      }
+      const h = run('curl', ['-sS', '-m', '2', `http://127.0.0.1:${port}/health`], { capture: true });
       const healthy = parseHealthyBody(h);
       if (healthy) return healthy;
       await new Promise((r) => setTimeout(r, 500));
@@ -167,7 +185,7 @@ async function runMcpRecoveryCommand() {
     process.stdout.write(`[MBO MCP] health: ${healthBody}\n`);
   }
 
-  const rescan = runChecked('graph_rescan', process.execPath, ['./mcp_query.js', '--diagnose', 'graph_rescan'], {
+  const rescan = runChecked('graph_rescan', process.execPath, [path.join(PACKAGE_ROOT, 'scripts', 'mcp_query.js'), '--diagnose', 'graph_rescan'], {
     capture: true,
     cwd: PROJECT_ROOT,
     timeoutMs: 180000,
@@ -178,7 +196,7 @@ async function runMcpRecoveryCommand() {
   });
   process.stdout.write(`[MBO MCP] graph_rescan: ${String(rescan.stdout || '').trim()}\n`);
 
-  const info = runChecked('graph_server_info', process.execPath, ['./mcp_query.js', 'graph_server_info'], {
+  const info = runChecked('graph_server_info', process.execPath, [path.join(PACKAGE_ROOT, 'scripts', 'mcp_query.js'), 'graph_server_info'], {
     capture: true,
     cwd: PROJECT_ROOT,
     timeoutMs: 45000,

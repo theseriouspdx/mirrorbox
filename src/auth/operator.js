@@ -11,9 +11,6 @@ const eventStore = require('../state/event-store');
 const RUNTIME_ROOT = path.resolve(process.env.MBO_PROJECT_ROOT || process.cwd());
 const SESSION_HISTORY_PATH = path.join(RUNTIME_ROOT, '.mbo', 'session_history.json');
 const MBO_ROOT = path.resolve(__dirname, '../..');
-const MCP_BASE_URL = 'http://127.0.0.1:7337';
-const MCP_URL = `${MCP_BASE_URL}/mcp`;
-const MCP_HEALTH_URL = `${MCP_BASE_URL}/health`;
 
 /**
  * Section 8: The Operator
@@ -47,7 +44,12 @@ class Operator {
       blockCounter: 0,
       progressSummary: '',
       graphSummary: '',
-      pendingDecision: null
+      pendingDecision: null,
+      mcp: {
+        url: null,
+        projectId: null
+      },
+      executorLogs: []
     };
     this.messageId = 1;
     this.contextThreshold = 0.8;      // Section 8: configurable via operatorContextThreshold
@@ -103,28 +105,62 @@ class Operator {
     console.error(`[Operator] Context window set to ${this.activeModelWindow} tokens (threshold: ${Math.floor(this.activeModelWindow * this.contextThreshold)})`);
   }
 
+  _resolveMCP() {
+    const devManifest = path.join(RUNTIME_ROOT, '.dev/run/mcp.json');
+    const userManifest = path.join(RUNTIME_ROOT, '.mbo/run/mcp.json');
+    let manifest = null;
+    try {
+      if (fs.existsSync(devManifest)) manifest = JSON.parse(fs.readFileSync(devManifest, 'utf8'));
+      else if (fs.existsSync(userManifest)) manifest = JSON.parse(fs.readFileSync(userManifest, 'utf8'));
+    } catch (_) {}
+
+    if (!manifest || !manifest.port) {
+      if (process.env.MBO_ALLOW_LEGACY_7337 === '1') {
+        console.error(`[OPERATOR] WARN: No manifest. Falling back to 7337 (MBO_ALLOW_LEGACY_7337=1).`);
+        this.stateSummary.mcp.url = 'http://127.0.0.1:7337';
+        return;
+      }
+      throw new Error(`No MCP manifest found in ${RUNTIME_ROOT}. Run 'mbo setup' first.`);
+    }
+
+    const canonicalRuntimeRoot = fs.realpathSync(RUNTIME_ROOT);
+    const expectedProjectId = require('crypto')
+      .createHash('sha256')
+      .update(Buffer.from(canonicalRuntimeRoot, 'utf8'))
+      .digest('hex')
+      .slice(0, 16);
+
+    if (manifest.project_id !== expectedProjectId || fs.realpathSync(manifest.project_root) !== canonicalRuntimeRoot) {
+      throw new Error(`MCP identity mismatch! Expected ${canonicalRuntimeRoot} (${expectedProjectId}), got ${manifest.project_root} (${manifest.project_id})`);
+    }
+
+    this.stateSummary.mcp.url = `http://127.0.0.1:${manifest.port}`;
+  }
+
   /**
    * Section 9: Gate 0 - Initialize MCP session
    */
   async startMCP() {
+    this._resolveMCP();
     await this._assertDaemonHealthy();
     await this._loadModelWindow();
   }
 
   async _assertDaemonHealthy() {
-    const info = await this._httpGetJson(MCP_HEALTH_URL).catch(() => null);
+    const healthUrl = `${this.stateSummary.mcp.url}/health`;
+    const info = await this._httpGetJson(healthUrl).catch(() => null);
     if (!info || info.status !== 'ok') {
-      throw new Error('Graph server not running. Run: mbo setup && launchctl load ~/Library/LaunchAgents/com.mbo.mcp.plist');
+      throw new Error(`Graph server at ${healthUrl} not healthy. Run 'mbo setup' to restore.`);
     }
   }
 
-  _httpGetJson(url) {
+  _httpGetJson(url, attempt = 1) {
     return new Promise((resolve, reject) => {
       const req = http.get(url, (res) => {
+        if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
         let body = '';
         res.on('data', (c) => { body += c.toString(); });
         res.on('end', () => {
-          if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
           try {
             resolve(JSON.parse(body));
           } catch (err) {
@@ -132,8 +168,16 @@ class Operator {
           }
         });
       });
-      req.setTimeout(5000, () => req.destroy(new Error('health timeout')));
-      req.on('error', reject);
+      req.setTimeout(5000, () => req.destroy(new Error('timeout')));
+      req.on('error', (err) => {
+        if (attempt === 1 && (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET')) {
+          try {
+            this._resolveMCP();
+            return resolve(this._httpGetJson(`${this.stateSummary.mcp.url}/health`, 2));
+          } catch (e) { return reject(err); }
+        }
+        reject(err);
+      });
     });
   }
 
@@ -147,10 +191,10 @@ class Operator {
     });
   }
 
-  _postMCP(payload) {
+  _postMCP(payload, attempt = 1) {
     return new Promise((resolve, reject) => {
       const body = JSON.stringify(payload);
-      const req = http.request(MCP_URL, {
+      const req = http.request(`${this.stateSummary.mcp.url}/mcp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -204,10 +248,18 @@ class Operator {
       });
 
       req.setTimeout(15000, () => {
-        req.destroy(new Error(`MCP request timeout for ${payload.method || 'notification'}`));
+        req.destroy(new Error(`Timeout ${payload.method}`));
       });
 
-      req.on('error', reject);
+      req.on('error', (err) => {
+        if (attempt === 1 && (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET')) {
+          try {
+            this._resolveMCP();
+            return resolve(this._postMCP(payload, 2));
+          } catch (e) { return reject(err); }
+        }
+        reject(err);
+      });
       req.write(body);
       req.end();
     });

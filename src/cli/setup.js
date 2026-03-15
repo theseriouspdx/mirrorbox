@@ -13,9 +13,20 @@ const { detectShell, appendExportIfMissing } = require('./shell-profile');
 const CONFIG_DIR  = path.join(os.homedir(), '.mbo');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 const LAUNCH_AGENTS_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents');
-const PLIST_NAME = 'com.mbo.mcp.plist';
-const PLIST_PATH = path.join(LAUNCH_AGENTS_DIR, PLIST_NAME);
 const DEFAULT_CONTROLLER_ROOT = path.resolve(__dirname, '../..');
+
+function canonicalPath(p) {
+  try { return fs.realpathSync(p); } catch (_) { return path.resolve(p); }
+}
+
+function cleanupLegacyDaemon() {
+  const legacyPlist = path.join(LAUNCH_AGENTS_DIR, 'com.mbo.mcp.plist');
+  if (fs.existsSync(legacyPlist)) {
+    console.error(`[MBO] Migrating: unloading legacy global daemon (com.mbo.mcp.plist)`);
+    spawnSync('launchctl', ['unload', '-w', legacyPlist]);
+    try { fs.unlinkSync(legacyPlist); } catch (_) {}
+  }
+}
 
 function xmlEscape(value) {
   return String(value)
@@ -26,7 +37,7 @@ function xmlEscape(value) {
     .replace(/'/g, '&apos;');
 }
 
-function buildPlist({ projectRoot, controllerRoot, nodePath }) {
+function buildPlist({ projectRoot, controllerRoot, nodePath, projectId }) {
   const root = xmlEscape(projectRoot);
   const controller = xmlEscape(controllerRoot);
   const node = xmlEscape(nodePath);
@@ -36,12 +47,12 @@ function buildPlist({ projectRoot, controllerRoot, nodePath }) {
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.mbo.mcp</string>
+  <string>com.mbo.mcp.${projectId}</string>
   <key>ProgramArguments</key>
   <array>
     <string>${node}</string>
     <string>${controller}/src/graph/mcp-server.js</string>
-    <string>--port=7337</string>
+    <string>--port=0</string>
     <string>--mode=dev</string>
     <string>--root=${root}</string>
   </array>
@@ -67,17 +78,34 @@ function buildPlist({ projectRoot, controllerRoot, nodePath }) {
 `;
 }
 
-function waitForHealth(timeoutMs = 10000) {
+function waitForHealth(projectRoot, projectId, timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
+  const devManifest = path.join(projectRoot, '.dev/run/mcp.json');
+  const userManifest = path.join(projectRoot, '.mbo/run/mcp.json');
+  const canonicalRoot = canonicalPath(projectRoot);
+
+  const getPort = () => {
+    try {
+      let data = null;
+      if (fs.existsSync(devManifest)) data = JSON.parse(fs.readFileSync(devManifest, 'utf8'));
+      else if (fs.existsSync(userManifest)) data = JSON.parse(fs.readFileSync(userManifest, 'utf8'));
+      if (data && data.project_id === projectId) return data.port;
+    } catch (_) {}
+    return null;
+  };
+
   const attempt = () => new Promise((resolve) => {
-    const req = http.get('http://127.0.0.1:7337/health', (res) => {
+    const port = getPort();
+    if (!port) return resolve(false);
+
+    const req = http.get(`http://127.0.0.1:${port}/health`, (res) => {
       let body = '';
       res.on('data', (c) => { body += c.toString(); });
       res.on('end', () => {
         if (res.statusCode !== 200) return resolve(false);
         try {
           const json = JSON.parse(body);
-          resolve(json && json.status === 'ok');
+          resolve(json && json.status === 'ok' && canonicalPath(json.project_root) === canonicalRoot);
         } catch {
           resolve(false);
         }
@@ -98,6 +126,7 @@ function waitForHealth(timeoutMs = 10000) {
 
 async function installMCPDaemon(projectRoot = process.env.MBO_PROJECT_ROOT || process.cwd()) {
   const resolvedRoot = path.resolve(projectRoot);
+  cleanupLegacyDaemon();
   fs.mkdirSync(path.join(resolvedRoot, '.dev', 'logs'), { recursive: true });
   fs.mkdirSync(LAUNCH_AGENTS_DIR, { recursive: true });
 
@@ -122,22 +151,26 @@ async function installMCPDaemon(projectRoot = process.env.MBO_PROJECT_ROOT || pr
     throw new Error('Node binary path is empty.');
   }
 
-  const plist = buildPlist({ projectRoot: resolvedRoot, controllerRoot, nodePath });
-  fs.writeFileSync(PLIST_PATH, plist, 'utf8');
+  const projectId = crypto.createHash('sha256').update(Buffer.from(resolvedRoot, 'utf8')).digest('hex').slice(0, 16);
+  const plistName = `com.mbo.mcp.${projectId}.plist`;
+  const plistPath = path.join(LAUNCH_AGENTS_DIR, plistName);
 
-  const unload = spawnSync('launchctl', ['unload', '-w', PLIST_PATH], { encoding: 'utf8' });
+  const plist = buildPlist({ projectRoot: resolvedRoot, controllerRoot, nodePath, projectId });
+  fs.writeFileSync(plistPath, plist, 'utf8');
+
+  const unload = spawnSync('launchctl', ['unload', '-w', plistPath], { encoding: 'utf8' });
   if ((unload.status || 0) !== 0 && !(unload.stderr || '').includes('No such process')) {
     // best-effort unload; non-fatal here
   }
 
-  const load = spawnSync('launchctl', ['load', '-w', PLIST_PATH], { encoding: 'utf8' });
+  const load = spawnSync('launchctl', ['load', '-w', plistPath], { encoding: 'utf8' });
   if ((load.status || 0) !== 0) {
     throw new Error(`launchctl load failed: ${(load.stderr || load.stdout || '').trim()}`);
   }
 
-  const healthy = await waitForHealth(10000);
+  const healthy = await waitForHealth(resolvedRoot, projectId, 10000);
   if (!healthy) {
-    throw new Error('Graph server did not become healthy at http://127.0.0.1:7337/health within 10s.');
+    throw new Error('Graph server did not become healthy within 10s. Check logs in .dev/logs/');
   }
 }
 
@@ -170,16 +203,29 @@ function persistInstallMetadata(configPath = CONFIG_PATH, installRoot = process.
   return updated;
 }
 
-function runTeardown() {
-  const unload = spawnSync('launchctl', ['unload', '-w', PLIST_PATH], { encoding: 'utf8' });
-  if ((unload.status || 0) !== 0 && !(unload.stderr || '').includes('No such process')) {
-    throw new Error(`launchctl unload failed: ${(unload.stderr || unload.stdout || '').trim()}`);
+function runTeardown(projectRoot = process.env.MBO_PROJECT_ROOT || process.cwd()) {
+  const resolvedRoot = path.resolve(projectRoot);
+  cleanupLegacyDaemon();
+  const projectId = crypto.createHash('sha256').update(Buffer.from(resolvedRoot, 'utf8')).digest('hex').slice(0, 16);
+  const plistPath = path.join(LAUNCH_AGENTS_DIR, `com.mbo.mcp.${projectId}.plist`);
+
+  if (fs.existsSync(plistPath)) {
+    const unload = spawnSync('launchctl', ['unload', '-w', plistPath], { encoding: 'utf8' });
+    if ((unload.status || 0) !== 0 && !(unload.stderr || '').includes('No such process')) {
+      throw new Error(`launchctl unload failed: ${(unload.stderr || unload.stdout || '').trim()}`);
+    }
+    try {
+      fs.unlinkSync(plistPath);
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+    }
   }
-  try {
-    fs.unlinkSync(PLIST_PATH);
-  } catch (err) {
-    if (err.code !== 'ENOENT') throw err;
-  }
+
+  // Cleanup manifests
+  const devManifest = path.join(resolvedRoot, '.dev/run/mcp.json');
+  const userManifest = path.join(resolvedRoot, '.mbo/run/mcp.json');
+  try { if (fs.existsSync(devManifest)) fs.unlinkSync(devManifest); } catch (_) {}
+  try { if (fs.existsSync(userManifest)) fs.unlinkSync(userManifest); } catch (_) {}
 }
 
 // ANSI helpers

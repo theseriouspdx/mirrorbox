@@ -36,7 +36,10 @@ function parseArgs() {
   let port = 7337;
   for (const arg of args) {
     if (arg.startsWith('--mode=')) mode = arg.split('=')[1];
-    else if (arg.startsWith('--port=')) port = parseInt(arg.split('=')[1], 10) || 7337;
+    else if (arg.startsWith('--port=')) {
+      const rawPort = arg.split('=')[1];
+      port = rawPort === '0' ? 0 : (parseInt(rawPort, 10) || 7337);
+    }
     else if (arg.startsWith('--root=')) {
       const rawRoot = arg.split('=')[1];
       // Canonicalize when available to align with operator-side root checks.
@@ -324,8 +327,13 @@ class GraphService {
                 await this.scanner.scanFile(absPath, this.root);
               }
             }
-            await this.scanner.enrich(this.root);
-            // Increment only after successful completion — not if enrich() throws.
+            try {
+              await this.scanner.enrich(this.root);
+            } catch (e) {
+              // BUG-072: Enrichment failures are best-effort warnings.
+              console.error(`[GraphService] ${new Date().toISOString()} Enrichment warning during task update: ${e.message}`);
+            }
+            // Increment only after successful completion — not if scanDirectory/enrich throws.
             this.indexRevision = this.db.incrementIndexRevision();
             this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
             return { content: [{ type: 'text', text: `Graph updated for ${(args.modifiedFiles || []).length} files.` }] };
@@ -439,7 +447,12 @@ class GraphService {
     console.error(`[GraphService] ${new Date().toISOString()} Scanning src/...`);
     await this.scanner.scanDirectory(path.join(this.root, 'src'), this.root);
     console.error(`[GraphService] ${new Date().toISOString()} Enriching graph (LSP)...`);
-    await this.scanner.enrich(this.root);
+    try {
+      await this.scanner.enrich(this.root);
+    } catch (e) {
+      // BUG-072: Enrichment failures are best-effort warnings.
+      console.error(`[GraphService] ${new Date().toISOString()} Enrichment warning during initDev: ${e.message}`);
+    }
     console.error(`[GraphService] ${new Date().toISOString()} Dev init complete.`);
   }
 
@@ -693,7 +706,37 @@ async function main() {
   httpServer.keepAliveTimeout = 30000;
   httpServer.headersTimeout = 35000;
   httpServer.listen(PORT, '127.0.0.1', () => {
-    console.error(`[MCP] ${new Date().toISOString()} Graph MCP Server (${mode}) listening on http://127.0.0.1:${PORT}/mcp`);
+    const actualPort = httpServer.address().port;
+    const manifestDir = mode === 'dev' ? path.join(root, '.dev/run') : path.join(root, '.mbo/run');
+    const pidManifest = path.join(manifestDir, `mcp-${graphService.projectId}-${process.pid}.json`);
+    const symlinkPath = path.join(manifestDir, 'mcp.json');
+
+    try {
+      fs.mkdirSync(manifestDir, { recursive: true });
+      const manifestData = JSON.stringify({
+        project_root: root,
+        project_id: graphService.projectId,
+        port: actualPort,
+        pid: process.pid,
+        status: 'ready',
+        timestamp: new Date().toISOString()
+      }, null, 2);
+
+      // Atomic write: tmp -> rename
+      const tmpPath = `${pidManifest}.tmp`;
+      fs.writeFileSync(tmpPath, manifestData);
+      fs.renameSync(tmpPath, pidManifest);
+
+      // Atomic symlink: tmp symlink -> rename
+      const tmpSymlink = `${symlinkPath}.tmp`;
+      try { if (fs.existsSync(tmpSymlink)) fs.unlinkSync(tmpSymlink); } catch (_) {}
+      fs.symlinkSync(path.basename(pidManifest), tmpSymlink);
+      fs.renameSync(tmpSymlink, symlinkPath);
+    } catch (err) {
+      console.error(`[MCP] Failed to write manifest to ${manifestDir}: ${err.message}`);
+    }
+
+    console.error(`[MCP] ${new Date().toISOString()} Graph MCP Server (${mode}) listening on http://127.0.0.1:${actualPort}/mcp`);
     if (mode === 'dev') {
       graphService.autoRefreshDevIfStale()
         .catch((err) => {
@@ -704,6 +747,22 @@ async function main() {
 
   const shutdown = async (reason = null) => {
     console.error(`[MCP] ${new Date().toISOString()} Shutting down graph server...`);
+    const manifestDir = mode === 'dev' ? path.join(root, '.dev/run') : path.join(root, '.mbo/run');
+    const pidManifest = path.join(manifestDir, `mcp-${graphService.projectId}-${process.pid}.json`);
+    const symlinkPath = path.join(manifestDir, 'mcp.json');
+
+    try {
+      if (fs.existsSync(pidManifest)) fs.unlinkSync(pidManifest);
+      try {
+        if (fs.existsSync(symlinkPath)) {
+          const target = fs.readlinkSync(symlinkPath);
+          if (target === path.basename(pidManifest)) {
+            fs.unlinkSync(symlinkPath);
+          }
+        }
+      } catch (_) {}
+    } catch (_) {}
+
     for (const transport of sessions.values()) {
       try { await transport.close(); } catch (_) {}
     }
