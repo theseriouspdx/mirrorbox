@@ -3,7 +3,8 @@ import ast, json, sys, time
 from pathlib import Path
 from dataclasses import dataclass, field
 
-MBO_ROOT = Path(__file__).parent.parent
+CONTROLLER_ROOT = Path(__file__).parent.parent
+MBO_ROOT = Path(__import__("os").environ.get("MBO_PROJECT_ROOT", str(CONTROLLER_ROOT))).resolve()
 CELLS_DIR = MBO_ROOT / "src" / "cells"
 IMPORTS_ALLOW = MBO_ROOT / ".dev" / "governance" / "imports.allow"
 COMPLEXITY_TOML = MBO_ROOT / ".dev" / "governance" / "complexity.toml"

@@ -8,7 +8,8 @@ const stateManager = require('../state/state-manager');
 const db = require('../state/db-manager');
 const eventStore = require('../state/event-store');
 
-const SESSION_HISTORY_PATH = path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'session_history.json');
+const RUNTIME_ROOT = path.resolve(process.env.MBO_PROJECT_ROOT || process.cwd());
+const SESSION_HISTORY_PATH = path.join(RUNTIME_ROOT, '.mbo', 'session_history.json');
 const MBO_ROOT = path.resolve(__dirname, '../..');
 const MCP_BASE_URL = 'http://127.0.0.1:7337';
 const MCP_URL = `${MCP_BASE_URL}/mcp`;
@@ -378,7 +379,7 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
       );
       return { content: [{ text: JSON.stringify({ affectedFiles: rows.map(r => r.target_id) }) }] };
     }
-    const nodeId = `file://${path.resolve(MBO_ROOT, file)}`;
+    const nodeId = `file://${path.resolve(RUNTIME_ROOT, file)}`;
     return this.callMCPTool('graph_query_impact', { nodeId });
   }
 
@@ -390,7 +391,7 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
   }
 
   _fileExists(filePath) {
-    return fs.existsSync(path.resolve(MBO_ROOT, filePath));
+    return fs.existsSync(path.resolve(RUNTIME_ROOT, filePath));
   }
 
   /**
@@ -402,8 +403,8 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
     const modifiedFiles = [];
 
     for (const filePath of files) {
-      const absPath = path.resolve(MBO_ROOT, filePath);
-      const cellName = path.relative(path.join(MBO_ROOT, 'src'), absPath);
+      const absPath = path.resolve(RUNTIME_ROOT, filePath);
+      const cellName = path.relative(path.join(RUNTIME_ROOT, 'src'), absPath);
 
       // §12 Step 2: Permission check
       const hs = spawnSync('python3', [path.join(MBO_ROOT, 'bin/handshake.py'), cellName], { encoding: 'utf8' });
@@ -423,7 +424,10 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
     }
 
     // §12 Step 5: Run validator
-    const val = spawnSync('python3', [path.join(MBO_ROOT, 'bin/validator.py'), '--all'], { encoding: 'utf8' });
+    const val = spawnSync('python3', [path.join(MBO_ROOT, 'bin/validator.py'), '--all'], {
+      encoding: 'utf8',
+      env: { ...process.env, MBO_PROJECT_ROOT: RUNTIME_ROOT }
+    });
     const validatorOutput = val.stdout + val.stderr;
     const validatorPassed = val.status === 0;
 
@@ -440,7 +444,7 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
     this.stateSummary.currentStage = 'audit_gate';
 
     let diff = '';
-    try { diff = execSync('git diff HEAD', { cwd: MBO_ROOT, encoding: 'utf8' }); }
+    try { diff = execSync('git diff HEAD', { cwd: RUNTIME_ROOT, encoding: 'utf8' }); }
     catch (e) { diff = '[git diff unavailable]'; }
 
     const pkg = {
@@ -458,7 +462,7 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
 
   async runStage7Rollback(modifiedFiles) {
     try {
-      execSync(`git checkout HEAD -- ${modifiedFiles.map(f => `"${f}"`).join(' ')}`, { cwd: MBO_ROOT });
+      execSync(`git checkout HEAD -- ${modifiedFiles.map(f => `"${f}"`).join(' ')}`, { cwd: RUNTIME_ROOT });
       eventStore.append('ROLLBACK', 'operator', { files: modifiedFiles, reason: 'audit_rejected' }, 'mirror');
     } catch (e) {
       console.error(`[Stage7] Rollback failed: ${e.message}`);
@@ -472,11 +476,19 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
     this.stateSummary.currentStage = 'state_sync';
 
     // §12 Step 7: Lock src
-    spawnSync('python3', [path.join(MBO_ROOT, 'bin/handshake.py'), '--revoke'], { encoding: 'utf8' });
+    spawnSync('python3', [path.join(MBO_ROOT, 'bin/handshake.py'), '--revoke'], {
+      encoding: 'utf8',
+      env: { ...process.env, MBO_PROJECT_ROOT: RUNTIME_ROOT }
+    });
 
     // §12 Step 8: Baseline
     const init = path.join(MBO_ROOT, 'bin/init_state.py');
-    if (fs.existsSync(init)) spawnSync('python3', [init], { encoding: 'utf8' });
+    if (fs.existsSync(init)) {
+      spawnSync('python3', [init], {
+        encoding: 'utf8',
+        env: { ...process.env, MBO_PROJECT_ROOT: RUNTIME_ROOT }
+      });
+    }
 
     eventStore.append('STATE_SYNCED', 'operator', { task: classification.files, tier: routing.tier }, 'mirror');
     this.stateSummary.currentStage = 'idle';

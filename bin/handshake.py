@@ -3,7 +3,8 @@ import hashlib, json, os, shutil, stat, subprocess, sys, time, uuid
 from pathlib import Path
 from typing import Optional
 
-MBO_ROOT = Path(__file__).parent.parent
+CONTROLLER_ROOT = Path(__file__).parent.parent
+MBO_ROOT = Path(os.environ.get("MBO_PROJECT_ROOT", str(CONTROLLER_ROOT))).resolve()
 SRC_DIR = MBO_ROOT / "src"
 JOURNAL_DIR = MBO_ROOT / ".journal"
 STATE_FILE = JOURNAL_DIR / "state.json"
@@ -415,9 +416,10 @@ if __name__ == "__main__":
         print("[GATE] Session revoked. Generating handoff...")
         try:
             subprocess.run(
-                ["bash", str(MBO_ROOT / "scripts" / "mbo-session-close.sh")],
+                ["bash", str(CONTROLLER_ROOT / "scripts" / "mbo-session-close.sh")],
                 timeout=45,
                 check=False,
+                env={**os.environ, "MBO_PROJECT_ROOT": str(MBO_ROOT)},
             )
         except subprocess.TimeoutExpired:
             log_audit("SESSION_CLOSE_TIMEOUT")

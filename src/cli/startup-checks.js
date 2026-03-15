@@ -25,8 +25,32 @@ function findNearestPackageDir(startDir) {
   }
 }
 
+function readConfig(pathLike) {
+  try {
+    if (!pathLike || !fs.existsSync(pathLike)) return null;
+    const raw = fs.readFileSync(pathLike, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function isManagedControllerInstall(invocationCwd) {
+  const home = process.env.HOME || '';
+  const cfgPath = path.join(home, '.mbo', 'config.json');
+  const cfg = readConfig(cfgPath);
+  if (!cfg || typeof cfg !== 'object') return false;
+  const managedRoot = cfg.controllerRoot || cfg.installRoot;
+  if (!managedRoot || typeof managedRoot !== 'string') return false;
+  const managed = path.resolve(managedRoot);
+  const cwd = path.resolve(invocationCwd);
+  return cwd === managed || cwd.startsWith(`${managed}${path.sep}`);
+}
+
 function isSelfRunDisallowed(invocationCwd, packageRoot) {
   // setup can run anywhere; this check is for runtime/init only.
+  if (isManagedControllerInstall(invocationCwd)) return true;
+
   const nearestPkgDir = findNearestPackageDir(invocationCwd);
   if (!nearestPkgDir) return false;
 
@@ -50,4 +74,5 @@ function selfRunGuardMessage(packageRoot) {
 module.exports = {
   isSelfRunDisallowed,
   selfRunGuardMessage,
+  isManagedControllerInstall,
 };

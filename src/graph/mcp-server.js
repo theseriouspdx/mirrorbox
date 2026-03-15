@@ -146,7 +146,9 @@ class GraphService {
 
   _summarizeAndPersistScan(diagnostics, trigger) {
     const failedFiles = diagnostics.failedFiles || [];
-    const criticalFailures = failedFiles.filter((f) => f.path === '<enrich>').length;
+    // BUG-072: Enrich failures are best-effort warnings, not critical failures.
+    // failed_critical is reserved for static scan failures only.
+    const criticalFailures = failedFiles.filter((f) => f.path !== '<enrich>').length;
     const status = criticalFailures > 0
       ? 'failed_critical'
       : (failedFiles.length > 0 ? 'completed_with_warnings' : 'completed');

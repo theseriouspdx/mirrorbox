@@ -37,8 +37,6 @@ async function checkOnboarding(projectRoot) {
     if (process.stdout.isTTY) await runOnboarding(projectRoot);
     return true;
   }
-  const { version } = require('../../package.json');
-
   /**
    * Section 29: Tokenmiser Onboarding
    * Performs initial repo scan to capture the "Immutable Baseline".

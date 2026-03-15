@@ -4,10 +4,13 @@ const StaticScanner = require('../src/graph/static-scanner');
 const path = require('path');
 const fs = require('fs');
 
+const CONTROLLER_ROOT = path.resolve(__dirname, '..');
+const RUNTIME_ROOT = path.resolve(process.env.MBO_PROJECT_ROOT || CONTROLLER_ROOT);
+
 async function rebuild() {
   const withLSP = process.env.MBO_REBUILD_WITH_LSP === '1';
   const enrichTimeoutMs = parseInt(process.env.MBO_REBUILD_ENRICH_TIMEOUT_MS || '20000', 10);
-  const dbPath = path.join(__dirname, '../data/mirrorbox.db');
+  const dbPath = path.join(RUNTIME_ROOT, 'data/mirrorbox.db');
   if (fs.existsSync(dbPath)) {
     console.log(`Deleting old ${dbPath}...`);
     fs.unlinkSync(dbPath);
@@ -17,7 +20,7 @@ async function rebuild() {
   const graphStore = new GraphStore(db);
   const scanner = new StaticScanner(graphStore);
 
-  const projectRoot = path.join(__dirname, '..');
+  const projectRoot = RUNTIME_ROOT;
   const srcRoot = path.join(projectRoot, 'src');
 
   console.log('--- Phase 1: Rebuilding mirrorbox.db (Static Scan) ---');

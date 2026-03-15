@@ -44,7 +44,8 @@ class StaticScanner {
   }
 
   logIngestionError(nodeId, name, sourcePath, tokens, reason) {
-    const logDir = path.join(process.cwd(), '.mbo/logs');
+    const runtimeRoot = process.env.MBO_PROJECT_ROOT || process.cwd();
+    const logDir = path.join(runtimeRoot, '.mbo/logs');
     if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
     const logFile = path.join(logDir, 'ingestion.log');
     const entry = {
@@ -505,6 +506,23 @@ class StaticScanner {
       }
 
       const client = clients.get(lang);
+
+      const absPath = path.resolve(projectRoot, filePath);
+
+      // BUG-072: Prune stale nodes for deleted files and skip — prevents ENOENT
+      // from killing the entire enrich pass when a file was removed from disk.
+      if (!fs.existsSync(absPath)) {
+        this.graphStore.db.transaction(() => {
+          this.graphStore.db.run(
+            "DELETE FROM edges WHERE source_id IN (SELECT id FROM nodes WHERE path = ?)",
+            [filePath]
+          );
+          this.graphStore.db.run("DELETE FROM nodes WHERE path = ?", [filePath]);
+        });
+        console.error(`[StaticScanner] ${new Date().toISOString()} Pruned stale nodes for deleted file: ${filePath}`);
+        continue;
+      }
+
       if (!client) {
         // R-07: Static Fallback for JS/TS when LSP is missing
         if (lang === 'javascript' || lang === 'typescript') {
@@ -513,7 +531,7 @@ class StaticScanner {
         continue;
       }
 
-      const absPath = path.resolve(projectRoot, filePath);
+      try {
       await client.openDocument(absPath);
       
       for (const node of fileNodes) {
@@ -573,7 +591,10 @@ class StaticScanner {
         }
       }
 
-      await client.closeDocument(absPath);
+        await client.closeDocument(absPath);
+      } catch (err) {
+        console.error(`[StaticScanner] ${new Date().toISOString()} Enrich failed for ${filePath}: ${err.message}`);
+      }
     }
 
     // R-05: Shutdown ephemeral clients

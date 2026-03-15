@@ -29,6 +29,7 @@ function runSetupCommand() {
       if (!hasConfig) {
         await setup.runSetup();
       }
+      setup.persistInstallMetadata(setup.CONFIG_PATH, PACKAGE_ROOT, { force: true });
     })
     .then(() => setup.installMCPDaemon(PROJECT_ROOT))
     .then(() => {
@@ -45,6 +46,27 @@ function runTeardownCommand() {
     console.error(err);
     process.exit(1);
   }
+}
+
+function persistInstallMetadataBestEffort() {
+  try {
+    const setup = require('../src/cli/setup');
+    let force = false;
+    try {
+      const raw = fs.existsSync(setup.CONFIG_PATH)
+        ? fs.readFileSync(setup.CONFIG_PATH, 'utf8')
+        : '';
+      const cfg = raw ? JSON.parse(raw) : {};
+      const existing = typeof cfg.controllerRoot === 'string' ? path.resolve(cfg.controllerRoot) : null;
+      const pkgRoot = path.resolve(PACKAGE_ROOT);
+      const invCwd = path.resolve(INVOCATION_CWD);
+      // Self-heal stale config when controllerRoot drifted away from the actual controller.
+      force = !existing || (invCwd === pkgRoot && existing !== pkgRoot) || (existing === invCwd && existing !== pkgRoot);
+    } catch {
+      force = true;
+    }
+    setup.persistInstallMetadata(setup.CONFIG_PATH, PACKAGE_ROOT, { force });
+  } catch {}
 }
 
 async function runMcpRecoveryCommand() {
@@ -400,6 +422,7 @@ if (process.argv[2] === 'setup') {
   const { initProject } = require('../src/cli/init-project');
   initProject(INVOCATION_CWD);
 } else {
+  persistInstallMetadataBestEffort();
   reapStaleHelpers(PACKAGE_ROOT);
   if (isSelfRunDisallowed(INVOCATION_CWD, PACKAGE_ROOT)) {
     process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
