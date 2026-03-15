@@ -71,6 +71,18 @@ node ./mcp_query.js graph_search "open tasks"
 node ./mcp_query.js tools_list
 ```
 
+### One-command recovery
+
+If MCP is flaky or launchd/session state drifted, run:
+
+```bash
+mbo mcp
+```
+
+This runs teardown/setup, waits for health, runs `graph_rescan`, prints
+`graph_server_info`, refreshes local handshake baseline, and checks SQLite
+integrity.
+
 ---
 
 ## Docker / CI Environments
@@ -117,6 +129,12 @@ Server is not running. On macOS:
 launchctl load -w ~/Library/LaunchAgents/com.mbo.mcp.plist
 ```
 Or run `mbo setup` again.
+
+**Need full reset + verification in one command**
+```bash
+mbo mcp
+```
+This is the preferred first-line recovery flow.
 
 **Server crashes in a loop**
 Check logs: `tail -f .dev/logs/mcp-stderr.log`

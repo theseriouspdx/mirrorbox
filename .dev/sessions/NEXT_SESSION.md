@@ -1,62 +1,60 @@
 # NEXT_SESSION.md
 ## Mirror Box Orchestrator — Session Handoff
 
-**Session ended:** 2026-03-13
-**Last task:** Task 1.1-H23 — MCP launchd daemon migration finalized (sanitized & cleanup complete)
-**Status:** Task 1.1-H23 COMPLETED. MCP is stable on port 7337.
+**Session ended:** 2026-03-15
+**Last task:** MCP recovery shortcut + governance/doc normalization follow-through
+**Status:** `mbo mcp` flow is operational and verified end-to-end.
 
 ---
 
 ## Section 1 — Next Action
 
-**Task 1.1-H24 — Implement DID protocol in operator pipeline**
+**Task 1.1-H13 — Directory structure cleanup** remains OPEN and is still the next scheduled execution item in project tracking.
 
-This is a Tier 3 task requiring Dual Independent Derivation (DID).
-
-Full specification: `.dev/preflight/did-protocol-implementation.md`
-
-MCP migration (1.1-H23) is complete and validated:
-- launchd service `com.mbo.mcp` running on fixed port `7337`
-- `/health` and initialize probes are responsive
-- `graph_search` and `tools_list` calls succeed via `mcp_query.js`
-
-**Pre-flight queries:**
-```
-graph_search("DID protocol")
-graph_search("callModel routing")
-graph_search("reconciliation format")
-```
+Current `Next Action` line in `projecttracking.md` already points to `1.1-H13`.
 
 ---
 
 ## Section 2 — What Was Decided This Session
 
-Task 1.1-H23 (MCP daemon migration) was confirmed as functionally complete and subsequently sanitized:
-1. Plist renamed to `com.mbo.mcp.plist` (generic label `com.mbo.mcp`).
-2. Hardcoded absolute paths/usernames removed from `src/cli/setup.js`, `src/auth/operator.js`, `AGENTS.md`, `README.md`, and `docs/mcp.md`.
-3. Old `scripts/com.johnserious.mbo-mcp.plist` deleted.
-4. Governance documents (`AGENTS.md`, `BUGS.md`, `projecttracking.md`) updated to reflect COMPLETED status.
-
-MCP is now fully operational via `launchd` on port `7337`.
+1. Added a first-class one-command MCP recovery path: `mbo mcp`.
+2. Kept recovery strict where needed, but made it resilient to known command/tool exit-code noise when output proves success.
+3. Confirmed actual run output reaches "Recovery complete" with:
+   - health OK
+   - graph rescan completion (with known warning)
+   - graph server info returned
+   - init_state baseline output
+   - handshake status output
+   - sqlite integrity check OK
+4. Kept `letsgo.md` in repo root as requested for prompt workflow.
 
 ---
 
-## Section 3 — Files Modified This Session
+## Section 3 — Known Runtime Warning
+
+`graph_rescan` currently returns `completed_with_warnings` due to:
+- `<enrich>` → `FOREIGN KEY constraint failed`
+
+This warning is non-critical for MCP daemon recovery and does not block service health.
+
+---
+
+## Section 4 — Files Updated This Session (primary)
 
 | File | Action |
 |------|--------|
-| `src/cli/setup.js` | MODIFIED — Sanitized plist name/label |
-| `src/auth/operator.js` | MODIFIED — Sanitized error message |
-| `AGENTS.md` | MODIFIED — Sanitized & removed 1.1-H23 caveat |
-| `.dev/governance/AGENTS.md` | MODIFIED — Sanitized & removed 1.1-H23 caveat |
-| `docs/mcp.md` | MODIFIED — Sanitized paths/plist |
-| `README.md` | MODIFIED — Sanitized paths |
-| `.dev/governance/BUGS.md` | UPDATED — BUG-069 COMPLETED |
-| `.dev/governance/projecttracking.md` | UPDATED — 1.1-H23 COMPLETED |
-| `scripts/com.johnserious.mbo-mcp.plist` | DELETED — Sanitized cleanup |
+| `bin/mbo.js` | Added `mbo mcp` recovery command and hardening |
+| `mcp_query.js` | Increased `graph_rescan` timeout window |
+| `docs/mcp.md` | Added recovery shortcut docs |
+| `README.md` | Added MCP recovery shortcut usage |
+| `CHANGELOG.md` | Added 1.1.18 session entry |
+| `.dev/governance/CHANGELOG.md` | Synced with root changelog |
+| `.dev/sessions/NEXT_SESSION.md` | Rewritten handoff |
 
 ---
 
 ## Session End Checklist
 - Status: closed_clean
-- Next: DID on Task 1.1-H24
+- MCP daemon: healthy on `127.0.0.1:7337`
+- Recovery command: `mbo mcp` verified
+- Next: execute `1.1-H13`

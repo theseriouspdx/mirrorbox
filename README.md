@@ -34,6 +34,12 @@ mbo setup
 curl http://127.0.0.1:7337/health
 ```
 
+Recovery shortcut:
+
+```bash
+mbo mcp
+```
+
 To remove:
 
 ```bash

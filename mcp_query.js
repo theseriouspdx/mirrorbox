@@ -8,6 +8,7 @@ const net = require('net');
 const path = require('path');
 
 const DEFAULT_TIMEOUT_MS = 12000;
+const GRAPH_RESCAN_TIMEOUT_MS = 180000;
 const INIT_TIMEOUT_STEPS = [6000, 12000, 25000, 45000];
 
 function canonicalPath(p) {
@@ -324,7 +325,7 @@ const { diagnose, op, arg } = parseInvocation(process.argv.slice(2));
     } else if (op === 'graph_search') {
       res = await callMCP(session.endpoint, 'tools/call', { name: 'graph_search', arguments: { pattern: arg } }, sid);
     } else if (op === 'graph_rescan') {
-      res = await callMCP(session.endpoint, 'tools/call', { name: 'graph_rescan', arguments: {} }, sid);
+      res = await callMCP(session.endpoint, 'tools/call', { name: 'graph_rescan', arguments: {} }, sid, GRAPH_RESCAN_TIMEOUT_MS);
     } else if (op === 'tools_list') {
       res = await callMCP(session.endpoint, 'tools/list', {}, sid);
     } else {

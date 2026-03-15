@@ -1,6 +1,23 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.18] — 2026-03-15
+#### Added
+- **`mbo mcp` recovery shortcut (`bin/mbo.js`):** one-command MCP recovery and verification flow (`teardown`, `setup`, `/health`, `graph_rescan`, `graph_server_info`, `init_state`, `handshake --status`, sqlite integrity check).
+
+#### Changed
+- **`mbo mcp` robustness hardening:**
+  - Added explicit step-by-step progress logging.
+  - Added bounded timeouts per recovery step.
+  - Added tolerant success detection for known tool behaviors where useful output may be emitted with non-zero exit status.
+  - Added health fallback handling and stderr tail diagnostics for MCP startup troubleshooting.
+- **`mcp_query.js` timeout contract:** `graph_rescan` now uses an extended timeout window suitable for full graph rescans.
+
+#### Docs
+- Updated `docs/mcp.md` with `mbo mcp` recovery guidance.
+- Updated `README.md` MCP section with recovery shortcut usage.
+
+
 ### [1.1.17] — 2026-03-13
 #### Added
 - **Persistent Operator (Task 1.1-H28):** 
