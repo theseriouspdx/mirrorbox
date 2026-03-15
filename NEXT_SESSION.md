@@ -2,11 +2,10 @@
 ## Mirror Box Orchestrator — Session Handoff
 
 **Session ended:** 2026-03-15
-**Last task:** :  ()
-**Status:** Task Pending
+**Last task:** 1.1-H30: Hardening: Project-scoped MCP Isolation
+**Status:** Completed (Verified)
 
 ---
-
 ## Section 1 — Next Action
 
 **Task 1.1-H26 — Implement Persona Store & Entropy Gate**
@@ -15,13 +14,17 @@
 ```
 graph_search("Implement Persona Store & Entropy Gate")
 ```
+graph_search("StaticScanner")
+graph_search("_summarizeAndPersistScan")
+```
 
 ---
 
 ## Section 2 — Session Summary
 
-- Tasks completed this session: 0
-- Unresolved issues: Check BUGS.md for P0/P1 items.
+- **Completed**: Project-scoped MCP Isolation (ephemeral ports, identity enforcement, atomic manifests).
+- **Verified**: Confirmed per-project daemons for `MBO` and `johnseriouscom`.
+- **Blocked**: `graph_server_info` reports `failed_critical` in multiple projects (BUG-073).
 
 ---
 

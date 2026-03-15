@@ -2,7 +2,7 @@
 ## Complete Architecture Specification v2.0
 
 **Status:** Current — Implementation Contract  
-**Date:** 2026-03-08  
+**Date:** 2026-03-13  
 **Author:** John Serious  
 
 This document specifies the architecture, behavior, and implementation contract for the Mirror Box Orchestrator. It is written in operational order — following a single task from the moment a user describes what they want to the moment working code is deployed.
@@ -29,17 +29,17 @@ The Mirror Box Orchestrator is a transparent, auditable AI software engineering 
 
 It uses models you already have. If you are logged into Claude CLI, Gemini CLI, or OpenAI CLI, the orchestrator uses those sessions. If you prefer a single API key, OpenRouter covers everything else. No new auth layer. No new accounts. No proprietary lock-in.
 
-It never writes code without your explicit approval. You type `go`. Nothing else triggers execution.
+It may prepare candidate edits and run verification in an isolated workspace before approval. No commit, merge, or repository mutation is finalized until you type `go`.
 
 It uses diverse AI vendors deliberately. A plan produced by one model family is reviewed by a different model family. Correlated blind spots are the primary failure mode of single-vendor AI pipelines. This system is designed around that reality.
 
 It works on any codebase. Legacy PHP site from 2009. React app. Mobile app. Microservices. The onboarding interview establishes what the system is working with before any task begins.
 
-It runs where you run. Mac, Linux, Windows via WSL2, Docker, VS Code, or hosted. Same orchestrator, different surfaces.
+Current shipping target is macOS. Docker, Windows, and Linux are on the roadmap.
 
 **What it is not:**
 
-It is not autonomous. It does not run unsupervised. Human approval is required before any code touches your repository. This is not a limitation — it is the design.
+It is not autonomous. It does not run unsupervised. It may draft and test changes in an isolated workspace, but human approval is required before any commit/merge updates your repository history. This is not a limitation — it is the design.
 
 It is not fragile. Every execution is reversible. Every decision is logged. Every failure defaults to safe rollback.
 
@@ -49,8 +49,8 @@ It is not fragile. Every execution is reversible. Every decision is logged. Ever
 
 These six principles govern every architectural decision in this document. When two approaches conflict, the one that better satisfies these principles wins.
 
-**1. No code is written without a human typing "go."**  
-No model has uncontrolled write access to a repository. The human approval gate cannot be bypassed under any circumstances — not by the tiebreaker, not by any error condition, not by any timeout.
+**1. No repository commit or merge occurs without a human typing "go."**
+No model has uncontrolled write access to repository history. Models may draft and validate changes in an isolated workspace, but the human approval gate controls final commit/merge and cannot be bypassed under any circumstances — not by the tiebreaker, not by any error condition, not by any timeout.
 
 **2. System architecture is represented explicitly, never inferred.**  
 The Intelligence Graph is the authoritative map of the codebase. Models receive structured context derived from graph queries, not raw file dumps. What the system knows about a codebase is always inspectable.
@@ -1518,7 +1518,7 @@ Subprocesses spawned via `child_process.spawn` — never `exec` or `execSync`. A
 
 > **SUPERSEDED by Task 1.1-H23 (2026-03-13).** The five-layer self-managed MCP
 > resilience contract below has been replaced by a launchd system daemon
-> architecture. The graph server runs at fixed port `7337`, managed entirely by
+> architecture. The graph server runs at project-scoped dynamic ports, managed entirely by
 > the OS. MBO no longer starts, monitors, or restarts the MCP process.
 > See `docs/mcp.md` and `.dev/preflight/mcp-daemon-migration.md` for the
 > current architecture. The implementation spec (Section 32) has also been
@@ -2242,8 +2242,8 @@ On validator failure:
 > tests — was written to compensate for MBO managing its own MCP process
 > lifecycle. That approach was the root cause of 5+ days of instability.
 >
-> **The new contract is simpler:** launchd owns the server. Port is fixed at
-> `7337`. Clients connect or fail. MBO does not start, stop, watchdog, lock,
+> **The new contract is simpler:** launchd owns the server. The graph server binds to
+> project-scoped dynamic ports. Clients connect or fail. MBO does not start, stop, watchdog, lock,
 > or fingerprint the server process. The OS does that.
 >
 > **What this eliminates from the spec:**
@@ -2261,3 +2261,190 @@ On validator failure:
 >
 > Do not implement any requirements from the original Section 32.
 > This section is preserved as a record of what was tried and why it was abandoned.
+
+---
+
+## Section 33 — Agent Output Streaming Contract (Milestone 1.1)
+
+### 33.1 Goal
+Provide real-time, persona-consistent agent output while preserving deterministic pipeline behavior and auditability.
+
+### 33.2 Scope
+This section defines requirements corresponding to tracking task `1.1-H27`.
+
+### 33.3 Streaming Model
+- Agent responses MAY be emitted as incremental chunks before final completion.
+- Streaming MUST preserve chunk order per agent.
+- Each chunk MUST be associated with `sessionId`, `taskId`, `stage`, `agentRole`, and monotonic `sequence`.
+- Final assembled content remains the authoritative value used by downstream pipeline stages.
+
+### 33.4 Persona Consistency
+- Streamed output MUST use the same persona/instruction bundle as non-streamed output for that role.
+- Persona changes are applied at request boundaries, never mid-stream.
+- If persona resolution fails, the request fails closed and no partial stream is committed as final output.
+
+### 33.5 Inter-Agent Visibility
+- Operator-facing UI MAY display live outputs from multiple agents concurrently.
+- DID blindness rules remain in force: visibility in the operator UI MUST NOT leak one derivation into another agent's prompt context.
+- Any artifact made visible for human observation before reconciliation MUST be tagged `human_visible_only=true` in the event stream.
+
+### 33.6 Configuration Contract
+- Per-agent streaming toggles MUST be configurable in operator config.
+- Minimum config fields:
+  - `streaming.enabled` (global default)
+  - `streaming.roles.<role>.enabled` (role override)
+  - `streaming.flushMs` (chunk flush cadence)
+- Invalid streaming config MUST fail validation at startup.
+
+### 33.7 Failure Behavior
+- On transport interruption, system MUST either resume from next sequence or terminate stream with explicit error event.
+- Partial chunks MUST NOT be interpreted as final output unless an explicit completion marker is present.
+- Retry behavior follows Section 19 and must preserve audit ordering.
+
+### 33.8 Acceptance Criteria
+1. Streaming can be enabled/disabled globally and per role.
+2. Chunk ordering is deterministic per role.
+3. Final non-stream value matches streamed aggregate.
+4. DID blind derivation remains intact under streaming.
+5. Interruptions produce explicit terminal events and do not silently truncate final artifacts.
+
+---
+
+## Section 34 — Persistent Operator Window Contract (Milestone 1.1)
+
+### 34.1 Goal
+Replace process-per-task operator invocation with a persistent operator loop while maintaining human gate semantics and reproducibility.
+
+### 34.2 Scope
+This section defines requirements corresponding to tracking task `1.1-H28`.
+
+### 34.3 Runtime Loop
+- Operator process MUST remain live across multiple tasks within a session.
+- Task dispatch MUST occur via an internal queue; only one execution pipeline may hold mutation authority at a time.
+- The human `go` requirement remains mandatory per task.
+
+### 34.4 Session State
+- Session metadata MUST persist across task boundaries within the same operator runtime.
+- Minimum persisted session artifacts:
+  - task history index
+  - active/last task status
+  - abort markers and timestamps
+  - operator-visible summaries
+- Persistent state MUST survive operator restart when backed by Event Store.
+
+### 34.5 Control Surface
+- Operator MUST support: start task, inspect status, abort in-flight execution, and continue with next task without full process restart.
+- Abort MUST be explicit, observable, and logged as an event with reason.
+
+### 34.6 Watchdog Integration
+- Process liveness monitoring is delegated to existing supervision contracts (Section 18 + launchd behavior where applicable).
+- Persistent-loop internals MUST NOT reintroduce the superseded MCP watchdog/manifest model from Section 32.
+
+### 34.7 Safety Semantics
+- A task abort MUST terminate current execution safely and leave repository state recoverable by existing rollback contracts.
+- No queued task may auto-execute past human approval gates.
+
+### 34.8 Acceptance Criteria
+1. Multiple tasks can run sequentially without restarting operator process.
+2. Abort stops in-flight work and records a durable event.
+3. Post-abort status is queryable and deterministic.
+4. Existing gate and rollback invariants remain unchanged.
+
+---
+
+## Section 35 — Context Minimization & Tiered Routing Contract (Milestone 1.1)
+
+### 35.1 Goal
+Reduce token load and latency while preserving solution quality through explicit context refinement and model-aware routing policy.
+
+### 35.2 Scope
+This section defines requirements corresponding to tracking task `1.1-H29`.
+
+### 35.3 Refinement Gate
+- Before planner/reviewer model calls, the system MUST run a spec/context refinement pass that filters context to task-relevant evidence.
+- Refinement output MUST be logged with references to selected graph evidence and excluded bulk context classes.
+- Raw full-dump context injection is disallowed except explicit override with audit flag.
+
+### 35.4 Tiered Routing Policy
+- Routing decision MUST consider at minimum:
+  - task complexity classification
+  - blast radius estimate from graph impact query
+  - governance sensitivity (spec/governance/security surfaces)
+- Routing outcome MUST map to defined execution tiers (Section 8) and be event-logged.
+
+### 35.5 Model-Specific Token Budgeting
+- Each role/model pair MUST have configurable token budgets.
+- Budget enforcement MUST occur before request dispatch.
+- On budget breach, system MUST either compress context via deterministic reduction or fail with explicit budget error.
+
+### 35.6 Prompt Caching
+- Static governance and invariant context blocks MAY be cached and referenced by digest.
+- Cache entries MUST be invalidated when source files change.
+- Cache hit/miss outcomes MUST be measurable in session metrics.
+
+### 35.7 Quality Guardrails
+- Context minimization MUST NOT bypass required invariants, human approval gates, or DID independence.
+- If minimization removes required evidence, task MUST fail closed and request regeneration with corrected context scope.
+
+### 35.8 Acceptance Criteria
+1. Routing decisions are deterministic and auditable.
+2. Token budgets are enforced per role/model.
+3. Prompt caching reduces repeated static context payload.
+4. Quality checks prevent under-context failures from silently merging.
+
+---
+
+## Appendix D — Task-to-Spec Traceability Matrix (Project Tracking Alignment)
+
+This matrix ensures every task listed in `.dev/governance/projecttracking.md` maps to an explicit spec contract section.
+
+| Task ID | Spec Coverage |
+|---------|---------------|
+| 1.0-03 | Section 24 |
+| 1.0-04 | Section 26 |
+| 1.0-05 | Section 25 |
+| 1.0-09 | Sections 15, 16, 17 |
+| 1.1-01 | Section 28.9 |
+| 1.1-02 | Section 28.3 |
+| 1.1-03 | Sections 28.4, 28.7 |
+| 1.1-04 | Sections 28.5, 28.6 |
+| 1.1-05 | Section 28.7 |
+| 1.1-06 | Section 31 |
+| 1.1-07 | Section 30.1 |
+| 1.1-08 | Section 30 |
+| 1.1-09 | Sections 28.7, 29 |
+| 1.1-10 | Sections 6, 23, 32 (supersession note) |
+| 1.1-11 | Sections 2, 12, 28.10 |
+| 1.1-H01 | Section 28.3 |
+| 1.1-H02 | Section 28.4 |
+| 1.1-H03 | Section 28.8 |
+| 1.1-H04 | Sections 28.5, 28.6 |
+| 1.1-H05 | Section 28.7 |
+| 1.1-H06 | Sections 29.2, 29.3 |
+| 1.1-H07 | Section 30.1 |
+| 1.1-H08 | Section 32 (superseded historical contract) |
+| 1.1-H09 | Section 29.4 |
+| 1.1-H10 | Section 30.4 |
+| 1.1-H11 | Section 30.3 |
+| 1.1-H12 | AGENTS canonicalization requirement (governance contract) |
+| 1.1-H13 | Repository hygiene and structure governance (implementation task) |
+| 1.1-H14 | Section 14 + DID protocol governance |
+| 1.1-H15 | Section 32 historical reliability notes + migration docs |
+| 1.1-H16 | Sections 6, 23 + migration docs |
+| 1.1-H17 | Section 28.10 |
+| 1.1-H18 | Section 32 supersession + migration docs |
+| 1.1-H19 | Section 32 supersession + migration docs |
+| 1.1-H20 | Section 32 supersession + migration docs |
+| 1.1-H21 | Sections 12, 28.10 |
+| 1.1-H22 | Superseded by 1.1-H23 |
+| 1.1-H23 | Section 32 supersession contract + migration docs |
+| 1.1-H24 | Section 14 |
+| 1.1-H25 | Section 22 Invariants 13 and 14 + AGENTS Section 8 non-persistence mandate |
+| 1.1-H26 | AGENTS Section 13 + operator/persona extension contracts |
+| 1.1-H27 | Section 33 |
+| 1.1-H28 | Section 34 |
+| 1.1-H29 | Section 35 |
+
+### Notes
+- Where a task is explicitly governance-only, source-of-truth may be split between SPEC and AGENTS/governance documents.
+- Superseded tasks remain listed for audit continuity and are intentionally mapped to historical/supersession sections.

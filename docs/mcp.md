@@ -3,13 +3,13 @@
 ## Architecture (as of 2026-03-13)
 
 The MBO graph server is a **launchd-owned system daemon**. It runs at login,
-restarts automatically on crash, and is always available at a fixed address.
+restarts automatically on crash, and is available at a project-scoped dynamic address.
 MBO the CLI tool is a client. It does not start, stop, or manage the server.
 
-**Fixed endpoint:** `http://127.0.0.1:7337/mcp`
-**Health check:** `GET http://127.0.0.1:7337/health`
+**Endpoint:** Dynamic loopback (discoverable via `.dev/run/mcp.json` or `.mbo/run/mcp.json`)
+**Health check:** `GET http://127.0.0.1:<PORT>/health`
 
-No manifest files. No port discovery. No sentinel polling. No session negotiation.
+Manifest-based port discovery. No session negotiation.
 
 ---
 
@@ -24,7 +24,9 @@ The server will start automatically at every login from that point forward.
 
 To verify it's running:
 ```bash
-curl http://127.0.0.1:7337/health
+# Get port from manifest
+PORT=$(node -e 'console.log(require("./.dev/run/mcp.json").port)')
+curl http://127.0.0.1:$PORT/health
 launchctl list | grep mbo
 ```
 
@@ -42,7 +44,7 @@ mbo teardown
 {
   "mcpServers": {
     "mbo-graph": {
-      "url": "http://127.0.0.1:7337/mcp"
+      "url": "http://127.0.0.1:PORT/mcp"
     }
   }
 }
@@ -53,22 +55,22 @@ mbo teardown
 {
   "mcpServers": {
     "mbo-graph": {
-      "url": "http://127.0.0.1:7337/mcp"
+      "url": "http://127.0.0.1:PORT/mcp"
     }
   }
 }
 ```
 
-Both files are static config. They never need updating after setup.
+Both files are managed by MBO and reflect the manifest-discovered port.
 
 ---
 
 ## Querying
 
 ```bash
-node ./mcp_query.js graph_server_info
-node ./mcp_query.js graph_search "open tasks"
-node ./mcp_query.js tools_list
+node ./scripts/mcp_query.js graph_server_info
+node ./scripts/mcp_query.js graph_search "open tasks"
+node ./scripts/mcp_query.js tools_list
 ```
 
 ### One-command recovery
@@ -123,7 +125,7 @@ Systemd/Windows service installers are not part of this task's implementation.
 
 ## Troubleshooting
 
-**`Connection refused` on port 7337**
+**`Connection refused` on dynamic port**
 Server is not running. On macOS:
 ```bash
 launchctl load -w ~/Library/LaunchAgents/com.mbo.mcp.plist
@@ -147,7 +149,7 @@ will reject RPC requests from unmatched project contexts.
 
 **Checking server identity**
 ```bash
-node ./mcp_query.js graph_server_info
+node ./scripts/mcp_query.js graph_server_info
 ```
 Returns: `project_root`, `project_id`, `uptime`, `node_count`, `is_scanning`.
 
@@ -159,10 +161,10 @@ The following were removed in Milestone 1.1-H23:
 
 - `scripts/mbo-start.sh` — replaced by launchd
 - `scripts/mbo-watchdog.sh` — replaced by launchd KeepAlive
-- `src/utils/resolve-manifest.js` — no manifest to resolve
-- `.mbo/run/mcp.json` manifest files — no dynamic discovery
+- `src/utils/resolve-manifest.js` — legacy path
+- `.mbo/run/mcp.json` manifest files — legacy path
 - `.mbo/run/mcp.ready` sentinel files — no sentinel polling
-- Dynamic port selection — port is fixed at 7337
+- Dynamic port selection — port is project-scoped dynamic
 - Session ID persistence/restore — stateless per-request
 
 *Last updated: 2026-03-13*

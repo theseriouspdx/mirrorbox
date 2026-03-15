@@ -11,7 +11,7 @@ The Mirror Box Orchestrator is a self-referential development environment. It us
 - **Sovereign Loop:** Active
 - **Milestone 1.1-H23 (MCP daemon migration):** Completed
 - **Security Hardening (Inv 13 & 14):** Active (No `write_file` overwrites, Topology-preserving backups to `.dev/bak/`).
-- **MCP endpoint:** `http://127.0.0.1:7337/mcp`
+- **MCP endpoint:** Project-scoped dynamic (discoverable via `.dev/run/mcp.json` or `.mbo/run/mcp.json`)
 
 ## Usage
 
@@ -27,11 +27,11 @@ mbo
 
 ## MCP Daemon
 
-MCP is launchd-owned on macOS and binds fixed port `7337`.
+MCP is launchd-owned on macOS and binds a project-scoped dynamic port.
 
 ```bash
 mbo setup
-curl http://127.0.0.1:7337/health
+curl http://127.0.0.1:$(node -e 'const fs=require("fs");const f=[".dev/run/mcp.json",".mbo/run/mcp.json"].find(x=>fs.existsSync(x));console.log(f?require("./"+f).port:7337)')/health
 ```
 
 Recovery shortcut:
@@ -49,8 +49,8 @@ mbo teardown
 Use explicit Node invocation:
 
 ```bash
-node ./mcp_query.js tools_list
-node ./mcp_query.js graph_search "open tasks"
+node ./scripts/mcp_query.js tools_list
+node ./scripts/mcp_query.js graph_search "open tasks"
 ```
 
 ## Notes

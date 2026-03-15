@@ -96,6 +96,12 @@ Implementation task: `1.1-H24` — see `.dev/preflight/did-protocol-implementati
 - On session close, atomically persist event flush, graph delta, handoff record, and integrity hashes.
 - Run `PRAGMA integrity_check`.
 
+### Invariant 17 (Branch-Isolated Verification Gate)
+- All implementation work MUST occur on a dedicated non-main branch (`<agent>/<task-or-scope>`, e.g. `claude/`, `gemini/`, `codex/`).
+- No apply/merge/promotion to the target branch until verification gate passes.
+- Verification gate minimum: `python3 bin/validator.py --all` passes, task-specific tests pass, and no new P0/P1 regressions are introduced.
+- If verification fails, fix-forward on the same working branch; do not apply partial changes.
+
 ---
 
 ## Section 6 — Proactive State Sync & Session Protocols
@@ -110,7 +116,13 @@ The moment a task is implemented and Stage 8 passes, halt and present the audit 
 On `approved`: Update `projecttracking.md`, `CHANGELOG.md`, `BUGS.md`, and commit the changes.
 
 ### 6C. Session End
-If "end session" is requested: Write `NEXT_SESSION.md`, terminate MCP, and output checklist.
+If "end session" is requested: Write `NEXT_SESSION.md`, terminate MCP, run Branch Finalization, and output checklist.
+
+### 6D. Branch Finalization (Required Before Session Close)
+1. If verification gate passed and changes are approved, promote branch changes to `main` (or configured target branch) via approved merge strategy.
+2. Record promotion outcome in session artifacts (audit gate output plus state-sync files).
+3. Remove the working branch after successful promotion (local + remote) unless explicitly marked for retention.
+4. Retained branches MUST be renamed or created under `archive/` with a short reason in session handoff.
 
 ---
 
@@ -160,15 +172,15 @@ Explicitly state your **Hard State Anchor** at the beginning of every internal `
 Run only the queries listed in NEXT_SESSION.md. Load only the files and SPEC sections those queries return.
 
 **MCP connection (as of 2026-03-13):**
-The graph server is a launchd system daemon at fixed endpoint `http://127.0.0.1:7337/mcp`.
-No manifest discovery, no port negotiation, no session ID management.
+The graph server is a launchd system daemon at project-scoped dynamic endpoint.
+No fixed port, manifest-based discovery required, no port negotiation, no session ID management.
 
 If the dev graph server is unavailable:
-- Check: `curl http://127.0.0.1:7337/health`
-- Start: `mbo setup` or `launchctl load -w ~/Library/LaunchAgents/com.mbo.mcp.plist`
+- Check: `curl http://127.0.0.1:$(node -e 'console.log(require("./.dev/run/mcp.json").port)')/health`
+- Start: `mbo setup`
 - State: "Dev graph unavailable. Ran `curl /health` — [result]. Awaiting human instruction."
 
-MCP is available via `http://127.0.0.1:7337/mcp`. Run `curl http://127.0.0.1:7337/health` to verify before starting.
+MCP is available via dynamic manifest-resolved endpoint. Run `curl http://127.0.0.1:$(node -e 'console.log(require("./.dev/run/mcp.json").port)')/health` to verify before starting.
 
 ---
 
@@ -177,13 +189,16 @@ MCP is available via `http://127.0.0.1:7337/mcp`. Run `curl http://127.0.0.1:733
 Every development session MUST follow this checklist:
 1. **Identify Task** from `projecttracking.md`.
 2. **Permission Check** via `python3 bin/handshake.py <cell_name>`.
-3. **Derive & Propose** solution from graph context.
-4. **Human Approval** ("go").
-5. **Implement & Validate** (`python3 bin/validator.py --all`).
-6. **Audit Gate** (diff + validator output + summary).
-7. **Sync State** (`projecttracking.md`, `CHANGELOG.md`, `BUGS.md`).
-8. **Lock & Journal** (`handshake.py --revoke` and `init_state.py`).
+3. **Create Working Branch** (`<agent>/<task-or-scope>`) and keep all edits isolated there.
+4. **Derive & Propose** solution from graph context.
+5. **Human Approval** ("go").
+6. **Implement on Branch & Verify** (`python3 bin/validator.py --all` + task-specific tests).
+7. **Verification Gate Decision** — apply/promotion is allowed only after required checks pass.
+8. **Audit Gate** (diff + validator output + summary).
+9. **Sync State** (`projecttracking.md`, `CHANGELOG.md`, `BUGS.md`).
+10. **Branch Finalization** (promote approved, verified branch to target, then delete or archive branch).
+11. **Lock & Journal** (`handshake.py --revoke` and `init_state.py`).
 
 ---
 
-*Last updated: 2026-03-13 — Section 11 updated for launchd daemon architecture (Task 1.1-H23)*
+*Last updated: 2026-03-15 — Added Invariant 17, branch-isolated verification gate, and required session-end branch finalization.*
