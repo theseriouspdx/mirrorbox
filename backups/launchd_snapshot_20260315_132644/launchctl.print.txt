@@ -1,0 +1,66 @@
+gui/501/com.mbo.mcp = {
+	active count = 0
+	path = /Users/johnserious/Library/LaunchAgents/com.mbo.mcp.plist
+	type = LaunchAgent
+	state = spawn scheduled
+
+	program = /Users/johnserious/.nvm/versions/node/v24.11.1/bin/node
+	arguments = {
+		/Users/johnserious/.nvm/versions/node/v24.11.1/bin/node
+		/Users/johnserious/johnseriouscom/src/graph/mcp-server.js
+		--port=7337
+		--mode=dev
+	}
+
+	working directory = /Users/johnserious/johnseriouscom
+
+	stdout path = /Users/johnserious/johnseriouscom/.dev/logs/mcp-stdout.log
+	stderr path = /Users/johnserious/johnseriouscom/.dev/logs/mcp-stderr.log
+	inherited environment = {
+		SSH_AUTH_SOCK => /private/tmp/com.apple.launchd.RgzpyZhuEf/Listeners
+	}
+
+	default environment = {
+		PATH => /usr/bin:/bin:/usr/sbin:/sbin
+	}
+
+	environment = {
+		OSLogRateLimit => 64
+		PATH => /Users/johnserious/.nvm/versions/node/v24.11.1/bin:/usr/local/bin:/usr/bin:/bin
+		XPC_SERVICE_NAME => com.mbo.mcp
+	}
+
+	domain = gui/501 [100024]
+	asid = 100024
+	minimum runtime = 10
+	exit timeout = 5
+	runs = 154
+	last exit code = 1
+
+	resource coalition = {
+		ID = 143814
+		type = resource
+		state = active
+		active count = 1
+		name = com.mbo.mcp
+	}
+
+	jetsam coalition = {
+		ID = 143815
+		type = jetsam
+		state = active
+		active count = 1
+		name = com.mbo.mcp
+	}
+
+	spawn type = daemon (3)
+	jetsam priority = 40
+	jetsam memory limit (active) = (unlimited)
+	jetsam memory limit (inactive) = (unlimited)
+	jetsamproperties category = daemon
+	submitted job. ignore execute allowed
+	jetsam thread limit = 32
+	cpumon = default
+
+	properties = keepalive | runatload | inferred program
+}

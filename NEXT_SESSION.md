@@ -2,39 +2,51 @@
 ## Mirror Box Orchestrator — Session Handoff
 
 **Session ended:** 2026-03-15
-**Last task:** 1.1-H30: Hardening: Project-scoped MCP Isolation
-**Status:** Completed (Verified)
+**Last task:** Readiness Assessment (full architectural + operational evaluation)
+**Status:** Assessment complete. Stabilization work begins.
 
 ---
+
 ## Section 1 — Next Action
 
-**Task 1.1-H26 — Implement Persona Store & Entropy Gate**
+**Task H31 — Fix Scan Health Regression** (then H26 after H31 verified)
+
+Priority order:
+1. H31 (P0): Fix `last_scan_status: failed_critical` in MBO + johnseriouscom graphs
+2. ISS-02 (P0): Fix `test-state.js` concurrent append TypeError
+3. ISS-03 (P1): Add `npm test` script + `tests/run-all.js` harness
+4. H26 (P1, Tier 2 DID): Persona Store & Entropy Gate — only after H31 verified green
 
 **Graph queries to run at Gate 0:**
 ```
-graph_search("Implement Persona Store & Entropy Gate")
+graph_server_info()
+graph_search("static-scanner enrich failed_critical")
+graph_search("event-store append concurrent")
 ```
-graph_search("StaticScanner")
-graph_search("_summarizeAndPersistScan")
-```
+
+**Gemini handoff:** `.dev/sessions/GEMINI_HANDOFF.md`
+**Full assessment:** `.dev/reports/readiness-assessment-2026-03-15.md`
 
 ---
 
 ## Section 2 — Session Summary
 
-- **Completed**: Project-scoped MCP Isolation (ephemeral ports, identity enforcement, atomic manifests).
-- **Verified**: Confirmed per-project daemons for `MBO` and `johnseriouscom`.
-- **Blocked**: `graph_server_info` reports `failed_critical` in multiple projects (BUG-073).
+- Tasks completed this session: 0 (assessment only — no code written)
+- Unresolved issues: BUG-073 (P0), test-state.js FAIL (P0), 20+ uncommitted files
 
 ---
 
 ## Section 3 — Directory State
-(State snapshot captured in mirrorbox.db)
+
+- Branch: `gemini/doc-sync-final`
+- Working tree: 20+ modified/deleted files UNCOMMITTED — commit before starting work
+- MCP daemon: HEALTHY port 7337
+- Merkle root (src): `c77295d6b9f67a35859dd6e308135193ac25baeaf46d4f3da6578c25ab978136`
 
 ## Session End Checklist
 - Status: closed_clean
-- Cold Storage: mirror_snapshot_20260315_153021.zip (SHA-256: 9e12f6a9f01eb992c162e19691af0c5319a9686242d561bf3d1a425d6a44b878)
-- Backup file: mirrorbox_20260315_153021.bak
-- SHA-256: f0fc52f6e8239169eb8424251675c853bfc4f463a5e871f9c5d930fc551f8c8d
+- Cold Storage: mirror_snapshot_20260315_162021.zip (SHA-256: 14b38de2722d63b5ddae8086979261169946ddabe2ac586b24a72e944e8ff47c)
+- Backup file: mirrorbox_20260315_162021.bak
+- SHA-256: 6237c0c19b42109017e887eed747630ff3b355daeeca7b3ca5ec29f165b9a726
 - PRAGMA integrity_check: ok
-- Timestamp: 2026-03-15T22:30:51Z
+- Timestamp: 2026-03-15T23:20:51Z

@@ -1,23 +1,6 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
-### [1.1.18] — 2026-03-15
-#### Added
-- **`mbo mcp` recovery shortcut (`bin/mbo.js`):** one-command MCP recovery and verification flow (`teardown`, `setup`, `/health`, `graph_rescan`, `graph_server_info`, `init_state`, `handshake --status`, sqlite integrity check).
-
-#### Changed
-- **`mbo mcp` robustness hardening:**
-  - Added explicit step-by-step progress logging.
-  - Added bounded timeouts per recovery step.
-  - Added tolerant success detection for known tool behaviors where useful output may be emitted with non-zero exit status.
-  - Added health fallback handling and stderr tail diagnostics for MCP startup troubleshooting.
-- **`mcp_query.js` timeout contract:** `graph_rescan` now uses an extended timeout window suitable for full graph rescans.
-
-#### Docs
-- Updated `docs/mcp.md` with `mbo mcp` recovery guidance.
-- Updated `README.md` MCP section with recovery shortcut usage.
-
-
 ### [1.1.17] — 2026-03-13
 #### Added
 - **Persistent Operator (Task 1.1-H28):** 
@@ -127,14 +110,7 @@
 - `CI=1 python3 bin/handshake.py src` (expect deny)
 - `CI=1 MBO_CI_AUTH_APPROVED=1 MBO_CI_AUTH_ACTIONS=grant MBO_CI_AUTH_SCOPES=src python3 bin/handshake.py src --force` (policy path, may still fail on Merkle/scope checks)
 
-## [1.1.0] — 2026-03-15
-### Added
-- **Project-Scoped MCP Isolation**: Implemented isolated graph server daemons using hex-suffixed launchd labels and ephemeral ports.
-- **Manifest Identity Enforcement**: Operator and `mcp_query.js` now validate both canonical `project_root` and `project_id` hash before connection.
-- **Atomic Manifest Lifecycle**: Servers now write PID-labeled manifests and maintain atomic symlinks for discovery.
-- **Legacy Daemon Migration**: Automated cleanup of global `com.mbo.mcp.plist` during setup.
-
-## [1.0.9] — 2026-03-13
+### [1.1.9] — 2026-03-13
 #### Changed
 - **Auth flow no longer detours through setup:** `mbo auth <scope> [--force]` now routes directly to handshake flow in `bin/handshake.py`.
 - **Session status clarity:** expired sessions now print as `Expired` instead of misleading `Active` with negative TTL.

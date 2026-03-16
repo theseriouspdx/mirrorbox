@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Action:** Execute Task 1.1-H26 — Implement Persona Store & Entropy Gate
+**Next Action:** Execute Task 1.1-H24 — DID protocol implementation in operator pipeline (Tier 3, DID required)
 
 ---
 
@@ -45,7 +45,7 @@
 | 1.1-H10 | Implement SHIFT+T Stats Overlay & Persistence (.mbo/stats.json) | COMPLETED |
 | 1.1-H11 | Implement Agent Header status bar (Green/Red metrics) | COMPLETED |
 | 1.1-H12 | Canonicalize AGENTS.md — update root doc, create src/templates/AGENTS.md for subject projects | COMPLETED |
-| 1.1-H13 | Directory structure cleanup — move root strays to scripts/, delete scratch files, update .gitignore | COMPLETED — 2026-03-15 |
+| 1.1-H13 | Directory structure cleanup — move root strays to scripts/, delete scratch files, update .gitignore | OPEN |
 | 1.1-H14 | Multi-agent dev workflow design — role assignments for Claude/Gemini/Codex, DID protocol across tools, handoff format | COMPLETED — 2026-03-13 — see `.dev/governance/DID-PROTOCOL.pdf` |
 | 1.1-H15 | Fix BUG-057: MCP stream-destroyed incident — safeHandleTransportRequest + SSE guard + autoRefreshDevIfStale queue serialization | COMPLETED |
 | 1.1-H16 | Fix BUG-061: Merkle scope drift + MCP query path drift (manifest-only endpoint + canonical root assertion + preflight command hardening) | COMPLETED |
@@ -55,9 +55,7 @@
 | 1.1-H20 | Fix BUG-066: always route initialize to fresh transport instance in MCP server | COMPLETED |
 | 1.1-H21 | Fix BUG-067: keep `mbo auth` usable in controller repo while runtime remains guarded | COMPLETED |
 | 1.1-H22 | Temporary MCP-disabled operations mode in controller repo; route agents to legacy workflow | SUPERSEDED — see 1.1-H23 |
-| 1.1-H23 | Migrate MCP to launchd-owned system daemon — delete mbo-start.sh/watchdog/manifests, surgery on mcp-server.js + operator.js, add mbo setup/teardown | COMPLETED |
-| 1.1-H30 | Hardening: Project-scoped MCP Isolation — ephemeral ports, identity enforcement (root + projectId), atomic manifests, legacy daemon cleanup | COMPLETED — 2026-03-15 |
-| 1.1-H31 | Fix Scan Health Regression — investigate failed_critical status in MBO (3 fails) and johnseriouscom (1 fail) reported by graph_server_info | OPEN |
+| 1.1-H23 | Migrate MCP to launchd-owned system daemon — fixed port 7337, delete mbo-start.sh/watchdog/manifests, surgery on mcp-server.js + operator.js, add mbo setup/teardown | COMPLETED |
 | 1.1-H24 | Implement DID protocol in operator pipeline — wire Gemini-as-A, Claude-as-B, Codex tiebreaker into callModel routing; enforce blind derivation context isolation; add reconciliation output format and retry gate | COMPLETED — 2026-03-13 — DID v2 reconciled logic implemented in src/auth/did-orchestrator.js |
 | 1.1-H25 | Security Hardening: restore Section 8 Affirmation Protocol (non-persistence), implement Invariant 13 (Topology Backups) and Invariant 14 (Write-File Overwrite Lock) | COMPLETED |
 | 1.1-H26 | Implement Persona Store & Entropy Gate — personalities/ directory, default .md files for all 5 roles, .mbo/persona.json schema, ~/.orchestrator/personas/ user library, persona injection into callModel, Operator extraction pass replacing validateOutputSchema() JSON check, Entropy Score computation in Stage 1.5, hard stop at Entropy > 10, agent-onboarding.md Stage 1.5 update, AGENTS.md Section 13 | OPEN — Tier 2, DID required, design in DESIGN_DECISIONS.md DDR-001/002/003/004 |

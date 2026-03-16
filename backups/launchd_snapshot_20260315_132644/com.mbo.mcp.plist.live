@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mbo.mcp</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/johnserious/.nvm/versions/node/v24.11.1/bin/node</string>
+    <string>/Users/johnserious/johnseriouscom/src/graph/mcp-server.js</string>
+    <string>--port=7337</string>
+    <string>--mode=dev</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/johnserious/johnseriouscom</string>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/johnserious/.nvm/versions/node/v24.11.1/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/johnserious/johnseriouscom/.dev/logs/mcp-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/johnserious/johnseriouscom/.dev/logs/mcp-stderr.log</string>
+</dict>
+</plist>

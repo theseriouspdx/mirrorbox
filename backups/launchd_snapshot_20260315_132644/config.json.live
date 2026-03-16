@@ -1,0 +1,26 @@
+{
+  "operator": {
+    "provider": "google",
+    "model": "gemini-2.5-flash"
+  },
+  "planner": {
+    "provider": "google",
+    "model": "gemini-2.5-flash"
+  },
+  "reviewer": {
+    "provider": "claude-cli",
+    "model": "claude-sonnet-4-6"
+  },
+  "tiebreaker": {
+    "provider": "claude-cli",
+    "model": "claude-opus-4-6"
+  },
+  "executor": {
+    "cli": "claude"
+  },
+  "devServer": "",
+  "createdAt": "2026-03-13T02:49:18.248Z",
+  "updatedAt": "2026-03-15T19:35:43.282Z",
+  "controllerRoot": "/Users/johnserious/MBO_Alpha",
+  "installRoot": "/Users/johnserious/MBO_Alpha"
+}

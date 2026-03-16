@@ -9,6 +9,30 @@
 
 (None. Milestone 0.5 SUCCESS. Pre-0.6 Audit PASS.)
 
+### BUG-072: Enrichment failures misclassified as `failed_critical` — blocks graph green status | Milestone: 1.1 | RESOLVED
+- **Location:** `src/graph/static-scanner.js` (`enrich()`), `src/graph/mcp-server.js` (`_summarizeAndPersistScan()`)
+- **Severity:** P0
+- **Status:** RESOLVED — 2026-03-15
+- **Verification:** Code-pass / runtime-indirect (logic audit + surgical fixes for initDev/graph_update_task)
+- **Root cause:** Two compounding defects:
+  1. `src/utils/resolve-manifest.js` was deleted in Task 1.1-H23 but its nodes were never pruned from the graph DB. During `enrich()`, stale nodes cause `client.openDocument()` to throw ENOENT, which propagates and kills the entire enrich pass.
+  2. `_summarizeAndPersistScan()` classifies any `<enrich>` failure as `failed_critical` — the same severity as a static scan failure. LSP enrichment is best-effort and should never be fatal.
+- **Impact:** Every scan reports `failed_critical`. Operators see a permanently red server status. 47 sessions lost to MCP debugging.
+- **Fix implemented:**
+  1. `enrich()`: added `fs.existsSync(absPath)` guard — if file missing, prune its stale nodes from DB and continue. Wrapped per-file LSP calls in try/catch so one bad file cannot kill the pass.
+  2. `_summarizeAndPersistScan()`: demoted `<enrich>` path to `completed_with_warnings`, not `failed_critical`. Reserved `failed_critical` for static scan failures only.
+  3. Consistent application across all 4 `enrich()` call sites in `mcp-server.js`.
+
+### BUG-073: Scan health regression — persistent `failed_critical` in multiple projects | Milestone: 1.1 | OPEN
+- **Location:** `src/graph/static-scanner.js`, `src/graph/mcp-server.js`
+- **Severity:** P0
+- **Status:** OPEN — 2026-03-15
+- **Description:** `graph_server_info` reports `last_scan_status=failed_critical` after isolation fix.
+- **Evidence:**
+  - `MBO` -> `last_scan_critical_failures=3`
+  - `johnseriouscom` -> `last_scan_critical_failures=1`
+- **Note:** This regression appeared after implementing project-scoped isolation. Needs investigation into static scan failures during daemon initialization.
+
 ### BUG-068: Temporary MCP suspension to prevent non-productive troubleshooting loops | Milestone: 1.1 | RESOLVED
 - **Location:** `AGENTS.md`, runtime operational policy
 - **Severity:** P0 (operational blocker)

@@ -10,13 +10,13 @@ Phase 1 is human-built. Claude Code and Gemini CLI operate under the DID protoco
 
 ---
 
-## Phase 2 — Sovereign Factory [IN PROGRESS]
+## Phase 2 — Sovereign Factory [COMPLETED]
 
 Milestone 1.0 is a threshold, not a feature. The system runs its first task on its own codebase. This is the moment Claude Code and Gemini CLI step back.
 
-### Milestone 1.0 — Production Alpha [IN PROGRESS]
+### Milestone 1.0 — Production Alpha [COMPLETED]
 - [x] Orchestrator runs its first task on its own codebase.
-- [ ] **Sovereign Loop (1.0-09)**: MBO patches its own `src/index.js` and promotes to `MBO_Alpha`.
+- [x] **Sovereign Loop (1.0-09)**: MBO patches its own `src/index.js` and promotes to `MBO_Alpha`.
 - [x] **Assumption Ledger (1.0-10)**: Section 27 protocol implemented and enforced.
 - [x] **Relay & Telemetry**: Real-time event streaming and UDS telemetry operational.
 - [x] External Invariant Test Suite verified (Section 22).
@@ -28,15 +28,11 @@ Milestone 1.0 is a threshold, not a feature. The system runs its first task on i
 Milestone 1.1 focuses on expanding the Sovereign Loop's reach and hardening the system's resilience for multi-user production environments.
 
 ### Milestone 1.1 — Portability & Hardening [IN PROGRESS]
-- [x] Section 28 portability/scaffolding/launch sequence hardening completed (`1.1-H01` to `1.1-H05`).
-- [x] Tokenmiser baseline/accounting/dashboard completed (`1.1-H06` to `1.1-H11`).
-- [x] MCP daemon migration completed (`1.1-H23`) and DID protocol implementation completed (`1.1-H24`).
-- [x] Security hardening completed for affirmation + topology backups + overwrite lock (`1.1-H25`).
-- [ ] Directory structure cleanup (`1.1-H13`) remains open.
-- [ ] Persona Store & Entropy Gate (`1.1-H26`) remains open.
-- [ ] Agent Output Streaming / Section 33 (`1.1-H27`) remains open.
-- [x] Persistent Operator Window / Section 34 (`1.1-H28`) completed.
-- [ ] Context Minimization & Tiered Routing / Section 35 (`1.1-H29`) remains open.
+- [ ] Implement Section 28v2 CLI Portability (upward root resolution).
+- [ ] Implement Project Scaffolding (.mbo/ init) and .gitignore automation.
+- [ ] Implement Tokenmiser Baseline and real-time TOKEN_USAGE accounting.
+- [ ] Implement Authoritative Launch Sequence with Non-TTY CI guards.
+- [ ] Fix BUG-050: Recursive self-correction on validator failure.
 
 ### Milestone 1.2 — TUI Stability & Economics
 - [ ] Implement Independent Panel Gating for reliable layout math.
@@ -69,4 +65,4 @@ No code reaches the repository without passing through this sequence and a human
 
 ---
 
-*Last updated: 2026-03-13*
+*Last updated: 2026-03-11*

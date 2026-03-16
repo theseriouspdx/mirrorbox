@@ -1,6 +1,21 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.20] — 2026-03-15
+#### Fixed
+- **BUG-072: Enrichment Status Demotion**
+  - Wrapped all `enrich()` call sites in `try/catch` in `mcp-server.js`.
+  - Updated `_summarizeAndPersistScan()` to explicitly filter `<enrich>` failures out of `criticalFailures`.
+  - Verification: Code-pass / runtime-indirect.
+
+### [1.1.19] — 2026-03-15
+#### Changed
+- **Directory Structure Cleanup (Task 1.1-H13)**
+  - Moved `mcp_query.js` to `scripts/`.
+  - Moved `mcp_http_query.js`, `mcp_investigate_dev.js`, and `.mcp.json.disabled` to `scripts/scratch/`.
+  - Deleted stray `test.db` from root.
+  - Updated `bin/mbo.js` to use `PACKAGE_ROOT` for absolute `mcp_query.js` pathing.
+
 ### [1.1.18] — 2026-03-15
 #### Added
 - **`mbo mcp` recovery shortcut (`bin/mbo.js`):** one-command MCP recovery and verification flow (`teardown`, `setup`, `/health`, `graph_rescan`, `graph_server_info`, `init_state`, `handshake --status`, sqlite integrity check).
