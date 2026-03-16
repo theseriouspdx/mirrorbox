@@ -30,6 +30,8 @@ scripts/com.mbo.mcp.plist
 .tmp-*.db
 
 # Runtime session artifacts
+.mbo/run/
+.mbo/*.json
 .journal/session.lock
 .dev/run/write.deny
 .dev/run/mcp-*.json
