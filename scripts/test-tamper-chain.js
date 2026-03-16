@@ -9,6 +9,11 @@ const tamperDbPath = path.join(
   '.mbo', 'tamper-test.db'
 );
 
+// Ensure .mbo directory exists
+if (!fs.existsSync(path.dirname(tamperDbPath))) {
+  fs.mkdirSync(path.dirname(tamperDbPath), { recursive: true });
+}
+
 console.log('--- Testing Hash Chain Tamper Proofing ---');
 
 // ───────────────────────────────────────────────
@@ -94,6 +99,7 @@ db1.close();
 
 if (result.changes === 0) {
   console.error('FAIL [Setup]: UPDATE affected 0 rows — seq 2 not found in seeded chain.');
+  if (fs.existsSync(tamperDbPath)) fs.unlinkSync(tamperDbPath);
   process.exit(1);
 }
 
