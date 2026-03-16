@@ -7,9 +7,15 @@
   - `tests/run-all.js`: Created a comprehensive test runner that identifies and executes all `test-*.js` files in the `scripts/` directory.
   - `package.json`: Added `start` (node bin/mbo.js) and `test` (node tests/run-all.js) script entries.
   - Verification: Manual execution confirmed 14 tests detected; baseline failure rate (7/14) maintained without new regressions.
+- **mbo setup: agnostic client config + scan root detection — Task 1.1-H32**
+  - `src/cli/setup.js`: Implemented scan root detection and client config registry.
+  - `src/graph/mcp-server.js`: Updated to use configurable scan roots from `.mbo/config.json`.
+  - Verification: Audit passed with no regressions.
 #### Fixed
 - **BUG-076: Pre-existing tamper detection regression (Task 1.1-ISS-03 Audit)**
   - Logged a P1 security regression where `test-tamper-chain.js` fails to detect manual database mutations.
+- **BUG-074: mbo setup does not write MCP client configs or detect scan roots**
+  - Resolved via implementation of Task 1.1-H32.
 
 ### [1.1.21] — 2026-03-16
 #### Fixed
