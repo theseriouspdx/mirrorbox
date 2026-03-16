@@ -82,8 +82,8 @@ class DBManager {
         relation  TEXT NOT NULL,
         source    TEXT NOT NULL, -- 'static' or 'runtime'
         PRIMARY KEY (source_id, target_id, relation),
-        FOREIGN KEY (source_id) REFERENCES nodes(id),
-        FOREIGN KEY (target_id) REFERENCES nodes(id)
+        FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
+        FOREIGN KEY (target_id) REFERENCES nodes(id) ON DELETE CASCADE
       );
 
       CREATE INDEX IF NOT EXISTS idx_nodes_path ON nodes(path);
@@ -179,7 +179,37 @@ class DBManager {
       this.db.exec('CREATE INDEX IF NOT EXISTS idx_nodes_coords ON nodes(path, nameStartLine, nameStartColumn)');
     }
 
+    // Task 1.1-H31: Migration to add ON DELETE CASCADE to edges table.
+    const edgesSqlRow = this.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'edges'").get();
+    const hasCascade = !!(edgesSqlRow && edgesSqlRow.sql && /ON DELETE CASCADE/i.test(edgesSqlRow.sql));
+
+    if (edgesSqlRow && !hasCascade) {
+      this.db.exec(`
+        PRAGMA foreign_keys=off;
+        BEGIN TRANSACTION;
+        -- Section 17: Non-destructive migration using temporary storage
+        CREATE TABLE edges_migration AS SELECT * FROM edges;
+        DROP TABLE edges;
+        CREATE TABLE edges (
+          source_id TEXT NOT NULL,
+          target_id TEXT NOT NULL,
+          relation  TEXT NOT NULL,
+          source    TEXT NOT NULL,
+          PRIMARY KEY (source_id, target_id, relation),
+          FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
+          FOREIGN KEY (target_id) REFERENCES nodes(id) ON DELETE CASCADE
+        );
+        INSERT INTO edges (source_id, target_id, relation, source)
+          SELECT source_id, target_id, relation, source FROM edges_migration;
+        DROP TABLE edges_migration;
+        COMMIT;
+        PRAGMA foreign_keys=on;
+        CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
+      `);
+    }
+
     const tableInfo = this.db.prepare('PRAGMA table_info(events)').all();
+
     const hasEventsTable = tableInfo.length > 0;
     const hasPrevHash = tableInfo.some(col => col.name === 'prev_hash');
     const hasWorldId = tableInfo.some(col => col.name === 'world_id');
