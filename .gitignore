@@ -33,6 +33,7 @@ scripts/com.mbo.mcp.plist
 .journal/session.lock
 .dev/run/write.deny
 .dev/run/mcp-*.json
+.dev/run/mcp.json
 
 # Scratch files
 scripts/scratch/
