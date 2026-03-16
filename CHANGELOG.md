@@ -1,6 +1,10 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.20] — 2026-03-16
+#### Fixed
+- **BUG-080 — 16/16 Test Suite Modernization (P1):** Entire test suite (scripts/test-*.js) rewritten for Milestone 1.1 architecture. Corrected DB path resolution (BUG-051 alignment), added mandatory `world_id` to event store appends, and migrated MCP tests to HTTP/SSE transport. (Gemini)
+
 ### [1.1.19] — 2026-03-16
 #### Added
 - **npm test script (Task 1.1-ISS-03):** 
