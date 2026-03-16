@@ -30,17 +30,17 @@ DIFF:
 <Unified diff of your proposed changes>`;
 }
 
-// DDR-003: Reviewer derives blind, attacks Planner's work, produces combined diff.
-function buildReviewerPrompt(taskContext, plannerOutput) {
+// DDR-003: Reviewer derives blind. No planner output is visible in round 1.
+function buildReviewerPrompt(taskContext) {
   return `[DID - REVIEWER]
-You are the Component Planner. First derive your own plan independently. Then review the Planner's proposal.
+You are the Component Planner. Derive your own plan independently and blindly.
 ${ADVERSARIAL_MANDATE}
 
 TASK: ${taskContext.task}
 FILES IN SCOPE: ${(taskContext.files || []).join(', ') || 'none'}
 TIER: ${taskContext.tier}
 
---- STEP 1: Your independent derivation ---
+--- BLIND ROUND 1: Independent derivation ---
 
 RATIONALE:
 <Your independent rationale>
@@ -48,21 +48,11 @@ RATIONALE:
 DIFF:
 <Your independent unified diff>
 
---- STEP 2: Review the Planner's proposal ---
-
-PLANNER OUTPUT:
-${plannerOutput}
-
-Attack the Planner's diff. Find every way it could fail. Fix what you can.
-
-CONFLICT ZONES:
-<Specific lines or logic where you disagree with the Planner>
-
 COMBINED DIFF:
-<The best of both approaches - merged and hardened>
+<Use your independent diff in round 1. Reconciliation happens in later rounds.>
 
 VERDICT:
-<GO if you can sign off on the combined diff. NO followed by specific objections if you cannot.>`;
+<GO if your independent solution is complete. NO followed by specific objections if not.>`;
 }
 
 // DDR-003: Reviewer round 2 — addresses Planner objections, final shot before escalation.

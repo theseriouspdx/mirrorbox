@@ -202,7 +202,7 @@ async function main() {
             operator.stateSummary.pendingAudit = null;
             operator.stateSummary.pendingAuditContext = null;
             _auditRunning = false;
-            write('[AUDIT] Approved. State synced. Stage 11 knowledge update completed.');
+            write('[AUDIT] Approved. State synced.');
           })
           .catch(err => {
             _auditRunning = false;
