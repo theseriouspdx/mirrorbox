@@ -2,14 +2,25 @@
 ## Mirror Box Orchestrator — Session Handoff
 
 **Session ended:** 2026-03-16
-**Last task:** 1.1-H31 COMPLETED + .gitignore fix + H32/BUG-074 registered
+**Last task:** port-cleanup — hardcoded 7337 purged, MCP_PORT_REFERENCE.md created, AGENTS §3.2 removed
 **Branch:** master (clean)
 
 ---
 
 ## Section 1 — Next Action
 
-**Implement Task 1.1-H32** — agnostic MCP client config + scan root detection.
+**Implement Task 1.1-ISS-02** (P0) before H32 — fix test-state.js concurrent append, then ISS-03 (npm test), then H32.
+
+**Gate 0:**
+```bash
+curl http://127.0.0.1:$(node -e 'console.log(require("./.dev/run/mcp.json").port)')/health
+python3 bin/validator.py --all
+node tests/test-state.js
+```
+
+---
+
+**Next after ISS-02/03: Task 1.1-H32** — agnostic MCP client config + scan root detection.
 
 ### Scope (branch: `claude/h32-setup-agnostic`):
 
