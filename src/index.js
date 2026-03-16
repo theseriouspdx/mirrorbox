@@ -31,26 +31,37 @@ function formatOperatorResult(result) {
 
   const status = String(result.status || '').toLowerCase();
 
-  if (status === 'sandbox_intercept' && result.message) return result.message;
+  if (status === 'sandbox_intercept') return result.message || 'Input sent to sandbox.';
   if (result.needsClarification && result.question) return `Clarification needed: ${result.question}`;
+  if (status === 'spec_refinement_updated') return result.prompt || 'Spec refinement updated. Type "go" to run autonomous DID.';
   if (status === 'ready' && result.prompt) return result.prompt;
   if (status === 'ready_for_planning') return 'Task classified and routing complete. Type "go" to proceed.';
+  if (status === 'plan_agreed') return 'Planning complete. Ready for code derivation.';
+  if (status === 'code_agreed') return 'Code derivation complete. Running dry run and verification.';
+  if (status === 'pass') return 'Dry run passed.';
+  if (status === 'audit_pending') return result.prompt || 'Audit package ready. Respond "approved" or "reject".';
   if (status === 'blocked') return result.reason || result.prompt || 'Task is blocked by Stage 1.5 assumptions.';
   if (status === 'aborted') return result.reason || 'Operation aborted.';
   if (status === 'error') return result.reason || 'Pipeline failed.';
-  if (status === 'audit_pending' && result.prompt) return result.prompt;
-  if (status === 'audit_pending') return 'Audit package ready. Respond "approved" or "reject".';
-  if (status === 'plan_agreed') return 'Planning complete.';
-  if (status === 'code_agreed') return 'Code derivation complete.';
-  if (status === 'pass') return 'Dry run passed.';
   if (status === 'shutdown_complete') return 'Session shutdown complete.';
+
+  const stage = String(result.stage || '').toLowerCase();
+  if (stage === 'classification') return 'Classifying request and determining routing.';
+  if (stage === 'context_pinning') return 'Stage 1.5 complete. Assumptions reviewed.';
+  if (stage === 'planning') return 'Planning in progress.';
+  if (stage === 'tiebreaker_plan') return 'Resolving planning conflict via tiebreaker.';
+  if (stage === 'code_derivation') return 'Code derivation in progress.';
+  if (stage === 'dry_run') return 'Running dry run checks.';
+  if (stage === 'implement') return 'Applying implementation changes.';
+  if (stage === 'audit_gate') return 'Audit gate reached. Awaiting approval decision.';
+  if (stage === 'state_sync') return 'State sync in progress.';
+  if (stage === 'knowledge_update') return 'Updating knowledge graph context.';
+
   if (typeof result.prompt === 'string' && result.prompt.trim()) return result.prompt;
   if (typeof result.reason === 'string' && result.reason.trim()) return result.reason;
 
-  const stage = result.stage || status || 'update';
-  return `Operator update (${stage}).`;
+  return 'Operator update received.';
 }
-
 async function main() {
   // §28.5 Step 2 & 28.8: Validate machine config + non-TTY guard
   if (!validateConfig()) {

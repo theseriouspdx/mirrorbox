@@ -49,7 +49,6 @@ function main() {
         ...process.env, 
         MBO_PROJECT_ROOT: PROJECT_ROOT,
         MBO_SKIP_BUG_076: '1',
-        MBO_SKIP_BUG_056: '1'
       }
     });
 

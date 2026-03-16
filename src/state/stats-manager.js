@@ -163,6 +163,11 @@ class StatsManager {
     return { optimized, notOptimized, costEst, rawCostEst };
   }
 
+  getLifetimeSavings() {
+    const totals = this.getTotals('lifetime');
+    return totals.rawCostEst - totals.costEst;
+  }
+
   getCarbonImpact(scope = 'lifetime') {
     const totals = this.getTotals(scope);
     const tokensAvoided = Math.max(0, totals.notOptimized - totals.optimized);
