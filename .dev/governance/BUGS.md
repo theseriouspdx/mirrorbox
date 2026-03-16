@@ -9,6 +9,13 @@
 
 (None. Milestone 0.5 SUCCESS. Pre-0.6 Audit PASS.)
 
+### BUG-075: DB path resolution regression in test scripts (BUG-051 aftershock) | Milestone: 1.1 | RESOLVED
+- **Location:** `scripts/test-state.js`, `scripts/verify-chain.js`
+- **Severity:** P0
+- **Status:** RESOLVED — 2026-03-16
+- **Description:** Task 1.1-ISS-02 (misidentified as a concurrent append bug) was caused by tests querying the legacy `../data/mirrorbox.db` instead of the active `.mbo/mirrorbox.db`. When `eventStore.append` correctly wrote to the new DB, the test read from the empty old DB, leading to a `TypeError` on an undefined array element.
+- **Fix implemented:** Updated `test-state.js` and `verify-chain.js` to initialize the database connection using the BUG-051 resolution pattern: `path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db')`.
+
 ### BUG-072: Enrichment failures misclassified as `failed_critical` — blocks graph green status | Milestone: 1.1 | RESOLVED
 - **Location:** `src/graph/static-scanner.js` (`enrich()`), `src/graph/mcp-server.js` (`_summarizeAndPersistScan()`)
 - **Severity:** P0
