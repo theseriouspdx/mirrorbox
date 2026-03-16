@@ -1,6 +1,16 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.22] — 2026-03-16
+#### Added
+- **npm test script — Task 1.1-ISS-03**
+  - `tests/run-all.js`: Created a comprehensive test runner that identifies and executes all `test-*.js` files in the `scripts/` directory.
+  - `package.json`: Added `start` (node bin/mbo.js) and `test` (node tests/run-all.js) script entries.
+  - Verification: Manual execution confirmed 14 tests detected; baseline failure rate (7/14) maintained without new regressions.
+#### Fixed
+- **BUG-076: Pre-existing tamper detection regression (Task 1.1-ISS-03 Audit)**
+  - Logged a P1 security regression where `test-tamper-chain.js` fails to detect manual database mutations.
+
 ### [1.1.21] — 2026-03-16
 #### Fixed
 - **BUG-073 (partial): MBO scan health regression — ON DELETE CASCADE (Task 1.1-H31)**
