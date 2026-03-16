@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Action:** Select next 1.1 hardening task — H36 and all queued tasks COMPLETED; BUG-078/BUG-080 remain open
+**Next Action:** 1.0-09 — Sovereign Loop validation. All 1.1 hardening tasks COMPLETED. All bugs RESOLVED. Pre-req: confirm 1.0-06/1.0-07/1.0-08 implementation status before running sovereign loop.
 
 ---
 
