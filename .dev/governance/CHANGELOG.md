@@ -636,3 +636,9 @@
   for autonomous querying. Gate 0 bottleneck identified and fixed.
 #### Changed
 - **`NEXT_SESSION.md`**: Removed experiment references. Points cleanly at 0.6-02.
+
+
+### Milestone 1.1 — H32 (2026-03-16)
+- **Scan Root Detection:** Modified mbo setup to proactively detect source directories using heuristic rules (src/, lib/, .js/.py files). Users are prompted to confirm, and the configuration is persisted to the project-local <project>/.mbo/config.json.
+- **Dynamic Scanner Engine:** Refactored mcp-server.js GraphService to parse scanRoots directly from .mbo/config.json, dropping the hardcoded src/ fallback in favor of scalable directory loops across _computeScanInputSignal, initDev, autoRefreshDevIfStale, and graph_rescan.
+- **Extensible Client Config Registry:** Implemented an extensible client registry loop in setup.js (updateClientConfigs). Validated ports from the live daemon manifest are now atomically injected into .mcp.json (Claude) and .gemini/settings.json (Gemini) payloads upon mbo setup execution and mbo mcp recovery resets.

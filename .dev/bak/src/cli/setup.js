@@ -173,46 +173,6 @@ async function installMCPDaemon(projectRoot = process.env.MBO_PROJECT_ROOT || pr
   if (!healthy) {
     throw new Error('Graph server did not become healthy within 10s. Check logs in .dev/logs/');
   }
-
-  updateClientConfigs(resolvedRoot);
-}
-
-function updateClientConfigs(projectRoot) {
-  const devManifest = path.join(projectRoot, '.dev/run/mcp.json');
-  const userManifest = path.join(projectRoot, '.mbo/run/mcp.json');
-  let port = null;
-  try {
-    if (fs.existsSync(devManifest)) port = JSON.parse(fs.readFileSync(devManifest, 'utf8')).port;
-    else if (fs.existsSync(userManifest)) port = JSON.parse(fs.readFileSync(userManifest, 'utf8')).port;
-  } catch (_) {}
-
-  if (!port) return;
-
-  const payload = {
-    mcpServers: {
-      "mbo-graph": {
-        type: "http",
-        url: `http://127.0.0.1:${port}/mcp`
-      }
-    }
-  };
-
-  const registeredClients = [
-    { name: 'claude', relPath: '.mcp.json' },
-    { name: 'gemini', relPath: '.gemini/settings.json' }
-    // codex -> TBD
-  ];
-
-  for (const client of registeredClients) {
-    const fullPath = path.join(projectRoot, client.relPath);
-    try {
-      const dir = path.dirname(fullPath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(fullPath, JSON.stringify(payload, null, 2) + '\n');
-    } catch (err) {
-      console.error(`[WARN] Failed to write config for ${client.name} at ${client.relPath}: ${err.message}`);
-    }
-  }
 }
 
 function persistInstallMetadata(configPath = CONFIG_PATH, installRoot = process.cwd(), options = {}) {
@@ -470,36 +430,6 @@ async function runSetup() {
 
     const devCmd = await ask(rl, `${m('Dev server command')} ${dim('(e.g. "npm run dev", Enter to skip): ')}`);
     if (devCmd) cfg.devServer = devCmd;
-
-    console.log(cy('\n── Project Configuration ──────────────────────────────────'));
-    const projectRoot = process.env.MBO_PROJECT_ROOT || process.cwd();
-    let defaultRoots = ['src'];
-    try {
-      if (!fs.existsSync(path.join(projectRoot, 'src'))) {
-        const entries = fs.readdirSync(projectRoot);
-        if (entries.includes('lib') && fs.statSync(path.join(projectRoot, 'lib')).isDirectory()) {
-          defaultRoots = ['lib'];
-        } else {
-          const hasSrcFiles = entries.some(e => e.endsWith('.js') || e.endsWith('.py') || e.endsWith('.ts'));
-          if (hasSrcFiles) defaultRoots = ['.'];
-        }
-      }
-    } catch (_) {}
-
-    const rootInput = await ask(rl, `  Scan roots (comma separated) [${defaultRoots.join(',')}]: `);
-    const scanRoots = rootInput ? rootInput.split(',').map(s => s.trim()).filter(Boolean) : defaultRoots;
-
-    const localConfigDir = path.join(projectRoot, '.mbo');
-    const localConfigPath = path.join(localConfigDir, 'config.json');
-    let localCfg = {};
-    try {
-      if (fs.existsSync(localConfigPath)) {
-        localCfg = JSON.parse(fs.readFileSync(localConfigPath, 'utf8'));
-      }
-    } catch (_) {}
-    localCfg.scanRoots = scanRoots;
-    if (!fs.existsSync(localConfigDir)) fs.mkdirSync(localConfigDir, { recursive: true });
-    fs.writeFileSync(localConfigPath, JSON.stringify(localCfg, null, 2), 'utf8');
 
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
