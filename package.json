@@ -8,6 +8,10 @@
     "mboalpha": "bin/mbo.js",
     "mboauth": "bin/handshake.py"
   },
+  "scripts": {
+    "start": "node bin/mbo.js",
+    "test": "node tests/run-all.js"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
     "better-sqlite3": "^12.6.2",

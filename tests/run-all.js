@@ -1,0 +1,75 @@
+const fs = require('fs');
+const path = require('path');
+const { spawnSync } = require('child_process');
+
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+const SCRIPTS_DIR = path.join(PROJECT_ROOT, 'scripts');
+
+function main() {
+  console.log('--- MBO Test Suite Runner ---\n');
+  
+  // Find all active test files in scripts/ directory
+  if (!fs.existsSync(SCRIPTS_DIR)) {
+    console.error(`Error: Scripts directory not found at ${SCRIPTS_DIR}`);
+    process.exit(1);
+  }
+
+  const files = fs.readdirSync(SCRIPTS_DIR);
+  // We consider "test-*.js" files to be active tests.
+  // E.g., test-chain.js, test-graph-v2.js, test-mcp-server.js
+  const testFiles = files.filter(f => f.startsWith('test-') && f.endsWith('.js'));
+  
+  if (testFiles.length === 0) {
+    console.error('No active test files found in scripts/ directory.');
+    process.exit(1);
+  }
+
+  console.log(`Found ${testFiles.length} test scripts. Running sequentially...\n`);
+
+  let passed = 0;
+  let failed = 0;
+  const failedTests = [];
+
+  for (const file of testFiles) {
+    console.log(`======================================================`);
+    console.log(`▶ RUNNING: ${file}`);
+    console.log(`======================================================`);
+    
+    const testPath = path.join(SCRIPTS_DIR, file);
+    
+    // Spawn the test process synchronously
+    // Set MBO_PROJECT_ROOT to ensure any dynamic resolution stays grounded to the main project
+    const result = spawnSync('node', [testPath], { 
+      stdio: 'inherit',
+      cwd: PROJECT_ROOT,
+      env: { ...process.env, MBO_PROJECT_ROOT: PROJECT_ROOT }
+    });
+
+    if (result.status === 0) {
+      console.log(`✅ PASS: ${file}\n`);
+      passed++;
+    } else {
+      console.error(`❌ FAIL: ${file} (Exit code: ${result.status})\n`);
+      failed++;
+      failedTests.push({ file, code: result.status });
+    }
+  }
+
+  console.log(`======================================================`);
+  console.log(`--- Test Suite Summary ---`);
+  console.log(`Total:  ${testFiles.length}`);
+  console.log(`Passed: ${passed}`);
+  console.log(`Failed: ${failed}`);
+  console.log(`======================================================\n`);
+
+  if (failed > 0) {
+    console.error('The following tests failed:');
+    failedTests.forEach(f => console.error(`  - ${f.file} (Exit code: ${f.code})`));
+    process.exit(1);
+  } else {
+    console.log('🎉 All tests passed successfully!');
+    process.exit(0);
+  }
+}
+
+main();
