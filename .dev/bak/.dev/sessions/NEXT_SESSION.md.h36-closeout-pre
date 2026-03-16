@@ -1,0 +1,30 @@
+# NEXT_SESSION.md
+## Mirror Box Orchestrator — Session Handoff
+
+**Session ended:** 2026-03-16
+**Last task:** 1.1-H36-ALPHA — Re-verify operator pipeline spec parity in MBO_Alpha after merge
+**Status:** IN PROGRESS
+
+---
+
+## Section 1 — Next Action
+
+**Task 1.1-H36-ALPHA — Re-verify operator pipeline spec parity in MBO_Alpha after merge**
+
+**Graph queries to run at Gate 0:**
+```
+graph_search("operator pipeline spec parity")
+```
+
+---
+
+## Section 2 — Session Summary
+
+- H36 Alpha post-merge verification run is active.
+- Required validation scope: syntax checks, `python3 bin/validator.py --all`, H36 task-specific tests, and stage-flow inspection.
+- If any check fails, log bug in `BUGS.md`, fix forward on current branch, and re-run full validation scope.
+
+---
+
+## Section 3 — Directory State
+(State snapshot captured in mirrorbox.db)
