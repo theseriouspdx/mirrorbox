@@ -1,6 +1,14 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.21] — 2026-03-16
+#### Fixed
+- **BUG-073 (partial): MBO scan health regression — ON DELETE CASCADE (Task 1.1-H31)**
+  - `src/state/db-manager.js`: Added `ON DELETE CASCADE` to both FK definitions in `edges` table.
+  - Non-destructive idempotent migration (`edges_migration`) runs on startup to apply to existing DBs.
+  - MBO graph: `last_scan_status=completed`, 0 critical failures, 514 nodes.
+  - johnseriouscom/MBO_Alpha scan failures deferred to Task 1.1-H32 (configurable scan roots).
+
 ### [1.1.20] — 2026-03-15
 #### Fixed
 - **BUG-072: Enrichment Status Demotion**

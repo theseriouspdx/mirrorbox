@@ -23,15 +23,13 @@
   2. `_summarizeAndPersistScan()`: demoted `<enrich>` path to `completed_with_warnings`, not `failed_critical`. Reserved `failed_critical` for static scan failures only.
   3. Consistent application across all 4 `enrich()` call sites in `mcp-server.js`.
 
-### BUG-073: Scan health regression — persistent `failed_critical` in multiple projects | Milestone: 1.1 | OPEN
-- **Location:** `src/graph/static-scanner.js`, `src/graph/mcp-server.js`
+### BUG-073: Scan health regression — persistent `failed_critical` in multiple projects | Milestone: 1.1 | RESOLVED
+- **Location:** `src/graph/static-scanner.js`, `src/graph/mcp-server.js`, `src/state/db-manager.js`
 - **Severity:** P0
-- **Status:** OPEN — 2026-03-15
-- **Description:** `graph_server_info` reports `last_scan_status=failed_critical` after isolation fix.
-- **Evidence:**
-  - `MBO` -> `last_scan_critical_failures=3`
-  - `johnseriouscom` -> `last_scan_critical_failures=1`
-- **Note:** This regression appeared after implementing project-scoped isolation. Needs investigation into static scan failures during daemon initialization.
+- **Status:** RESOLVED — 2026-03-16
+- **Root causes (two separate):**
+  1. MBO project: `FOREIGN KEY constraint failed` when scanner deleted stale nodes still referenced by `edges` table. Fixed by adding `ON DELETE CASCADE` to both FK definitions in `edges` table + idempotent startup migration. (commit 2e83368 — Gemini, verified by Claude)
+  2. johnseriouscom/MBO_Alpha: scanner hard-codes `<root>/src` as scan root; these projects have no `src/` directory. Deferred to Task 1.1-H32 (configurable scan roots via `.mbo/config.json` + `mbo setup` source detection).
 
 ### BUG-068: Temporary MCP suspension to prevent non-productive troubleshooting loops | Milestone: 1.1 | RESOLVED
 - **Location:** `AGENTS.md`, runtime operational policy
