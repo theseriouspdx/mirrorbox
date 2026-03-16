@@ -24,33 +24,6 @@ process.env.MBO_PROJECT_ROOT = PROJECT_ROOT;
 const { Operator } = require('./auth/operator');
 const relay = require('./relay/relay-listener');
 
-function formatOperatorResult(result) {
-  if (!result || typeof result !== 'object') {
-    return String(result || 'No response.');
-  }
-
-  const status = String(result.status || '').toLowerCase();
-
-  if (status === 'sandbox_intercept' && result.message) return result.message;
-  if (result.needsClarification && result.question) return `Clarification needed: ${result.question}`;
-  if (status === 'ready' && result.prompt) return result.prompt;
-  if (status === 'ready_for_planning') return 'Task classified and routing complete. Type "go" to proceed.';
-  if (status === 'blocked') return result.reason || result.prompt || 'Task is blocked by Stage 1.5 assumptions.';
-  if (status === 'aborted') return result.reason || 'Operation aborted.';
-  if (status === 'error') return result.reason || 'Pipeline failed.';
-  if (status === 'audit_pending' && result.prompt) return result.prompt;
-  if (status === 'audit_pending') return 'Audit package ready. Respond "approved" or "reject".';
-  if (status === 'plan_agreed') return 'Planning complete.';
-  if (status === 'code_agreed') return 'Code derivation complete.';
-  if (status === 'pass') return 'Dry run passed.';
-  if (status === 'shutdown_complete') return 'Session shutdown complete.';
-  if (typeof result.prompt === 'string' && result.prompt.trim()) return result.prompt;
-  if (typeof result.reason === 'string' && result.reason.trim()) return result.reason;
-
-  const stage = result.stage || status || 'update';
-  return `Operator update (${stage}).`;
-}
-
 async function main() {
   // §28.5 Step 2 & 28.8: Validate machine config + non-TTY guard
   if (!validateConfig()) {
@@ -88,7 +61,6 @@ async function main() {
 
   // Task 1.1-H09: Fetch pricing and increment session counter
   await fetchPricing();
-  if (typeof statsManager.stats.sessions !== 'number') statsManager.stats.sessions = 0;
   statsManager.stats.sessions++;
   statsManager.save();
 
@@ -99,9 +71,9 @@ async function main() {
     process.stdin.setRawMode(true);
   }
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
+  const rl = readline.createInterface({ 
+    input: process.stdin, 
+    output: process.stdout, 
     terminal: true,
     prompt: 'MBO> '
   });
@@ -221,8 +193,9 @@ async function main() {
       .then(result => {
         operator._pipelineRunning = false;
         if (result && result.status !== 'started') {
+          // If we were streaming, make sure we newline before the final JSON/Header
           if (lastStreamingRole) process.stdout.write('\n');
-          write(dashboard.renderHeader() + '\n' + formatOperatorResult(result));
+          write(dashboard.renderHeader() + '\n' + JSON.stringify(result, null, 2));
         }
       })
       .catch(err => {

@@ -80,6 +80,10 @@ async function routeModels(classification = {}, blastRadius = []) {
     roles.forEach(role => {
       if (opConfig[role]) {
         routingMap[role] = { ...opConfig[role] };
+        // Budget override from config (Section 35.5)
+        if (opConfig[role].budget) {
+          routingMap[role].budget = opConfig[role].budget;
+        }
         // Attach streaming settings if present
         if (opConfig.streaming) {
           const globalStreaming = !!opConfig.streaming.enabled;

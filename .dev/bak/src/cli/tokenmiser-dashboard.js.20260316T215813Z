@@ -18,23 +18,15 @@ class TokenmiserDashboard {
     this.overlayActive = false;
   }
 
-  _formatMoney(v, precision = 6) {
-    return Number.isFinite(v) ? v.toFixed(precision) : '0.000000';
-  }
-
-  _fmtInt(v) {
-    return String(Number.isFinite(v) ? Math.round(v) : 0);
-  }
-
   /**
    * Renders the top status bar for an agent/operator panel.
    */
   renderHeader() {
     const sTotal = statsManager.getTotals('session');
-
-    const actualStr = `${G}TM [${this._fmtInt(sTotal.optimized)}] / $${this._formatMoney(sTotal.costEst)}${R}`;
-    const rawStr = `${RED}[${this._fmtInt(sTotal.notOptimized)}] / $${this._formatMoney(sTotal.rawCostEst)}${R}`;
-
+    
+    const actualStr = `${G}TM [${sTotal.optimized}] / $${sTotal.costEst.toFixed(6)}${R}`;
+    const rawStr = `${RED}[NaN] / $[NaN]${R}`;
+    
     return `${actualStr} ${DIM}|${R} ${rawStr}\n`;
   }
 
@@ -57,7 +49,7 @@ class TokenmiserDashboard {
     const l = statsManager.stats.lifetime;
     const sTotal = statsManager.getTotals('session');
     const lTotal = statsManager.getTotals('lifetime');
-    const carbon = statsManager.getCarbonImpact('lifetime');
+    const carbon = statsManager.getCarbonImpact();
 
     process.stdout.write('\x1b[2J\x1b[H'); // Clear screen and move to top
     process.stdout.write(`
@@ -66,22 +58,22 @@ ${BOLD}────────────────────────�
 ${BOLD}SESSION${R}
 Model          | optimized      | not optimized  | cost (est)
 ───────────────┼────────────────┼────────────────┼─────────────
-${Object.entries(s.models).map(([m, data]) =>
-`${m.padEnd(14)} | ${this._fmtInt(data.optimized).padStart(14)} | ${this._fmtInt(data.notOptimized).padStart(14)} | $${this._formatMoney(data.costEst, 4)}`
+${Object.entries(s.models).map(([m, data]) => 
+`${m.padEnd(14)} | ${data.optimized.toString().padStart(14)} | ${data.notOptimized.toString().padStart(14)} | $${data.costEst.toFixed(4)}`
 ).join('\n')}
 ───────────────┼────────────────┼────────────────┼─────────────
-${BOLD}Total Session${R}  | ${this._fmtInt(sTotal.optimized).padStart(14)} | ${this._fmtInt(sTotal.notOptimized).padStart(14)} | $${this._formatMoney(sTotal.costEst, 4)}
+${BOLD}Total Session${R}  | ${sTotal.optimized.toString().padStart(14)} | ${sTotal.notOptimized.toString().padStart(14)} | $${sTotal.costEst.toFixed(4)}
 
 ${BOLD}LIFETIME${R}
 Model          | optimized      | not optimized  | cost (est)
 ───────────────┼────────────────┼────────────────┼─────────────
-${Object.entries(l.models).map(([m, data]) =>
-`${m.padEnd(14)} | ${this._fmtInt(data.optimized).padStart(14)} | ${this._fmtInt(data.notOptimized).padStart(14)} | $${this._formatMoney(data.costEst, 4)}`
+${Object.entries(l.models).map(([m, data]) => 
+`${m.padEnd(14)} | ${data.optimized.toString().padStart(14)} | ${data.notOptimized.toString().padStart(14)} | $${data.costEst.toFixed(4)}`
 ).join('\n')}
 ───────────────┼────────────────┼────────────────┼─────────────
-${BOLD}Total Lifetime${R} | ${this._fmtInt(lTotal.optimized).padStart(14)} | ${this._fmtInt(lTotal.notOptimized).padStart(14)} | $${this._formatMoney(lTotal.costEst, 4)}
+${BOLD}Total Lifetime${R} | ${lTotal.optimized.toString().padStart(14)} | ${lTotal.notOptimized.toString().padStart(14)} | $${lTotal.costEst.toFixed(4)}
 
-${BOLD}Project Carbon impact:${R} ${DIM}${this._formatMoney(carbon, 4)}g CO2 avoided${R}
+${BOLD}Project Carbon impact:${R} ${DIM}${carbon.toString()}g CO2 avoided${R}
 ${BOLD}────────────────────────────────────────────────────────────────────────${R}
 ${DIM}Press SHIFT+T to close this overlay.${R}
 `);

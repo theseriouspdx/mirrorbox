@@ -1,6 +1,20 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.22] — 2026-03-16
+#### Added
+- **Model-Specific Token Budgeting — Task 1.1-H34** (Gemini)
+  - `src/auth/call-model.js`: Implemented granular input and output token budgets per role and model.
+  - `src/auth/call-model.js`: Consolidated budget enforcement into a single pre-dispatch check for early exit.
+  - `src/auth/call-model.js`: Added `max_tokens` support for OpenRouter and Local model providers.
+  - `src/auth/call-model.js`: Implemented `outputBudget` fallback for CLI providers via post-generation truncation.
+  - `src/auth/model-router.js`: Updated `routeModels` to preserve and prioritize budget overrides from operator configuration.
+  - `tests/test-token-budgeting.js`: New unit test for verifying budget enforcement, validation guards, and error handling.
+
+#### Fixed
+- **`src/auth/call-model.js`**: Fixed `verifyContextIntegrity` failure by correctly labeling the `FIREWALL_DIRECTIVE` in the system prompt.
+- **`src/auth/call-model.js`**: Changed `routeModels` to a late-bound module reference to support authoritative mocking in tests.
+
 ### [1.1.21] — 2026-03-16
 #### Added
 - **Context Minimization & Tiered Routing — Task 1.1-H29** (Tier 2 DID — Gemini impl, Claude audit)

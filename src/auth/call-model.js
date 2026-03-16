@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { routeModels } = require('./model-router');
+const modelRouter = require('./model-router');
 const { redact } = require('../state/redactor');
 const eventStore = require('../state/event-store');
 const db = require('../state/db-manager');
@@ -44,13 +44,14 @@ const INJECTION_PHRASES = [
  * Defaults for Tier 2/3 tasks.
  */
 const DEFAULT_TOKEN_BUDGETS = {
-  classifier: 1000,
-  architecturePlanner: 3000,
-  componentPlanner: 3000,
-  reviewer: 3000,
-  tiebreaker: 4000,
-  operator: 2000,
-  patchGenerator: 2000
+  classifier: { input: 1500, output: 500 },
+  operator: { input: 3000, output: 2000 },
+  architecturePlanner: { input: 5000, output: 4000 },
+  componentPlanner: { input: 5000, output: 4000 },
+  reviewer: { input: 5000, output: 4000 },
+  tiebreaker: { input: 8000, output: 4000 },
+  patchGenerator: { input: 4000, output: 4000 },
+  onboarding: { input: 3000, output: 4000 }
 };
 
 /**
@@ -248,13 +249,6 @@ function dispatchCLI(config, systemPrompt, userPrompt, signal = null, options = 
   return new Promise((resolve, reject) => {
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
     
-    // Section 35.5: Budget Enforcement
-    const budget = options.budget || DEFAULT_TOKEN_BUDGETS[options.role] || 3000;
-    const estimatedInput = estimateTokens(fullPrompt);
-    if (estimatedInput > budget) {
-      return reject(new Error(`[BUDGET_EXCEEDED] Input tokens (${estimatedInput}) exceed budget (${budget}) for role ${options.role}`));
-    }
-
     const proc = spawn(config.binary, ['-p', fullPrompt], {
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -284,10 +278,19 @@ function dispatchCLI(config, systemPrompt, userPrompt, signal = null, options = 
       }
       
       // Clean response: remove status lines like "Loaded cached credentials."
-      const cleaned = stdout.split('\n')
+      let cleaned = stdout.split('\n')
         .filter(line => !line.includes('Loaded cached credentials'))
         .join('\n')
         .trim();
+
+      // Section 35.5: Output Budget Enforcement (CLI Fallback)
+      if (options.outputBudget && options.outputBudget > 0) {
+        const estimatedOutput = estimateTokens(cleaned);
+        if (estimatedOutput > options.outputBudget) {
+          console.warn(`[BUDGET_WARNING] CLI output (${estimatedOutput}) exceeded budget (${options.outputBudget}). Truncating.`);
+          cleaned = truncateToTokens(cleaned, options.outputBudget);
+        }
+      }
 
       if (options.onChunk) {
         options.onChunk({
@@ -310,19 +313,13 @@ function dispatchOpenRouter(model, systemPrompt, userPrompt, signal = null, opti
     const isStreaming = !!options.onChunk;
     const fullInput = systemPrompt + userPrompt;
 
-    // Section 35.5: Budget Enforcement
-    const budget = options.budget || DEFAULT_TOKEN_BUDGETS[options.role] || 3000;
-    const estimatedInput = estimateTokens(fullInput);
-    if (estimatedInput > budget) {
-      return reject(new Error(`[BUDGET_EXCEEDED] Input tokens (${estimatedInput}) exceed budget (${budget}) for role ${options.role}`));
-    }
-
     const body = JSON.stringify({
       model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ],
+      max_tokens: options.outputBudget,
       stream: isStreaming
     });
 
@@ -419,19 +416,13 @@ function dispatchLocal(url, systemPrompt, userPrompt, signal = null, options = {
     const isStreaming = !!options.onChunk;
     const fullInput = systemPrompt + userPrompt;
 
-    // Section 35.5: Budget Enforcement
-    const budget = options.budget || DEFAULT_TOKEN_BUDGETS[options.role] || 3000;
-    const estimatedInput = estimateTokens(fullInput);
-    if (estimatedInput > budget) {
-      return reject(new Error(`[BUDGET_EXCEEDED] Input tokens (${estimatedInput}) exceed budget (${budget}) for role ${options.role}`));
-    }
-
     const body = JSON.stringify({
       model: 'default',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ],
+      max_tokens: options.outputBudget,
       stream: isStreaming
     });
 
@@ -529,8 +520,9 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
 
   // Section 35.4: Tiered Routing Policy
   const blastRadius = options.blastRadius || [];
-  const { routingMap, tier } = await routeModels(options.classification || {}, blastRadius);
+  const { routingMap, tier } = await modelRouter.routeModels(options.classification || {}, blastRadius);
   const config = routingMap[role];
+
 
   if (!config) {
     throw new Error(`[callModel] No provider configured for role '${role}'. Check Gate 0 auth detection.`);
@@ -553,7 +545,7 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
   
   const systemPrompt = [
     personaPrompt,
-    FIREWALL_DIRECTIVE,
+    `FIREWALL_DIRECTIVE:\n${FIREWALL_DIRECTIVE}`,
     `${HARD_STATE_DIRECTIVE}\n${hardStateBlock}`,
     contextBlock
   ].filter(Boolean).join('\n\n').trim();
@@ -563,6 +555,22 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
 
   const userPrompt = prompt;
   const signal = options.signal || null;
+
+  // Section 35.5: Budget Enforcement
+  const roleBudget = options.budget || config.budget || DEFAULT_TOKEN_BUDGETS[role] || { input: 3000, output: 4000 };
+  const inputBudget = (typeof roleBudget.input === 'number' && roleBudget.input > 0) ? roleBudget.input : 3000;
+  const outputBudget = (typeof roleBudget.output === 'number' && roleBudget.output > 0) ? roleBudget.output : 4000;
+  const estimatedInput = estimateTokens(systemPrompt + userPrompt);
+
+
+  if (estimatedInput > inputBudget) {
+    throw new Error(`[BUDGET_EXCEEDED] Input tokens (${estimatedInput}) exceed budget (${inputBudget}) for role ${role}`);
+  }
+
+  const sessionId = options.sessionId || null;
+  const taskId    = options.taskId    || null;
+  const stage     = options.stage     || 'unknown';
+  const dispatchOptions = { onChunk: options.onChunk, role, sessionId, taskId, stage, outputBudget };
 
   // Task 1.1-H09: Calculate "Raw" Baseline estimate (Without MBO optimization)
   const historyStr = context.sessionHistory ? JSON.stringify(context.sessionHistory) : '';
@@ -576,14 +584,6 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
 
   let response;
   let usageData = null;
-  const sessionId = options.sessionId || null;
-  const taskId    = options.taskId    || null;
-  const stage     = options.stage     || 'unknown';
-  
-  // Section 35.5: Budget Enforcement
-  const budget = options.budget || DEFAULT_TOKEN_BUDGETS[role] || 3000;
-  const dispatchOptions = { onChunk: options.onChunk, role, sessionId, taskId, stage, budget };
-
   try {
     if (config.provider === 'cli') {
       const result = await dispatchCLI(config, systemPrompt, userPrompt, signal, dispatchOptions);
