@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Action:** Execute Task 1.1-H26 — Implement Persona Store & Entropy Gate
+**Next Action:** Execute Task 1.1-H32 — mbo setup: agnostic client config + scan root detection
 
 ---
 
@@ -60,7 +60,7 @@
 | 1.1-H31 | Fix Scan Health Regression — investigate failed_critical status in MBO (3 fails) and johnseriouscom (1 fail) reported by graph_server_info | COMPLETED — 2026-03-16 |
 | 1.1-ISS-02 | Fix DB path resolution regression in test scripts (BUG-051 aftershock) — misidentified as concurrent append | COMPLETED |
 | 1.1-ISS-03 | Add npm test script — create tests/run-all.js runner for all active test files; add "test" and "start" entries to package.json scripts; no CI currently, npm test errors | OPEN — P1 |
-| 1.1-H32 | mbo setup: agnostic client config + scan root detection — (1) scan root detection: walk project, identify source dirs by heuristic (src/, js/, py files, package.json, etc.), prompt user to confirm, write scanRoots to <project>/.mbo/config.json; mcp-server.js reads scanRoots from config with ['src'] fallback. (2) client config registry: after daemon healthy, write MCP URL to all detected clients (Claude→.mcp.json, Gemini→.gemini/settings.json, Codex→TBD, extensible); refresh on mbo mcp recovery. (3) reinstall on johnseriouscom and MBO_Alpha after implementation. | OPEN |
+| 1.1-H32 | mbo setup: agnostic client config + scan root detection — (1) scan root detection: walk project, identify source dirs by heuristic (src/, js/, py files, package.json, etc.), prompt user to confirm, write scanRoots to <project>/.mbo/config.json; mcp-server.js reads scanRoots from config with ['src'] fallback. (2) client config registry: after daemon healthy, write MCP URL to all detected clients (Claude→.mcp.json, Gemini→.gemini/settings.json, Codex→TBD, extensible); refresh on mbo mcp recovery. (3) reinstall on johnseriouscom and MBO_Alpha after implementation. | COMPLETED |
 | 1.1-H24 | Implement DID protocol in operator pipeline — wire Gemini-as-A, Claude-as-B, Codex tiebreaker into callModel routing; enforce blind derivation context isolation; add reconciliation output format and retry gate | COMPLETED — 2026-03-13 — DID v2 reconciled logic implemented in src/auth/did-orchestrator.js |
 | 1.1-H25 | Security Hardening: restore Section 8 Affirmation Protocol (non-persistence), implement Invariant 13 (Topology Backups) and Invariant 14 (Write-File Overwrite Lock) | COMPLETED |
 | 1.1-H26 | Implement Persona Store & Entropy Gate — personalities/ directory, default .md files for all 5 roles, .mbo/persona.json schema, ~/.orchestrator/personas/ user library, persona injection into callModel, Operator extraction pass replacing validateOutputSchema() JSON check, Entropy Score computation in Stage 1.5, hard stop at Entropy > 10, agent-onboarding.md Stage 1.5 update, AGENTS.md Section 13 | OPEN — Tier 2, DID required, design in DESIGN_DECISIONS.md DDR-001/002/003/004 |

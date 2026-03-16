@@ -72,22 +72,9 @@ class GraphService {
 
     this.db = new DBManager(dbPath);
     this.graphStore = new GraphStore(this.db);
-    
-    let scanRoots = [path.join(root, 'src')];
-    try {
-      const localCfgPath = path.join(root, '.mbo/config.json');
-      if (fs.existsSync(localCfgPath)) {
-        const localCfg = JSON.parse(fs.readFileSync(localCfgPath, 'utf8'));
-        if (Array.isArray(localCfg.scanRoots) && localCfg.scanRoots.length > 0) {
-          scanRoots = localCfg.scanRoots.map(r => path.resolve(root, r));
-        }
-      }
-    } catch (_) {}
-    this.scanRoots = scanRoots;
-
     this.scanner = new StaticScanner(this.graphStore, {
       instanceType: mode,
-      scanRoots: this.scanRoots
+      scanRoots: [path.join(root, 'src')]
     });
     this._writeQueue = Promise.resolve();
 
@@ -102,6 +89,7 @@ class GraphService {
   }
 
   _computeScanInputSignal(maxFiles = 5000) {
+    const srcPath = path.join(this.root, 'src');
     const specPath = path.join(this.root, '.dev/spec/SPEC.md');
     let latestInputMtimeMs = 0;
     let scannedFiles = 0;
@@ -115,19 +103,12 @@ class GraphService {
       }
     };
 
-    const stack = [...this.scanRoots];
+    const stack = [srcPath];
     const skipDirs = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.cache']);
     while (stack.length > 0) {
       const dirPath = stack.pop();
       let entries = [];
       try {
-        const stat = fs.statSync(dirPath);
-        if (!stat.isDirectory()) {
-          scannedFiles += 1;
-          const m = stat.mtimeMs || 0;
-          if (m > latestInputMtimeMs) latestInputMtimeMs = m;
-          continue;
-        }
         entries = fs.readdirSync(dirPath, { withFileTypes: true });
       } catch (_) {
         continue;
@@ -387,21 +368,7 @@ class GraphService {
               }
             }
 
-            for (const r of this.scanRoots) {
-              if (fs.existsSync(r)) {
-                const stat = fs.statSync(r);
-                if (stat.isDirectory()) {
-                  await this.scanner.scanDirectorySafe(r, this.root, diagnostics);
-                } else {
-                  try {
-                    await this.scanner.scanFile(r, this.root);
-                    diagnostics.scannedFiles += 1;
-                  } catch (e) {
-                    diagnostics.failedFiles.push({ path: path.relative(this.root, r), error: e.message });
-                  }
-                }
-              }
-            }
+            await this.scanner.scanDirectorySafe(path.join(this.root, 'src'), this.root, diagnostics);
             try {
               await this.scanner.enrich(this.root);
             } catch (e) {
@@ -477,14 +444,8 @@ class GraphService {
       console.error(`[GraphService] ${new Date().toISOString()} Indexing SPEC.md...`);
       await this.scanner.scanFile(specPath, this.root);
     }
-    for (const r of this.scanRoots) {
-      console.error(`[GraphService] ${new Date().toISOString()} Scanning ${path.relative(this.root, r) || '.'}...`);
-      if (fs.existsSync(r)) {
-        const stat = fs.statSync(r);
-        if (stat.isDirectory()) await this.scanner.scanDirectory(r, this.root);
-        else await this.scanner.scanFile(r, this.root);
-      }
-    }
+    console.error(`[GraphService] ${new Date().toISOString()} Scanning src/...`);
+    await this.scanner.scanDirectory(path.join(this.root, 'src'), this.root);
     console.error(`[GraphService] ${new Date().toISOString()} Enriching graph (LSP)...`);
     try {
       await this.scanner.enrich(this.root);
@@ -497,14 +458,14 @@ class GraphService {
 
   async autoRefreshDevIfStale() {
     const epoch = new Date(0).toISOString();
+    const srcPath = path.join(this.root, 'src');
     const specPath = path.join(this.root, '.dev/spec/SPEC.md');
     let srcMtimeMs = 0;
     let specMtimeMs = 0;
-    for (const r of this.scanRoots) {
-      try {
-        const m = fs.statSync(r).mtimeMs || 0;
-        if (m > srcMtimeMs) srcMtimeMs = m;
-      } catch (_) {}
+    try {
+      srcMtimeMs = fs.statSync(srcPath).mtimeMs || 0;
+    } catch (_) {
+      srcMtimeMs = 0;
     }
     try {
       specMtimeMs = fs.statSync(specPath).mtimeMs || 0;
@@ -547,21 +508,7 @@ class GraphService {
           }
         }
 
-        for (const r of this.scanRoots) {
-          if (fs.existsSync(r)) {
-            const stat = fs.statSync(r);
-            if (stat.isDirectory()) {
-              await this.scanner.scanDirectorySafe(r, this.root, diagnostics);
-            } else {
-              try {
-                await this.scanner.scanFile(r, this.root);
-                diagnostics.scannedFiles += 1;
-              } catch (e) {
-                diagnostics.failedFiles.push({ path: path.relative(this.root, r), error: e.message });
-              }
-            }
-          }
-        }
+        await this.scanner.scanDirectorySafe(srcPath, this.root, diagnostics);
         try {
           await this.scanner.enrich(this.root);
         } catch (e) {

@@ -9,13 +9,6 @@
 
 (None. Milestone 0.5 SUCCESS. Pre-0.6 Audit PASS.)
 
-### BUG-075: DB path resolution regression in test scripts (BUG-051 aftershock) | Milestone: 1.1 | RESOLVED
-- **Location:** `scripts/test-state.js`, `scripts/verify-chain.js`
-- **Severity:** P0
-- **Status:** RESOLVED — 2026-03-16
-- **Description:** Task 1.1-ISS-02 (misidentified as a concurrent append bug) was caused by tests querying the legacy `../data/mirrorbox.db` instead of the active `.mbo/mirrorbox.db`. When `eventStore.append` correctly wrote to the new DB, the test read from the empty old DB, leading to a `TypeError` on an undefined array element.
-- **Fix implemented:** Updated `test-state.js` and `verify-chain.js` to initialize the database connection using the BUG-051 resolution pattern: `path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db')`.
-
 ### BUG-072: Enrichment failures misclassified as `failed_critical` — blocks graph green status | Milestone: 1.1 | RESOLVED
 - **Location:** `src/graph/static-scanner.js` (`enrich()`), `src/graph/mcp-server.js` (`_summarizeAndPersistScan()`)
 - **Severity:** P0
@@ -38,10 +31,10 @@
   1. MBO project: `FOREIGN KEY constraint failed` when scanner deleted stale nodes still referenced by `edges` table. Fixed by adding `ON DELETE CASCADE` to both FK definitions in `edges` table + idempotent startup migration. (commit 2e83368 — Gemini, verified by Claude)
   2. johnseriouscom/MBO_Alpha: scanner hard-codes `<root>/src` as scan root; these projects have no `src/` directory. Deferred to Task 1.1-H32 (configurable scan roots via `.mbo/config.json` + `mbo setup` source detection).
 
-### BUG-074: mbo setup does not write MCP client configs or detect scan roots | Milestone: 1.1 | RESOLVED
+### BUG-074: mbo setup does not write MCP client configs or detect scan roots | Milestone: 1.1 | OPEN
 - **Location:** `src/cli/setup.js`, `src/graph/mcp-server.js`
 - **Severity:** P0
-- **Status:** RESOLVED — 2026-03-16
+- **Status:** OPEN — 2026-03-16
 - **Description:** After `mbo setup`, no MCP client config (.mcp.json, .gemini/settings.json, etc.) is written with the live daemon port. Any agent (Claude, Gemini, Codex, local) must manually configure its MCP URL. Additionally, scanner hard-codes `src/` as scan root — projects without a `src/` directory (e.g. johnseriouscom) always fail with `failed_critical`. Setup has no scan root detection step.
 - **Impact:** MCP tools non-functional for all clients after fresh install. johnseriouscom and MBO_Alpha daemons return 0 nodes.
 - **Fix:** Task 1.1-H32 — client config registry (write URL to all detected clients after daemon starts; refresh on `mbo mcp`) + scan root detection (walk project, detect source dirs, prompt, write to `<project>/.mbo/config.json`; mcp-server reads with `['src']` fallback).
@@ -336,7 +329,7 @@
 - **Fixed:** 2026-03-11 — `path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db')`
 - **Location:** `src/state/db-manager.js` line 6
 - **Severity:** P1
-- **Status:** FIXED
+- **Status:** OPEN
 - **Description:** `DEFAULT_DB_PATH = path.join(__dirname, '../../data/mirrorbox.db')` resolves relative to MBO's own source tree. This is wrong for any project MBO is run against — the DB should live in the project's `.mbo/` directory.
 - **Fix:** Resolve from `MBO_PROJECT_ROOT` env var with `process.cwd()` fallback: `path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db')`.
 
@@ -350,4 +343,4 @@
 
 ---
 
-*Last updated: 2026-03-16 — BUG-072, 073, 075 RESOLVED; BUG-074 OPEN (blocks 1.1)*
+*Last updated: 2026-03-13 — BUG-068 resolved, BUG-069 opened, BUG-059/060 superseded by launchd daemon migration (Task 1.1-H23)*
