@@ -2,6 +2,7 @@ const { execSync, spawnSync } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { callModel, computeContentHashes } = require('./call-model');
 const { DIDOrchestrator } = require('./did-orchestrator');
 const stateManager = require('../state/state-manager');
@@ -111,17 +112,38 @@ class Operator {
   }
 
   _getMcpPort() {
-    const manifestPath = path.join(RUNTIME_ROOT, this.mode === 'runtime' ? '.mbo/run/mcp.json' : '.dev/run/mcp.json');
-    if (!fs.existsSync(manifestPath)) {
-      throw new Error(`MCP manifest not found at ${manifestPath}. Run 'mbo setup' or 'mbo mcp'.`);
+    const candidates = [
+      path.join(RUNTIME_ROOT, '.mbo/run/mcp.json'),
+      path.join(RUNTIME_ROOT, '.dev/run/mcp.json'),
+    ];
+
+    const manifestPath = candidates.find((p) => fs.existsSync(p));
+    if (!manifestPath) {
+      throw new Error(`MCP manifest not found at ${candidates.join(' or ')}. Run 'mbo setup' or 'mbo mcp'.`);
     }
+
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-      if (manifest.status !== 'healthy') throw new Error(`MCP server status is ${manifest.status}`);
+      const status = String(manifest.status || '').toLowerCase();
+      if (status && status !== 'healthy' && status !== 'ready') {
+        throw new Error(`MCP server status is ${manifest.status}`);
+      }
+      if (!Number.isInteger(manifest.port) || manifest.port <= 0) {
+        throw new Error('Invalid MCP port in manifest');
+      }
       return manifest.port;
     } catch (e) {
       throw new Error(`Failed to read MCP port: ${e.message}`);
     }
+  }
+
+  async startMCP() {
+    const port = this._getMcpPort();
+    this.stateSummary.mcp = {
+      url: `http://127.0.0.1:${port}/mcp`,
+      projectId: null
+    };
+    return { status: 'ready', port };
   }
 
   _queryMcp(port, name, args) {
@@ -572,6 +594,11 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
 
   getHardState() {
     return { primeDirective: "Implement Section 35." };
+  }
+
+  async shutdown() {
+    this.saveHistory();
+    return { status: 'shutdown_complete' };
   }
 }
 

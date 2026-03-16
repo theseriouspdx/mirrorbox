@@ -404,26 +404,55 @@ function reapStaleHelpers(packageRoot) {
   ];
 
   let table = '';
+  let parser = null;
   try {
     table = execSync('ps -axo pid=,etimes=,command=', { encoding: 'utf8' });
+    parser = (line) => {
+      const m = line.match(/^(\d+)\s+(\d+)\s+(.*)$/);
+      if (!m) return null;
+      return { pid: parseInt(m[1], 10), elapsedMs: parseInt(m[2], 10) * 1000, cmd: m[3] };
+    };
   } catch {
-    return;
+    try {
+      // macOS/BSD ps fallback: elapsed wall clock in [[dd-]hh:]mm:ss format.
+      table = execSync('ps -axo pid=,etime=,command=', { encoding: 'utf8' });
+      parser = (line) => {
+        const m = line.match(/^(\d+)\s+([^\s]+)\s+(.*)$/);
+        if (!m) return null;
+        const toMs = (etime) => {
+          let days = 0;
+          let rest = etime;
+          if (etime.includes('-')) {
+            const parts = etime.split('-', 2);
+            days = parseInt(parts[0], 10) || 0;
+            rest = parts[1];
+          }
+          const segs = rest.split(':').map((v) => parseInt(v, 10) || 0);
+          let h = 0, min = 0, s = 0;
+          if (segs.length === 3) [h, min, s] = segs;
+          else if (segs.length === 2) [min, s] = segs;
+          else if (segs.length === 1) s = segs[0];
+          return ((((days * 24) + h) * 60 + min) * 60 + s) * 1000;
+        };
+        return { pid: parseInt(m[1], 10), elapsedMs: toMs(m[2]), cmd: m[3] };
+      };
+    } catch {
+      return;
+    }
   }
 
   const pids = [];
   for (const line of table.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    const match = trimmed.match(/^(\d+)\s+(\d+)\s+(.*)$/);
-    if (!match) continue;
-    const pid = parseInt(match[1], 10);
-    const etimes = parseInt(match[2], 10);
-    const cmd = match[3];
+    const parsed = parser ? parser(trimmed) : null;
+    if (!parsed) continue;
+    const { pid, elapsedMs, cmd } = parsed;
     if (!Number.isFinite(pid) || pid === process.pid) continue;
     if (protectedPids.has(pid)) continue;
     if (needles.some((needle) => cmd.includes(needle))) {
       // Only reap clearly stale helpers, never fresh active ones.
-      if (!Number.isFinite(etimes) || etimes * 1000 < graceMs) continue;
+      if (!Number.isFinite(elapsedMs) || elapsedMs < graceMs) continue;
 
       // Extra safety for language server: only reap if no active MBO operator session.
       if (cmd.includes('typescript-language-server')) {
