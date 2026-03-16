@@ -2,7 +2,7 @@ const Database = require('better-sqlite3');
 const crypto = require('crypto');
 const path = require('path');
 
-const DB_PATH = process.argv[2] || path.join(__dirname, '../data/mirrorbox.db');
+const DB_PATH = process.argv[2] || path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db');
 
 /**
  * Section 7: Audit Tool
