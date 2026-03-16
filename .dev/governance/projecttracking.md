@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Action:** 1.1-H36 — Restore full SPEC-compliant operator pipeline (Sections 15/27/33/35) and remove stubs
+**Next Action:** Select next 1.1 hardening task — H36 and all queued tasks COMPLETED; BUG-078/BUG-080 remain open
 
 ---
 

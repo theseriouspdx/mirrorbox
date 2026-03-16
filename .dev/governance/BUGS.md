@@ -422,4 +422,4 @@
   4. Updated Stage 6 file scope to prefer reconciled plan scope (`filesToChange` / plan diff paths) via `_resolvePlanFiles` and only fall back to classification files when plan scope is unavailable.
   5. Preserved Section 33 streaming and Section 35 context/budget behavior (no regressions introduced in call-model streaming/minimization paths).
 
-*Last updated: 2026-03-16 — BUG-082 RESOLVED (operator pipeline spec drift); BUG-056 and BUG-081 RESOLVED via 8640211; BUG-072, 073, 074, 075 RESOLVED; BUG-076, 078, 080 OPEN; BUG-077, 079 FIXED (claude/mcp-audit-fixes)*
+*Last updated: 2026-03-16 — BUG-082 RESOLVED (operator pipeline spec drift); BUG-076 RESOLVED (tamper detection, audit-approved); BUG-056 and BUG-081 RESOLVED via 8640211; BUG-072, 073, 074, 075 RESOLVED; BUG-078, 080 OPEN; BUG-077, 079 FIXED (claude/mcp-audit-fixes)*
