@@ -65,8 +65,6 @@ function resolveCandidates() {
       endpoint: { host: '127.0.0.1', port, path: '/mcp' },
       source: 'manifest',
     });
-  } else if (process.env.MBO_ALLOW_LEGACY_7337 === '1') {
-    candidates.push({ endpoint: { host: '127.0.0.1', port: 7337, path: '/mcp' }, source: 'legacy' });
   }
 
   return { candidates, diagnostics, cwdRoot, expectedProjectId: hashProjectId(cwdRoot) };

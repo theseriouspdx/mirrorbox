@@ -33,12 +33,12 @@ function parseArgs() {
   const args = process.argv.slice(2);
   let mode = 'runtime';
   let root = PROJECT_ROOT;
-  let port = 7337;
+  let port = 0;
   for (const arg of args) {
     if (arg.startsWith('--mode=')) mode = arg.split('=')[1];
     else if (arg.startsWith('--port=')) {
       const rawPort = arg.split('=')[1];
-      port = rawPort === '0' ? 0 : (parseInt(rawPort, 10) || 7337);
+      port = rawPort === '0' ? 0 : (parseInt(rawPort, 10) || 0);
     }
     else if (arg.startsWith('--root=')) {
       const rawRoot = arg.split('=')[1];
@@ -606,7 +606,7 @@ async function createSession(graphService, mode, sessions) {
 
 async function main() {
   const { mode, root, port } = parseArgs();
-  const PORT = Number.isFinite(port) ? port : 7337;
+  const PORT = Number.isFinite(port) ? port : 0;
 
   console.error(`[MCP] ${new Date().toISOString()} Starting Graph MCP Server (${mode}) on port ${PORT}...`);
 

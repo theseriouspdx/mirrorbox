@@ -115,11 +115,6 @@ class Operator {
     } catch (_) {}
 
     if (!manifest || !manifest.port) {
-      if (process.env.MBO_ALLOW_LEGACY_7337 === '1') {
-        console.error(`[OPERATOR] WARN: No manifest. Falling back to 7337 (MBO_ALLOW_LEGACY_7337=1).`);
-        this.stateSummary.mcp.url = 'http://127.0.0.1:7337';
-        return;
-      }
       throw new Error(`No MCP manifest found in ${RUNTIME_ROOT}. Run 'mbo setup' first.`);
     }
 

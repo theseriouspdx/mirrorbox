@@ -33,7 +33,7 @@ function runSetupCommand() {
     })
     .then(() => setup.installMCPDaemon(PROJECT_ROOT))
     .then(() => {
-      process.stdout.write('[MBO] MCP daemon ready at http://127.0.0.1:7337/mcp\n');
+      process.stdout.write('[MBO] MCP daemon ready. Port written to .dev/run/mcp.json\n');
     })
     .catch(err => { console.error(err); process.exit(1); });
 }
@@ -122,7 +122,6 @@ async function runMcpRecoveryCommand() {
         else if (fs.existsSync(userManifest)) m = JSON.parse(fs.readFileSync(userManifest, 'utf8'));
         if (m && m.port) return m.port;
       } catch (_) {}
-      if (process.env.MBO_ALLOW_LEGACY_7337 === '1') return 7337;
       return null;
     };
 
@@ -159,7 +158,9 @@ async function runMcpRecoveryCommand() {
 
   const healthBody = await waitForHealth(30000);
   if (!healthBody) {
-    const health = run('curl', ['-sS', '-m', '3', 'http://127.0.0.1:7337/health'], { capture: true });
+    const port = getPort();
+    const healthUrl = port ? `http://127.0.0.1:${port}/health` : null;
+    const health = healthUrl ? run('curl', ['-sS', '-m', '3', healthUrl], { capture: true }) : { stdout: '', stderr: 'No manifest port available' };
     const finalBody = parseHealthyBody(health) || String(health.stdout || '').trim();
     const finalOk = !!parseHealthyBody(health);
     if (finalOk) {
