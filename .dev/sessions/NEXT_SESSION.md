@@ -2,52 +2,68 @@
 ## Mirror Box Orchestrator — Session Handoff
 
 **Session ended:** 2026-03-16
-**Last task:** 1.1-H31 — Fix Scan Health Regression (In Progress)
-**Status:** Fix applied on branch `gemini/h31-scan-health`. Verification pending.
+**Last task:** 1.1-H31 COMPLETED + .gitignore fix + H32/BUG-074 registered
+**Branch:** master (clean)
 
 ---
 
 ## Section 1 — Next Action
 
-**Task H31 — Fix Scan Health Regression (P0)**
+**Implement Task 1.1-H32** — agnostic MCP client config + scan root detection.
 
-**Current State:**
-1. Identified root cause: `FOREIGN KEY constraint failed` during graph rescans due to `DELETE FROM nodes` on symbols with incoming/outgoing edges in the `edges` table.
-2. Fix implemented in `src/state/db-manager.js` (on branch `gemini/h31-scan-health`):
-   - Added `ON DELETE CASCADE` to the foreign keys in the `edges` table schema.
-   - Added a non-destructive SQLite migration block to apply this change to existing databases (`edges_migration`).
-3. MCP server was restarted via `launchctl stop/start com.mbo.mcp.30f5c13698acba0f` to pick up the schema change.
-4. An Assumption Ledger was created at `.dev/bak/assumption-ledger-h31.md`.
+### Scope (branch: `claude/h32-setup-agnostic`):
 
-**Pending Verification Steps for Next Agent:**
-1. The `graph_server_info()` MCP query previously timed out during the background rescan. You must verify that the graph server successfully completes the rescan without the `FOREIGN KEY` errors.
-2. Check `last_scan_status` in `.dev/data/dev-graph.db` or via MCP `graph_server_info`. Expected: `completed`.
-3. If verified green, run `python3 bin/validator.py --all` and `node tests/test-mcp-contract-v3.js`.
-4. Create the audit package and present it for promotion.
+**Part 1 — `mcp-server.js` scan root config (Tier 1):**
+- Read `scanRoots` from `<project>/.mbo/config.json`
+- Fall back to `['src']` if absent/malformed
+- Single change in `GraphService` constructor (~10 lines)
 
-**Priority Order After H31:**
-1. **ISS-02** (P0): Fix `test-state.js` concurrent append TypeError
-2. **ISS-03** (P1): Add `npm test` script to package.json + `tests/run-all.js` harness
-3. **H26** (P1, Tier 2 DID): Persona Store & Entropy Gate — only after H31 verified green
+**Part 2 — `setup.js` client config registry + scan root detection (Tier 1-2):**
+- After daemon healthy: read port from manifest, write MCP URL to all detected clients:
+  - Claude CLI → `.mcp.json`
+  - Gemini CLI → `.gemini/settings.json`
+  - Codex → investigate config location first
+  - Extensible registry (adding new client = one entry)
+- Scan root detection: walk project root, surface candidate dirs by heuristic
+  (presence of src/, lib/, js/, py files, *.ts, package.json, pyproject.toml, etc.)
+  prompt user to confirm, write `scanRoots` to `<project>/.mbo/config.json`
+- `mbo mcp` recovery must also refresh client configs (ephemeral port changes on restart)
 
-**Graph queries to run at Gate 0:**
+**Part 3 — after H32 ships:**
+- `mbo setup` in `/Users/johnserious/johnseriouscom`
+- `mbo setup` in `/Users/johnserious/MBO_Alpha`
+- Verify both graph servers show `completed` scan status
+
+### Gate 0 graph queries:
 ```
 graph_server_info()
+graph_search("setup installMCPDaemon client config")
+graph_search("mcp-server scanRoots GraphService")
 ```
 
 ---
 
-## Section 2 — Session Summary
+## Section 2 — State Summary
 
-- Tasks completed this session: 0 (H31 partially complete)
-- Code written: `src/state/db-manager.js` (schema migration for ON DELETE CASCADE).
-- Unresolved issues: Verification of H31 fix (MCP daemon was rescanning and timing out client queries at session end).
+### Completed this session:
+- H31 VERIFIED + PROMOTED to master — ON DELETE CASCADE fix, MBO scan clean (0 failures, 514 nodes)
+- .gitignore: session.lock, write.deny, mcp-*.json, scripts/scratch/ now ignored
+- BUG-073 RESOLVED, BUG-074 OPEN, H32 registered with full scope
+
+### Active P0 bugs:
+- BUG-074: mbo setup doesn't write client configs or detect scan roots → H32
+
+### MCP status:
+- MBO daemon (30f5c136): ✅ port 59244, scan completed, 514 nodes
+- johnseriouscom daemon (b6e69750): ❌ failed_critical, 0 nodes — no src/ dir, blocked on H32
+- MBO_Alpha daemon: ❌ not installed — blocked on H32
+- All client MCP configs: ❌ stale/manual — blocked on H32
 
 ---
 
 ## Section 3 — Directory State
 
-- Branch: `gemini/h31-scan-health`
-- Working tree: `src/state/db-manager.js` modified. `mcp.json` state files updated.
-- MCP daemon: Restarted on `com.mbo.mcp.30f5c13698acba0f`.
-- Handshake Scope: `src` (Active)
+- Branch: master
+- Last commit: 89cf42a — chore: register BUG-074 and expand H32 scope
+- Working tree: clean
+- MCP daemon (MBO): running on port 59244, healthy
