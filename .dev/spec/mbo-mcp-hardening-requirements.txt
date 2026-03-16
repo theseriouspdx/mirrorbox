@@ -15,9 +15,10 @@ REPLACED BY:
   Spec section:  SPEC.md Section 32 (marked SUPERSEDED)
   Task:          projecttracking.md Task 1.1-H23
 
-The new contract: launchd starts node src/graph/mcp-server.js at port 7337.
-Clients POST to http://127.0.0.1:7337/mcp. No manifests. No locks. No recovery
-tiers. Connection refused = server not running = operator fixes it.
+The H23 contract (now also SUPERSEDED by H30 — 2026-03-15):
+  H23: launchd starts node src/graph/mcp-server.js at port 7337.
+  H30: ephemeral --port=0 + manifest discovery for multi-project isolation.
+  Current canonical architecture: docs/MCP_PORT_REFERENCE.md
 
 ================================================================================
 

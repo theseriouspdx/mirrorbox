@@ -513,10 +513,10 @@ The Intelligence Graph exposes an MCP (Model Context Protocol) server. Any model
 
 The MCP server is a long-lived process supervised by macOS launchd. Crashes are expected in a multi-agent workflow. The process is not manually managed — launchd restarts it automatically.
 
-**Supervisor configuration:** `~/Library/LaunchAgents/com.johnserious.mbo-mcp.plist`  
-- `KeepAlive: true` — launchd restarts on any exit, clean or crash  
-- `ThrottleInterval: 3` — 3-second delay before respawn, prevents rapid crash loops  
-- `RunAtLoad: true` — starts automatically on login, no terminal required  
+**Supervisor configuration:** `~/Library/LaunchAgents/com.johnserious.mbo-mcp.plist`
+- `KeepAlive: true` — launchd restarts on any exit, clean or crash
+- `ThrottleInterval: 3` — 3-second delay before respawn, prevents rapid crash loops
+- `RunAtLoad: true` — starts automatically on login, no terminal required
 
 **Logs:**
 
@@ -524,6 +524,33 @@ The MCP server is a long-lived process supervised by macOS launchd. Crashes are 
 |--------|------|
 | stdout | `/Users/johnserious/MBO/.dev/logs/mcp-stdout.log` |
 | stderr | `/Users/johnserious/MBO/.dev/logs/mcp-stderr.log` |
+
+### MCP Port Architecture
+
+> **Canonical reference:** `docs/MCP_PORT_REFERENCE.md`
+
+Each project's MCP daemon binds an **ephemeral port** assigned by the OS at startup (`--port=0`). There is no fixed port. The daemon writes its actual bound port to a manifest file immediately after binding.
+
+**Why ephemeral:** MBO operates on any software repository. Multiple projects may run simultaneously on one machine. A fixed port would create conflicts between project daemons.
+
+**Manifest locations:**
+
+| Project type | Manifest path |
+|---|---|
+| Controller repo (MBO itself) | `<project>/.dev/run/mcp.json` |
+| Subject repo | `<project>/.mbo/run/mcp.json` |
+
+**Client config:** After `mbo setup`, all detected AI clients (Claude CLI → `.mcp.json`, Gemini CLI → `.gemini/settings.json`) are written with the live port from the manifest. This refresh also runs on `mbo mcp` recovery. See Task 1.1-H32.
+
+**Port history:**
+
+| Task | Date | Decision |
+|------|------|----------|
+| 1.1-H23 | 2026-03-13 | Fixed port 7337 via launchd (single-project assumption) |
+| 1.1-H30 | 2026-03-15 | Ephemeral `--port=0` + manifest — supersedes H23 port strategy |
+| 1.1-H32 | pending | Auto-write client configs from manifest on setup/recovery |
+
+**Do not hardcode port 7337 anywhere.** All references to 7337 in source code and active docs were removed in the port-cleanup commit on this branch (2026-03-16).
 
 All startup diagnostics, DB verification warnings, and runtime errors are written to stderr. When debugging a crash, read the stderr log first.
 

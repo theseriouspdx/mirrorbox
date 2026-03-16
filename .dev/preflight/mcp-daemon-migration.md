@@ -1,10 +1,16 @@
 # MCP Daemon Migration — Implementation Prompt
 ## Task: 1.1-H23 — Migrate MCP to launchd-owned system daemon
 
+> **SUPERSEDED — 2026-03-15 by Task 1.1-H30**
+> H23 fixed port 7337 (single-project assumption). H30 replaced this with
+> ephemeral `--port=0` + manifest discovery to support multi-project isolation.
+> The fixed-port references below are historical. See `docs/MCP_PORT_REFERENCE.md`
+> for the current canonical architecture.
+
 **Date:** 2026-03-13
 **Approved by:** Human Operator (verbal, this session)
 **Tier:** 3 — Architecture change, DID required
-**Status:** READY FOR IMPLEMENTATION
+**Status:** SUPERSEDED by 1.1-H30
 
 ---
 
