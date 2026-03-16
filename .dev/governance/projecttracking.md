@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Action:** Execute Task 1.1-H26 — Implement Persona Store & Entropy Gate
+**Next Action:** Execute Task 1.1-H32 — mbo setup: agnostic client config + scan root detection
 
 ---
 

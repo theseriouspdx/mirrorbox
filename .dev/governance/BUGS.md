@@ -336,7 +336,7 @@
 - **Fixed:** 2026-03-11 — `path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db')`
 - **Location:** `src/state/db-manager.js` line 6
 - **Severity:** P1
-- **Status:** OPEN
+- **Status:** FIXED
 - **Description:** `DEFAULT_DB_PATH = path.join(__dirname, '../../data/mirrorbox.db')` resolves relative to MBO's own source tree. This is wrong for any project MBO is run against — the DB should live in the project's `.mbo/` directory.
 - **Fix:** Resolve from `MBO_PROJECT_ROOT` env var with `process.cwd()` fallback: `path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db')`.
 
@@ -350,4 +350,4 @@
 
 ---
 
-*Last updated: 2026-03-13 — BUG-068 resolved, BUG-069 opened, BUG-059/060 superseded by launchd daemon migration (Task 1.1-H23)*
+*Last updated: 2026-03-16 — BUG-072, 073, 075 RESOLVED; BUG-074 OPEN (blocks 1.1)*
