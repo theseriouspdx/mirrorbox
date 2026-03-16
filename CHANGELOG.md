@@ -1,7 +1,7 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
-### [1.1.23] — 2026-03-16
+### [0.11.24] — 2026-03-16
 #### Fixed
 - **Task 1.1-H36 / BUG-082 — Operator pipeline SPEC parity restoration (Sections 15/27/33/35):**
   - `src/auth/operator.js`: Restored non-stubbed Stage 1.5/3/4/4.5/6/7 and hard-state-driven paths from backup baseline.

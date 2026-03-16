@@ -40,3 +40,10 @@ scripts/com.mbo.mcp.plist
 # Scratch files
 scripts/scratch/
 .journal/state.json
+
+# MBO — per-user data (not committed)
+.mbo/
+!.mbo/onboarding.json
+!.mbo/AGENTS.md
+!.mbo/BUGS.md
+!.mbo/CHANGELOG.md
