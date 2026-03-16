@@ -12,6 +12,28 @@
 ### BUG-075: DB path resolution regression in test scripts (BUG-051 aftershock) | Milestone: 1.1 | RESOLVED
 ... (rest of BUG-075)
 
+### BUG-079: `waitForHealth` in `mbo.js` lacks project_id validation | Milestone: 1.1 | FIXED
+- **Location:** `bin/mbo.js` (`runMcpRecoveryCommand` → `waitForHealth`)
+- **Severity:** P2
+- **Status:** FIXED — 2026-03-16 (claude/mcp-audit-fixes)
+- **Description:** Found during Codex MCP E2E audit. `waitForHealth` in `mbo.js` reads the manifest symlink and probes the port without checking `project_id`. Under multi-project conditions, it could declare a healthy response from a different project's daemon. Also: if the symlink pid is dead, no fallback scan occurs — the function loops until timeout even when a live pid-specific manifest exists for the same project.
+- **Fix:** Added `project_id` derivation (sha256 of canonical PROJECT_ROOT, 16-char hex). `getPort()` now checks if the manifest pid is alive; if dead, scans `manifestDir` for any `mcp-<projectId>-*.json` with a live pid. Validates `project_id` match before returning port.
+
+### BUG-078: No auto-refresh of client configs after daemon respawn | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/setup.js` (`updateClientConfigs`), `src/graph/mcp-server.js`
+- **Severity:** P2
+- **Status:** OPEN — 2026-03-16
+- **Description:** Found during Codex MCP E2E audit. When launchd respawns the MCP daemon after a crash, the daemon gets a new ephemeral port and updates `.dev/run/mcp.json`, but `.mcp.json` and `.gemini/settings.json` still contain the old port. Clients (Claude Code, Gemini CLI) silently fail to reach the MCP server until the user manually runs `mbo mcp` or `mbo setup`.
+- **Fix required:** On daemon startup, after writing the manifest, also call `updateClientConfigs` with the new port. Or add a lightweight port-refresh hook triggered by manifest change.
+
+### BUG-077: Stale symlink after ungraceful daemon death | Milestone: 1.1 | FIXED
+- **Location:** `src/cli/setup.js` (`waitForHealth`, `installMCPDaemon`), `bin/mbo.js`
+- **Severity:** P1
+- **Status:** FIXED — 2026-03-16 (claude/mcp-audit-fixes)
+- **Description:** Found during Codex MCP E2E audit. When the MCP daemon is killed via SIGKILL or crashes, its `shutdown()` handler never runs. The `.dev/run/mcp.json` symlink remains pointing to the dead pid's manifest. Any subsequent `mbo setup` or `mbo mcp` call reads the stale symlink, probes a dead port, and loops until timeout. This is the root cause of the repeated "Dev graph unavailable" failures at session start.
+- **Compounding issue:** 5 orphaned PID manifest files (`mcp-<projectId>-<pid>.json`) accumulate in `.dev/run/` with no cleanup mechanism.
+- **Fix:** In `setup.js` `installMCPDaemon`: before launching daemon, scan and delete orphaned PID manifests (alive check via `process.kill(pid, 0)`). In `waitForHealth` (both `setup.js` and `mbo.js`): if symlink manifest pid is dead, scan directory for live pid-specific manifests matching project_id as fallback.
+
 ### BUG-076: `test-tamper-chain.js` fails to detect database mutation | Milestone: 1.1 | OPEN
 - **Location:** `scripts/test-tamper-chain.js`, `src/state/event-store.js`
 - **Severity:** P1
@@ -353,4 +375,4 @@
 
 ---
 
-*Last updated: 2026-03-16 — BUG-072, 073, 075 RESOLVED; BUG-074 OPEN (blocks 1.1)*
+*Last updated: 2026-03-16 — BUG-072, 073, 074, 075 RESOLVED; BUG-076, 078 OPEN; BUG-077, 079 FIXED (claude/mcp-audit-fixes)*
