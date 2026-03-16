@@ -1,6 +1,15 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.24] — 2026-03-16
+#### Fixed
+- **BUG-078: Agent client configs self-heal on daemon startup (claude/bug-078-client-config-refresh)**
+  - `src/utils/update-client-configs.js` (new): shared util reads `mcpClients` registry from `.mbo/config.json`, writes live MCP port to each registered agent config file. Agent-agnostic — no hardcoded client list.
+  - `src/graph/mcp-server.js`: calls `updateClientConfigs` on every daemon startup. launchd respawns now self-heal `.mcp.json` / `.gemini/settings.json` automatically.
+  - `src/cli/setup.js`: `installMCPDaemon` checks health first (2s); skips restart if daemon already healthy. `mbo setup` populates `mcpClients` registry from detected providers.
+  - `bin/mbo.js`: `mbo mcp` checks daemon health before teardown; skips restart if healthy, refreshes configs in-place. Eliminates port churn on healthy sessions.
+  - Tests: 97 passing (33 unit + 64 failure modes).
+
 ### [1.1.23] — 2026-03-16
 #### Added
 - **Persona Store & Entropy Gate — Task 1.1-H26** (Tier 2 DID — Gemini impl, Claude review)

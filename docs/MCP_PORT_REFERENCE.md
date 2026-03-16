@@ -1,7 +1,7 @@
 # MCP Port Architecture Reference
 
 **Status:** Current — Canonical
-**Last updated:** 2026-03-16
+**Last updated:** 2026-03-16 (BUG-078 fix)
 **Supersedes:** H23 fixed-port (7337), H30-era docs referencing 7337
 
 ---
@@ -33,11 +33,29 @@ to 7337. The OS assigns a conflict-free port to each daemon at startup.
 ### Startup
 
 ```
-mbo setup  →  spawns:  node src/graph/mcp-server.js --port=0 --root=<project>
-           →  daemon binds OS-assigned port (e.g. 59244)
-           →  writes manifest:  <project>/.dev/run/mcp.json  { "port": 59244, ... }
-           →  H32 (pending): mbo setup writes port to all client configs
+mbo setup  →  checks if daemon already healthy (2s)
+           →  if healthy: skips restart, refreshes client configs in-place
+           →  if not:     spawns: node src/graph/mcp-server.js --port=0 --root=<project>
+                          daemon binds OS-assigned port (e.g. 59244)
+                          writes manifest: <project>/.dev/run/mcp.json { "port": 59244, ... }
+                          daemon writes port to all mcpClients in .mbo/config.json
 ```
+
+### mcpClients Registry
+
+Agent client configs are driven by `<project>/.mbo/config.json`:
+
+```json
+{
+  "mcpClients": [
+    { "name": "claude", "configPath": ".mcp.json" },
+    { "name": "gemini", "configPath": ".gemini/settings.json" }
+  ]
+}
+```
+
+Populated by `mbo setup` from detected CLIs. Adding a new agent = one entry. No code change required.
+All paths are project-relative. Full overwrite. Server name always `"mbo-graph"`.
 
 ### Manifest location
 
@@ -58,8 +76,9 @@ curl http://127.0.0.1:$(node -e 'console.log(require("./.dev/run/mcp.json").port
 
 ### Client config (`.mcp.json`, `.gemini/settings.json`)
 
-**Currently:** must be updated manually after `mbo setup` or daemon restart.
-**After H32:** `mbo setup` and `mbo mcp` write the correct port automatically.
+Written automatically on every daemon startup (including launchd respawn after crash/wake).
+Also refreshed by `mbo setup` and `mbo mcp` without restarting a healthy daemon.
+Driven by `mcpClients` registry in `.mbo/config.json` — populated by `mbo setup`.
 
 ---
 
@@ -69,22 +88,22 @@ curl http://127.0.0.1:$(node -e 'console.log(require("./.dev/run/mcp.json").port
 |------|------|--------------|--------|
 | 1.1-H23 | 2026-03-13 | launchd + fixed 7337 | SUPERSEDED |
 | 1.1-H30 | 2026-03-15 | Ephemeral `--port=0` + manifest | CURRENT |
-| 1.1-H32 | pending | Auto-write client configs from manifest | OPEN |
+| 1.1-H32 | 2026-03-16 | Auto-write client configs from manifest (`mbo setup`) | COMPLETED |
+| BUG-078 | 2026-03-16 | Self-heal configs on every daemon startup + no-churn `mbo mcp` | FIXED |
 
 ---
 
 ## Recovery
 
 ```bash
-mbo mcp        # restart daemon, manifest updated with new port
-               # after H32: also refreshes client configs automatically
+mbo mcp        # if daemon healthy: refreshes client configs, no restart
+               # if daemon unhealthy: full teardown/setup cycle
 ```
 
-If the daemon is healthy but the client config is stale (common before H32):
+Manual recovery (should never be needed after BUG-078 fix):
 
 ```bash
 PORT=$(node -e 'console.log(require("./.dev/run/mcp.json").port)')
-# Claude CLI:
 echo "{\"mcpServers\":{\"mbo-graph\":{\"type\":\"http\",\"url\":\"http://127.0.0.1:${PORT}/mcp\"}}}" > .mcp.json
 ```
 

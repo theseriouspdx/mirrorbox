@@ -19,12 +19,18 @@
 - **Description:** Found during Codex MCP E2E audit. `waitForHealth` in `mbo.js` reads the manifest symlink and probes the port without checking `project_id`. Under multi-project conditions, it could declare a healthy response from a different project's daemon. Also: if the symlink pid is dead, no fallback scan occurs — the function loops until timeout even when a live pid-specific manifest exists for the same project.
 - **Fix:** Added `project_id` derivation (sha256 of canonical PROJECT_ROOT, 16-char hex). `getPort()` now checks if the manifest pid is alive; if dead, scans `manifestDir` for any `mcp-<projectId>-*.json` with a live pid. Validates `project_id` match before returning port.
 
-### BUG-078: No auto-refresh of client configs after daemon respawn | Milestone: 1.1 | OPEN
-- **Location:** `src/cli/setup.js` (`updateClientConfigs`), `src/graph/mcp-server.js`
+### BUG-078: No auto-refresh of client configs after daemon respawn | Milestone: 1.1 | FIXED
+- **Location:** `src/utils/update-client-configs.js` (new), `src/graph/mcp-server.js`, `src/cli/setup.js`, `bin/mbo.js`
 - **Severity:** P2
-- **Status:** OPEN — 2026-03-16
-- **Description:** Found during Codex MCP E2E audit. When launchd respawns the MCP daemon after a crash, the daemon gets a new ephemeral port and updates `.dev/run/mcp.json`, but `.mcp.json` and `.gemini/settings.json` still contain the old port. Clients (Claude Code, Gemini CLI) silently fail to reach the MCP server until the user manually runs `mbo mcp` or `mbo setup`.
-- **Fix required:** On daemon startup, after writing the manifest, also call `updateClientConfigs` with the new port. Or add a lightweight port-refresh hook triggered by manifest change.
+- **Status:** FIXED — 2026-03-16 (claude/bug-078-client-config-refresh)
+- **Description:** Found during Codex MCP E2E audit. When launchd respawns the MCP daemon after a crash or wake, the daemon got a new ephemeral port and updated `.dev/run/mcp.json`, but `.mcp.json` and `.gemini/settings.json` still contained the old port. Clients silently failed until the user manually ran `mbo mcp` or `mbo setup`. Additionally, `mbo mcp` unconditionally tore down and restarted the daemon even when healthy, causing unnecessary port churn every session.
+- **Fix:**
+  1. `src/utils/update-client-configs.js` — new shared util. Reads `mcpClients` registry from `<project>/.mbo/config.json`, writes the live MCP port to each registered agent config file. Agent-agnostic: adding a new agent requires only a config entry, no code change.
+  2. `src/graph/mcp-server.js` — calls `updateClientConfigs` on every daemon startup. launchd respawns now self-heal client configs automatically.
+  3. `src/cli/setup.js` — `installMCPDaemon` checks health first (2s timeout); skips restart if daemon already healthy. Replaces hardcoded client list with shared util. `mbo setup` populates `mcpClients` registry from detected providers.
+  4. `bin/mbo.js` — `mbo mcp` checks daemon health before teardown; skips restart if healthy, refreshes configs in-place.
+- **Tests:** 97 passing (33 unit + 64 failure modes). `python3 bin/validator.py --all` passes.
+- **Install note:** `mbo setup` must be re-run on each project to populate `mcpClients` in `.mbo/config.json`. Until then, daemon logs "No mcpClients registered" and skips config refresh (no crash).
 
 ### BUG-077: Stale symlink after ungraceful daemon death | Milestone: 1.1 | FIXED
 - **Location:** `src/cli/setup.js` (`waitForHealth`, `installMCPDaemon`), `bin/mbo.js`

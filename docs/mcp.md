@@ -61,7 +61,21 @@ mbo teardown
 }
 ```
 
-Both files are managed by MBO and reflect the manifest-discovered port.
+Both files are managed by MBO. They are written:
+1. On every daemon startup (including launchd respawn after crash/wake) — self-healing
+2. By `mbo setup` after daemon health check
+3. By `mbo mcp` when daemon is already healthy (refresh without restart)
+
+The registry of which files to write is stored in `<project>/.mbo/config.json`:
+```json
+{
+  "mcpClients": [
+    { "name": "claude", "configPath": ".mcp.json" },
+    { "name": "gemini", "configPath": ".gemini/settings.json" }
+  ]
+}
+```
+Populated by `mbo setup`. Add new agents by adding entries — no code change needed.
 
 ---
 
