@@ -28,3 +28,11 @@ scripts/com.mbo.mcp.plist
 
 # Root cleanup artifacts
 .tmp-*.db
+
+# Runtime session artifacts
+.journal/session.lock
+.dev/run/write.deny
+.dev/run/mcp-*.json
+
+# Scratch files
+scripts/scratch/
