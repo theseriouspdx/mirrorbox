@@ -13,6 +13,7 @@
 const path = require('path');
 const { spawn, spawnSync, execSync } = require('child_process');
 const fs = require('fs');
+const crypto = require('crypto');
 const { findProjectRoot } = require('../src/utils/root');
 const { isSelfRunDisallowed, selfRunGuardMessage } = require('../src/cli/startup-checks');
 
@@ -107,24 +108,55 @@ async function runMcpRecoveryCommand() {
 
   process.stdout.write('[MBO MCP] Running MCP recovery sequence...\n');
 
+  // BUG-077/BUG-079: derive project_id using same algorithm as mcp-server.js
+  // (sha256 of canonical root, 16-char hex prefix) for manifest validation.
+  const canonicalRoot = (() => { try { return fs.realpathSync(PROJECT_ROOT); } catch { return path.resolve(PROJECT_ROOT); } })();
+  const projectId = crypto.createHash('sha256').update(Buffer.from(canonicalRoot, 'utf8')).digest('hex').slice(0, 16);
+
   const parseHealthyBody = (res) => {
     const text = String((res && res.stdout) || '').trim();
     return text && text.includes('"status":"ok"') ? text : null;
   };
 
-  const waitForHealth = async (timeoutMs = 30000) => {
-    const getPort = () => {
-      const devManifest = path.join(PROJECT_ROOT, '.dev/run/mcp.json');
-      const userManifest = path.join(PROJECT_ROOT, '.mbo/run/mcp.json');
-      try {
-        let m = null;
-        if (fs.existsSync(devManifest)) m = JSON.parse(fs.readFileSync(devManifest, 'utf8'));
-        else if (fs.existsSync(userManifest)) m = JSON.parse(fs.readFileSync(userManifest, 'utf8'));
-        if (m && m.port) return m.port;
-      } catch (_) {}
-      return null;
-    };
+  // BUG-077: hoisted so it can be used both inside waitForHealth and in the
+  // post-timeout fallback block below. Previously defined inside waitForHealth,
+  // making the fallback call at the outer scope a latent ReferenceError.
+  // BUG-079: added project_id validation + dead-pid fallback scan.
+  const devManifestPath = path.join(PROJECT_ROOT, '.dev/run/mcp.json');
+  const userManifestPath = path.join(PROJECT_ROOT, '.mbo/run/mcp.json');
+  const getPort = () => {
+    try {
+      let m = null;
+      for (const mp of [devManifestPath, userManifestPath]) {
+        if (fs.existsSync(mp)) { m = JSON.parse(fs.readFileSync(mp, 'utf8')); break; }
+      }
+      // If symlink manifest's pid is dead, scan dir for a live pid-specific manifest.
+      if (m && m.pid) {
+        let pidAlive = false;
+        try { process.kill(m.pid, 0); pidAlive = true; } catch (_) {}
+        if (!pidAlive) {
+          m = null;
+          const runDir = path.dirname(devManifestPath);
+          if (fs.existsSync(runDir)) {
+            for (const f of fs.readdirSync(runDir)) {
+              if (!f.startsWith('mcp-') || f === 'mcp.json' || !f.endsWith('.json')) continue;
+              try {
+                const c = JSON.parse(fs.readFileSync(path.join(runDir, f), 'utf8'));
+                if (c.project_id !== projectId) continue;
+                try { process.kill(c.pid, 0); } catch (_) { continue; }
+                m = c;
+                break;
+              } catch (_) {}
+            }
+          }
+        }
+      }
+      if (m && m.project_id === projectId && m.port) return m.port;
+    } catch (_) {}
+    return null;
+  };
 
+  const waitForHealth = async (timeoutMs = 30000) => {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const port = getPort();

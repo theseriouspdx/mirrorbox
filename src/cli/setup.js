@@ -88,8 +88,30 @@ function waitForHealth(projectRoot, projectId, timeoutMs = 10000) {
   const getPort = () => {
     try {
       let data = null;
-      if (fs.existsSync(devManifest)) data = JSON.parse(fs.readFileSync(devManifest, 'utf8'));
-      else if (fs.existsSync(userManifest)) data = JSON.parse(fs.readFileSync(userManifest, 'utf8'));
+      for (const mp of [devManifest, userManifest]) {
+        if (fs.existsSync(mp)) { data = JSON.parse(fs.readFileSync(mp, 'utf8')); break; }
+      }
+      // BUG-077: if symlink manifest's pid is dead, scan for a live pid-specific manifest.
+      if (data && data.pid) {
+        let pidAlive = false;
+        try { process.kill(data.pid, 0); pidAlive = true; } catch (_) {}
+        if (!pidAlive) {
+          data = null;
+          const runDir = path.dirname(devManifest);
+          if (fs.existsSync(runDir)) {
+            for (const f of fs.readdirSync(runDir)) {
+              if (!f.startsWith('mcp-') || f === 'mcp.json' || !f.endsWith('.json')) continue;
+              try {
+                const c = JSON.parse(fs.readFileSync(path.join(runDir, f), 'utf8'));
+                if (c.project_id !== projectId) continue;
+                try { process.kill(c.pid, 0); } catch (_) { continue; }
+                data = c;
+                break;
+              } catch (_) {}
+            }
+          }
+        }
+      }
       if (data && data.project_id === projectId) return data.port;
     } catch (_) {}
     return null;
@@ -158,6 +180,22 @@ async function installMCPDaemon(projectRoot = process.env.MBO_PROJECT_ROOT || pr
 
   const plist = buildPlist({ projectRoot: resolvedRoot, controllerRoot, nodePath, projectId });
   fs.writeFileSync(plistPath, plist, 'utf8');
+
+  // BUG-077: clean up orphaned pid-specific manifests before launching a new daemon.
+  // These accumulate when the daemon is killed (SIGKILL/crash) without graceful shutdown.
+  const devRunDir = path.join(resolvedRoot, '.dev/run');
+  if (fs.existsSync(devRunDir)) {
+    for (const f of fs.readdirSync(devRunDir)) {
+      if (!f.startsWith(`mcp-${projectId}-`) || !f.endsWith('.json')) continue;
+      const mf = path.join(devRunDir, f);
+      try {
+        const m = JSON.parse(fs.readFileSync(mf, 'utf8'));
+        let pidAlive = false;
+        try { process.kill(m.pid, 0); pidAlive = true; } catch (_) {}
+        if (!pidAlive) fs.unlinkSync(mf);
+      } catch (_) {}
+    }
+  }
 
   const unload = spawnSync('launchctl', ['unload', '-w', plistPath], { encoding: 'utf8' });
   if ((unload.status || 0) !== 0 && !(unload.stderr || '').includes('No such process')) {
