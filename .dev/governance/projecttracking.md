@@ -15,6 +15,7 @@
 | 1.0-06 | Stage 6/7/8 Wiring — handshake-gated writes, validator gate, auto-rollback | COMPLETED — 2026-03-16 — confirmed: runStage6/7/8 in operator.js, pipeline_runs table in db-manager.js |
 | 1.0-07 | Subject World Graph Routing — Stage 2 routes by world_id to mirrorbox.db | COMPLETED — 2026-03-16 — confirmed: _graphQueryImpact() in operator.js reads subjectRoot from profile |
 | 1.0-08 | External Invariant Test Suite — black-box, standalone, Section 22 coverage | COMPLETED — 2026-03-16 — confirmed: scripts/test-invariants.js exists, docs/invariant-audit.md |
+| 1.0-09A | 1.0-09 Pre-reqs: relay-emitter.js (Subject UDS sender) + seed-subject-profile.js (onboarding profile seed) | IN PROGRESS — 2026-03-16 — claude/1.0-relay-emitter-seed-profile |
 | 1.0-09 | Implement Sovereign Loop (Self-Patching Validation) | IN PROGRESS |
 
 | Task ID | Task Description | Status |
