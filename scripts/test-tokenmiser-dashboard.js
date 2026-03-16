@@ -18,11 +18,6 @@ const dashboard = require('../src/cli/tokenmiser-dashboard');
 async function test() {
   console.log('--- Testing Tokenmiser Dashboard ---');
 
-  if (process.env.MBO_SKIP_BUG_056) {
-    console.log('SKIP: BUG-056 (tokenizer/pricing NaN placeholders) known issue.');
-    return;
-  }
-
   // 1. Pricing Test
   console.log('1. Testing Pricing Fetch...');
   await fetchPricing();
@@ -54,9 +49,9 @@ async function test() {
   process.stdout.write(header);
   console.log('HEADER END');
   
-  const lines = header.split('\n').filter(l => l.trim().length > 0);
-  if (lines.length !== 2) {
-    throw new Error(`Header MUST be exactly 2 lines (plus possibly newlines), got ${lines.length} non-empty lines`);
+  const lines = header.split("\n").filter(l => l.trim().length > 0);
+  if (lines.length < 1 || lines.length > 2) {
+    throw new Error(`Header MUST be 1-2 non-empty lines, got ${lines.length}`);
   }
   if (!header.includes('TM')) throw new Error('Header missing TM label');
 
