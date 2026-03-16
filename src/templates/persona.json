@@ -1,0 +1,22 @@
+{
+  "classifier": {
+    "id": "classifier",
+    "source": "builtin"
+  },
+  "planner": {
+    "id": "planner",
+    "source": "builtin"
+  },
+  "reviewer": {
+    "id": "reviewer",
+    "source": "builtin"
+  },
+  "tiebreaker": {
+    "id": "tiebreaker",
+    "source": "builtin"
+  },
+  "operator": {
+    "id": "operator",
+    "source": "builtin"
+  }
+}

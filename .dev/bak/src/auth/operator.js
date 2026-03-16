@@ -265,102 +265,15 @@ class Operator {
     return result;
   }
 
-  _safeParseJSON(text, fallback = null, role = null) {
+  _safeParseJSON(text, fallback = null) {
     if (!text) return fallback;
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) return JSON.parse(jsonMatch[0]);
-      
-      // DDR-001: Conversational Extraction Pass
-      if (role) return this._extractDecision(text, role);
-
-      return JSON.parse(text);
+      return JSON.parse(jsonMatch ? jsonMatch[0] : text);
     } catch (e) {
-      if (role) return this._extractDecision(text, role);
       console.error(`[Operator] JSON Parse Failure: ${e.message}. Raw text: ${text.slice(0, 200)}...`);
       return fallback;
     }
-  }
-
-  /**
-   * DDR-001: Extraction pass for natural language agent responses.
-   *
-   * Attempts JSON extraction first (delegates to _safeParseJSON).
-   * On failure, applies role-specific keyword/pattern extraction to recover
-   * a structured decision object from conversational text.
-   *
-   * Returns a structured object on success, null if extraction fails entirely.
-   * Recovered objects carry _source: 'nl_extraction' for audit trail.
-   */
-  _extractDecision(text, role) {
-    if (!text) return null;
-
-    // 1. JSON-first — reuse existing safe parser (avoid recursion)
-    try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) return JSON.parse(jsonMatch[0]);
-    } catch (_) {}
-
-    // 2. Natural language fallback — role-specific extraction
-    const lower = text.toLowerCase();
-    const src   = 'nl_extraction';
-
-    if (role === 'classifier') {
-      const routeMatch = lower.match(/\b(inline|analysis|standard|complex)\b/);
-      const riskMatch  = lower.match(/\b(low|medium|high)\s+risk\b|\brisk[:\s]*(low|medium|high)\b/);
-      const worldMatch = lower.match(/\b(mirror|subject)\s+world\b|\bworld[:\s]*(mirror|subject)\b/);
-      if (routeMatch) {
-        const riskVal = riskMatch ? (riskMatch[1] || riskMatch[2]) : 'medium';
-        return {
-          route:      routeMatch[1],
-          worldId:    worldMatch ? (worldMatch[1] || worldMatch[2]) : 'mirror',
-          risk:       riskVal,
-          complexity: routeMatch[1] === 'complex' ? 3 : routeMatch[1] === 'standard' ? 2 : 1,
-          files:      [],
-          rationale:  text.slice(0, 300),
-          confidence: 0.65,
-          _source:    src,
-        };
-      }
-    }
-
-    if (role === 'reviewer') {
-      const approved = /\b(approved?|pass|accept|looks? good|ship it|lgtm)\b/.test(lower);
-      const rejected = /\b(reject(ed)?|block(ed)?|fail(ed)?|den(y|ied)|concern)\b/.test(lower);
-      if (approved || rejected) {
-        return {
-          verdict:         approved ? 'pass' : 'block',
-          reason:          text.slice(0, 400),
-          independentCode: null,
-          concerns:        rejected ? [text.slice(0, 300)] : [],
-          _source:         src,
-        };
-      }
-    }
-
-    if (role === 'architecturePlanner' || role === 'componentPlanner') {
-      // Recover a minimal plan shape from prose output
-      const filesMatch = text.match(/(?:file[s]?|path[s]?|modif(?:y|ying)|edit(?:ing)?|touch(?:ing)?)[:\s]+([^\n.]+)/i);
-      return {
-        intent:              text.slice(0, 250),
-        stateTransitions:    [],
-        filesToChange:       filesMatch ? filesMatch[1].split(/[,\s]+/).map(s => s.trim()).filter(Boolean) : [],
-        subsystemsImpacted:  [],
-        invariantsPreserved: [],
-        rationale:           text.slice(0, 400),
-        _source:             src,
-      };
-    }
-
-    if (role === 'tiebreaker') {
-      return {
-        verdict:   'arbitrated',
-        rationale: text.slice(0, 500),
-        _source:   src,
-      };
-    }
-
-    return null;
   }
 
   /**
@@ -395,7 +308,7 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
     try {
       const response = await callModel('classifier', prompt, input, hardState);
       if (process.env.MBO_DEBUG) console.error(`[DEBUG] Classifier response: ${response}`);
-      const classification = this._safeParseJSON(response, null, 'classifier');
+      const classification = this._safeParseJSON(response);
       
       if (!classification || classification.confidence < 0.6) {
         return {
@@ -765,11 +678,12 @@ The output will be used as the new system context.`;
     // Tier 0 skips gate. Tier 1+ enters Stage 1.5 Assumption Ledger.
     if (routing.tier > 0) {
       const stage1_5 = await this.runStage1_5(cleanClassification, routing);
-      
-      // Section 27: Entropy hard stop propagates directly — do not set pendingDecision
-      if (stage1_5.status === 'blocked') return stage1_5;
-
       this.stateSummary.pendingDecision.ledger = stage1_5.assumptionLedger;
+      
+      // Section 27: Entropy-based decomposition recommendation
+      if (stage1_5.assumptionLedger.entropyScore > 10) {
+        stage1_5.prompt = `[HIGH ENTROPY] ${stage1_5.prompt}\nTask decomposition recommended before proceeding.`;
+      }
       
       // Section 27: Blocker enforcement
       if (stage1_5.assumptionLedger.blockers.length > 0) {
@@ -916,7 +830,7 @@ The output will be used as the new system context.`;
     const prompt = `Arbitrate the following plan conflict and produce a single convergent ExecutionPlan.\nConflict: ${conflict}\nTask: ${classification.rationale}\n\nReturn ONLY JSON per SPEC Section 13 (ExecutionPlan).`;
     
     const response = await callModel('tiebreaker', prompt, { classification, routing }, hardState, [], null, options);
-    const plan = this._safeParseJSON(response, null, 'tiebreaker');
+    const plan = this._safeParseJSON(response);
     if (!plan) throw new Error("[Operator] Tiebreaker plan parse failure.");
     eventStore.append('TIEBREAKER_PLAN', 'operator', { plan }, 'mirror');
     return plan;
@@ -953,7 +867,7 @@ The output will be used as the new system context.`;
 
     try {
       const response = await callModel('classifier', prompt, { classification, routing, context }, hardState, [], null, options);
-      const ledger = this._safeParseJSON(response, null, 'classifier');
+      const ledger = this._safeParseJSON(response);
 
       if (!ledger || !ledger.assumptions) {
         throw new Error("[Operator] Ledger generation failed or malformed.");
@@ -1001,23 +915,6 @@ The output will be used as the new system context.`;
     // 2. Generate Section 27 Assumption Ledger
     const ledger = await this.generateAssumptionLedger(classification, routing, context);
     const signOff = this._formatSignOffBlock(ledger);
-
-    // Section 27: Entropy Gate — hard stop before any planning begins
-    if (ledger.entropyScore > 10) {
-      eventStore.append('ENTROPY_GATE_BLOCKED', 'operator', {
-        entropyScore: ledger.entropyScore,
-        assumptionCount: ledger.assumptions.length,
-        blockers: ledger.blockers,
-      }, 'mirror');
-      return {
-        status:           'blocked',
-        stage:            '1.5',
-        assumptionLedger: ledger,
-        signOffBlock:     signOff,
-        prompt: `[ENTROPY GATE — HARD STOP] Entropy score ${ledger.entropyScore.toFixed(1)} exceeds limit of 10.\n` +
-                `Decompose this task into smaller independent subtasks before proceeding.\n\n${signOff}`,
-      };
-    }
 
     return {
       needsApproval: true,
@@ -1094,8 +991,8 @@ Return ONLY JSON per SPEC Section 13:
       callModel('componentPlanner', planPrompt, { classification, routing }, hardState, [], null, options)
     ]);
 
-    const planA = this._safeParseJSON(planARaw, null, 'architecturePlanner');
-    const planB = this._safeParseJSON(planBRaw, null, 'componentPlanner');
+    const planA = this._safeParseJSON(planARaw);
+    const planB = this._safeParseJSON(planBRaw);
 
     if (!planA || !planB) {
       throw new Error("[Operator] Planning failed: malformed plan output.");
@@ -1233,7 +1130,7 @@ Return ONLY JSON per SPEC Section 13:
     const auditPrompt = `Audit the Planner's code against the agreed plan and Reviewer's independent derivation.\nPlan: ${JSON.stringify(plan)}\nPlanner Code: ${codeA}\nReviewer Code: ${reviewerOutput.independentCode}\nReviewer Concerns: ${JSON.stringify(reviewerOutput.concerns)}\n\nDoes the code correctly implement state transitions? Return JSON with verdict, reason, citation, and consensusIntent.`;
     const result = await callModel('reviewer', auditPrompt, {}, hardState, [], null, options);
     if (process.env.MBO_DEBUG) console.error(`[DEBUG] evaluateCodeConsensus response: ${result}`);
-    return this._safeParseJSON(result, { verdict: 'block', reason: 'JSON Parse Failure' }, 'reviewer');
+    return this._safeParseJSON(result, { verdict: 'block', reason: 'JSON Parse Failure' });
   }
 
   /**
@@ -1253,10 +1150,9 @@ Return ONLY JSON per SPEC Section 13:
       // Spec Note (BUG-010): One final audit for Tiebreaker code.
       const reviewerPrompt = `Final Audit of Tiebreaker Code.\nTask: ${classification.rationale}\nCode: ${codeTied}\n\nReturn ONLY JSON verdict per SPEC Section 11.`;
       const finalAuditRaw = await callModel('reviewer', reviewerPrompt, { classification }, hardState, [], null, options);
-      const finalAudit = this._safeParseJSON(finalAuditRaw, null, 'reviewer');
+      const finalAudit = this._safeParseJSON(finalAuditRaw);
 
       if (finalAudit && finalAudit.verdict === 'pass') {
-
         return { status: 'code_agreed', code: codeTied, source: 'tiebreaker' };
       }
 
@@ -1305,7 +1201,7 @@ Return JSON:
 }`;
     const result = await callModel('classifier', auditPrompt, {}, hardState);
     if (process.env.MBO_DEBUG) console.error(`[DEBUG] evaluateSpecAdherence response: ${result}`);
-    return this._safeParseJSON(result, { verdict: 'divergent', conflict: 'JSON Parse Failure' }, 'classifier');
+    return this._safeParseJSON(result, { verdict: 'divergent', conflict: 'JSON Parse Failure' });
   }
 
   /**

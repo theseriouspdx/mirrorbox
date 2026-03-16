@@ -9,7 +9,6 @@ const { routeModels } = require('./model-router');
 const { redact } = require('../state/redactor');
 const eventStore = require('../state/event-store');
 const db = require('../state/db-manager');
-const { resolvePersona, loadPersonaConfig } = require('../utils/persona-resolver');
 const { getModelPricing } = require('../utils/pricing');
 const statsManager = require('../state/stats-manager');
 
@@ -109,9 +108,6 @@ function wrapContext(context) {
 
 /**
  * Section 10: Ensures models that MUST return JSON do so.
- * DDR-001: Demoted to console.warn — the Operator extraction pass is now
- * the authority on whether a structured decision was recoverable.
- * callModel no longer throws for NL responses from structured roles.
  */
 function validateOutputSchema(role, response, options = {}) {
   if (options.expectJson === false) return;
@@ -120,14 +116,13 @@ function validateOutputSchema(role, response, options = {}) {
   
   const jsonMatch = response && response.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    console.warn(`[callModel] ${role} returned non-JSON. Operator _extractDecision will attempt NL recovery.`);
-    return;
+    throw new Error(`[MALFORMED_OUTPUT] ${role} returned non-JSON output.`);
   }
   
   try {
     JSON.parse(jsonMatch[0]);
   } catch (e) {
-    console.warn(`[callModel] ${role} produced malformed JSON (${e.message}). Operator _extractDecision will attempt NL recovery.`);
+    throw new Error(`[MALFORMED_OUTPUT] ${role} produced invalid JSON: ${e.message}`);
   }
 }
 
@@ -322,18 +317,7 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
 
   const contextBlock = wrapContext(context);
   const hardStateBlock = wrapHardState(hardState);
-
-  // H26: Persona injection — resolve persona for this role, prepend to system prompt.
-  // loadPersonaConfig() reads .mbo/persona.json; resolvePersona() searches user lib,
-  // project personalities/, then MBO builtins. Empty string → no persona prepended.
-  const personaConfig = loadPersonaConfig();
-  const personaRef    = personaConfig[role];
-  const personaId     = options.personaId || (personaRef ? personaRef.id : null);
-  const personaPrompt = resolvePersona(role, personaId);
-
-  const systemPromptParts = [personaPrompt, FIREWALL_DIRECTIVE, `${HARD_STATE_DIRECTIVE}\n${hardStateBlock}`, contextBlock];
-  const systemPrompt = systemPromptParts.filter(Boolean).join('\n\n').trim();
-
+  const systemPrompt = `${FIREWALL_DIRECTIVE}\n\n${HARD_STATE_DIRECTIVE}\n${hardStateBlock}\n\n${contextBlock}`.trim();
   const userPrompt = prompt;
   const signal = options.signal || null;
 
