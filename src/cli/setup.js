@@ -197,60 +197,36 @@ async function installMCPDaemon(projectRoot = process.env.MBO_PROJECT_ROOT || pr
     }
   }
 
-  const unload = spawnSync('launchctl', ['unload', '-w', plistPath], { encoding: 'utf8' });
-  if ((unload.status || 0) !== 0 && !(unload.stderr || '').includes('No such process')) {
-    // best-effort unload; non-fatal here
+  // Check if a healthy daemon is already running for this project — skip restart if so.
+  // This preserves the existing ephemeral port across sessions (no unnecessary port churn).
+  const alreadyHealthy = await waitForHealth(resolvedRoot, projectId, 2000);
+  if (!alreadyHealthy) {
+    const unload = spawnSync('launchctl', ['unload', '-w', plistPath], { encoding: 'utf8' });
+    if ((unload.status || 0) !== 0 && !(unload.stderr || '').includes('No such process')) {
+      // best-effort unload; non-fatal here
+    }
+
+    const load = spawnSync('launchctl', ['load', '-w', plistPath], { encoding: 'utf8' });
+    if ((load.status || 0) !== 0) {
+      throw new Error(`launchctl load failed: ${(load.stderr || load.stdout || '').trim()}`);
+    }
+
+    const healthy = await waitForHealth(resolvedRoot, projectId, 10000);
+    if (!healthy) {
+      throw new Error('Graph server did not become healthy within 10s. Check logs in .dev/logs/');
+    }
   }
 
-  const load = spawnSync('launchctl', ['load', '-w', plistPath], { encoding: 'utf8' });
-  if ((load.status || 0) !== 0) {
-    throw new Error(`launchctl load failed: ${(load.stderr || load.stdout || '').trim()}`);
-  }
-
-  const healthy = await waitForHealth(resolvedRoot, projectId, 10000);
-  if (!healthy) {
-    throw new Error('Graph server did not become healthy within 10s. Check logs in .dev/logs/');
-  }
-
-  updateClientConfigs(resolvedRoot);
-}
-
-function updateClientConfigs(projectRoot) {
-  const devManifest = path.join(projectRoot, '.dev/run/mcp.json');
-  const userManifest = path.join(projectRoot, '.mbo/run/mcp.json');
+  // Read live port from manifest and update all registered agent client configs.
+  const { updateClientConfigs } = require('../utils/update-client-configs');
+  const devManifest  = path.join(resolvedRoot, '.dev/run/mcp.json');
+  const userManifest = path.join(resolvedRoot, '.mbo/run/mcp.json');
   let port = null;
   try {
-    if (fs.existsSync(devManifest)) port = JSON.parse(fs.readFileSync(devManifest, 'utf8')).port;
+    if (fs.existsSync(devManifest))       port = JSON.parse(fs.readFileSync(devManifest,  'utf8')).port;
     else if (fs.existsSync(userManifest)) port = JSON.parse(fs.readFileSync(userManifest, 'utf8')).port;
   } catch (_) {}
-
-  if (!port) return;
-
-  const payload = {
-    mcpServers: {
-      "mbo-graph": {
-        type: "http",
-        url: `http://127.0.0.1:${port}/mcp`
-      }
-    }
-  };
-
-  const registeredClients = [
-    { name: 'claude', relPath: '.mcp.json' },
-    { name: 'gemini', relPath: '.gemini/settings.json' }
-    // codex -> TBD
-  ];
-
-  for (const client of registeredClients) {
-    const fullPath = path.join(projectRoot, client.relPath);
-    try {
-      const dir = path.dirname(fullPath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(fullPath, JSON.stringify(payload, null, 2) + '\n');
-    } catch (err) {
-      console.error(`[WARN] Failed to write config for ${client.name} at ${client.relPath}: ${err.message}`);
-    }
-  }
+  if (port) updateClientConfigs(resolvedRoot, port);
 }
 
 function persistInstallMetadata(configPath = CONFIG_PATH, installRoot = process.cwd(), options = {}) {
@@ -536,6 +512,7 @@ async function runSetup() {
       }
     } catch (_) {}
     localCfg.scanRoots = scanRoots;
+    localCfg.mcpClients = require('../utils/update-client-configs').buildClientRegistry(d);
     if (!fs.existsSync(localConfigDir)) fs.mkdirSync(localConfigDir, { recursive: true });
     fs.writeFileSync(localConfigPath, JSON.stringify(localCfg, null, 2), 'utf8');
 

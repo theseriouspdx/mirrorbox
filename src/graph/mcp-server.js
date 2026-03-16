@@ -789,6 +789,17 @@ async function main() {
       console.error(`[MCP] Failed to write manifest to ${manifestDir}: ${err.message}`);
     }
 
+    // BUG-078: refresh all registered agent client configs with the live port.
+    // Runs on every daemon startup so launchd respawns self-heal without manual intervention.
+    try {
+      const { updateClientConfigs } = require('../utils/update-client-configs');
+      updateClientConfigs(root, actualPort, {
+        log: (msg) => console.error(`[MCP] ${new Date().toISOString()} ${msg}`)
+      });
+    } catch (err) {
+      console.error(`[MCP] ${new Date().toISOString()} [WARN] updateClientConfigs failed: ${err.message}`);
+    }
+
     console.error(`[MCP] ${new Date().toISOString()} Graph MCP Server (${mode}) listening on http://127.0.0.1:${actualPort}/mcp`);
     if (mode === 'dev') {
       graphService.autoRefreshDevIfStale()

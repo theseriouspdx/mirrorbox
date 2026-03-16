@@ -172,20 +172,35 @@ async function runMcpRecoveryCommand() {
     return null;
   };
 
-  // Best-effort teardown to clear stale launchd state.
-  try {
-    setup.runTeardown();
-    process.stdout.write('[MBO MCP] teardown: ok\n');
-  } catch (err) {
-    process.stdout.write(`[MBO MCP] teardown: skipped (${err.message})\n`);
-  }
+  // Check if daemon is already healthy before tearing it down.
+  // If healthy, skip teardown/setup to preserve the existing port.
+  // If unhealthy, do the full tear-down/setup cycle.
+  const preHealthPort = getPort();
+  const preHealthUrl  = preHealthPort ? `http://127.0.0.1:${preHealthPort}/health` : null;
+  const preHealth     = preHealthUrl ? run('curl', ['-sS', '-m', '3', preHealthUrl], { capture: true }) : null;
+  const daemonHealthy = preHealth && !!parseHealthyBody(preHealth);
 
-  try {
-    await setup.installMCPDaemon(PROJECT_ROOT);
-    process.stdout.write('[MBO MCP] setup: ok\n');
-  } catch (err) {
-    process.stderr.write(`[MBO MCP] setup failed: ${err.message}\n`);
-    process.exit(1);
+  if (daemonHealthy) {
+    process.stdout.write(`[MBO MCP] daemon already healthy on port ${preHealthPort} — skipping teardown/setup\n`);
+    // Refresh client configs in case they drifted (e.g. .mcp.json hand-edited or lost).
+    const { updateClientConfigs } = require('../src/utils/update-client-configs');
+    updateClientConfigs(PROJECT_ROOT, preHealthPort);
+  } else {
+    // Best-effort teardown to clear stale launchd state.
+    try {
+      setup.runTeardown();
+      process.stdout.write('[MBO MCP] teardown: ok\n');
+    } catch (err) {
+      process.stdout.write(`[MBO MCP] teardown: skipped (${err.message})\n`);
+    }
+
+    try {
+      await setup.installMCPDaemon(PROJECT_ROOT);
+      process.stdout.write('[MBO MCP] setup: ok\n');
+    } catch (err) {
+      process.stderr.write(`[MBO MCP] setup failed: ${err.message}\n`);
+      process.exit(1);
+    }
   }
 
   const healthBody = await waitForHealth(30000);
