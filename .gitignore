@@ -39,3 +39,4 @@ scripts/com.mbo.mcp.plist
 
 # Scratch files
 scripts/scratch/
+.journal/state.json
