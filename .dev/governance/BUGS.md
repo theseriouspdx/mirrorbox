@@ -40,12 +40,13 @@
 - **Compounding issue:** 5 orphaned PID manifest files (`mcp-<projectId>-<pid>.json`) accumulate in `.dev/run/` with no cleanup mechanism.
 - **Fix:** In `setup.js` `installMCPDaemon`: before launching daemon, scan and delete orphaned PID manifests (alive check via `process.kill(pid, 0)`). In `waitForHealth` (both `setup.js` and `mbo.js`): if symlink manifest pid is dead, scan directory for live pid-specific manifests matching project_id as fallback.
 
-### BUG-076: `test-tamper-chain.js` fails to detect database mutation | Milestone: 1.1 | OPEN
-- **Location:** `scripts/test-tamper-chain.js`, `src/state/event-store.js`
+### BUG-076: `test-tamper-chain.js` fails to detect database mutation | Milestone: 1.1 | RESOLVED
+- **Location:** `scripts/test-tamper-chain.js`
 - **Severity:** P1
-- **Status:** OPEN — 2026-03-16
-- **Description:** Pre-existing security regression identified during Task 1.1-ISS-03 audit. The test script manually mutates a payload in the database, but the verification logic reports that the event store is empty or that the chain is intact, failing to raise a tamper alert. This indicates a failure in the Merkle/Hash-chain validation logic for existing events.
-- **Impact:** Tamper detection is non-functional for historical events.
+- **Status:** RESOLVED — 2026-03-16 (fix/bug-076-tamper-detection)
+- **Root cause:** Test copied the real `mirrorbox.db` and mutated `seq=2`. If the live DB had 0 or 1 events, the `UPDATE WHERE seq = 2` touched 0 rows, so no tamper occurred. `verify-chain.js` then reported `PASS: Event store is empty` or `PASS: chain intact`, producing a false pass.
+- **Fix:** Rewrote test to be fully self-contained. Seeds 5 synthetic events with valid SHA-256 hash chain into a fresh temp DB (`tamper-test.db`), asserts `result.changes > 0` after the mutation, then runs both tamper scenarios (payload mutation + partial hash fix with broken prev_hash chain). Both are now caught. 16/16 tests pass.
+- **Verification:** `node scripts/test-tamper-chain.js` and `npm test` both pass clean.
 
 ### BUG-072: Enrichment failures misclassified as `failed_critical` — blocks graph green status | Milestone: 1.1 | RESOLVED
 - **Location:** `src/graph/static-scanner.js` (`enrich()`), `src/graph/mcp-server.js` (`_summarizeAndPersistScan()`)
