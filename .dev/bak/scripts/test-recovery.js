@@ -13,7 +13,7 @@ function testRecovery() {
     filesInScope: [],
     recoveryAttempts: 0,
     progressSummary: 'Test snapshot'
-  }, 'mirror');
+  });
   
   let recovered = stateManager.recover();
   assert.strictEqual(recovered.ok !== false, true, 'Should recover successfully');
@@ -21,7 +21,7 @@ function testRecovery() {
 
   // 2. Non-snapshot is last event
   // Add a non-STATE event
-  eventStore.append('PLANNING', 'TEST_ACTOR', { payload: 'not a snapshot' }, 'mirror');
+  eventStore.append('PLANNING', 'TEST_ACTOR', { payload: 'not a snapshot' });
   
   // Recover should still find the last snapshot because of WHERE stage = 'STATE'
   recovered = stateManager.recover();

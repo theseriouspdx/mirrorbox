@@ -26,7 +26,7 @@ echo "[IMPL] Handshake active: $STATUS"
 
 # Validate session scope covers the target file path
 # Governance files (.dev/governance/) are always writable — no handshake required
-SCOPE=$(echo "$STATUS" | grep -oP '(?<=Active: )[^ ]+' || true)
+SCOPE=$(echo "$STATUS" | grep -E "\[SESSION\] Active: [^ ]+" | sed 's/.*Active: \([^ ]*\).*/\1/' || true)
 if [[ "$FILE_PATH" != .dev/governance/* ]]; then
   if [ -n "$SCOPE" ] && [ "$SCOPE" != "." ]; then
     if ! echo "$FILE_PATH" | grep -q "^$SCOPE"; then

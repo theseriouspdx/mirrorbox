@@ -4,8 +4,8 @@ const path = require('path');
 const { execSync } = require('child_process');
 const fs = require('fs');
 
-const DB_PATH = path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db');
-const TEST_DB_PATH = path.join(path.dirname(DB_PATH), 'mirrorbox_test_tamper.db');
+const DB_PATH = path.join(__dirname, '../data/mirrorbox.db');
+const TEST_DB_PATH = path.join(__dirname, '../data/mirrorbox_test_tamper.db');
 
 function runVerify(dbPath) {
   try {

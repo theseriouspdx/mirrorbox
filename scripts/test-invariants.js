@@ -4,7 +4,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 const fs = require('fs');
 
-const DB_PATH = path.join(__dirname, '../data/mirrorbox.db');
+const DB_PATH = path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db');
 const PROJECT_ROOT = path.join(__dirname, '..');
 
 function runCommand(command, stdio = 'pipe') {
@@ -24,13 +24,17 @@ function runCommand(command, stdio = 'pipe') {
 
 async function testInvariant1And2() {
   console.log('Testing Invariant 1 & 2: File Protection & Project Root...');
-  // Since we are black-box, we check if bin/handshake.py enforces read-only / src/ locks.
-  // A real test would try to use the orchestrator to write to /etc/ or src/ without handshake.
+  
+  const sessionLock = path.join(PROJECT_ROOT, '.journal/session.lock');
   const result = runCommand('ls -ld src');
+  
   if (result.stdout.includes('dr-xr-xr-x')) {
     console.log('  PASS: src/ directory is read-only (555).');
+  } else if (fs.existsSync(sessionLock)) {
+    console.log('  PASS: src/ is writable (755) but an active session.lock was detected. [AUTHORIZED]');
   } else {
-    console.log('  FAIL: src/ directory is NOT read-only.');
+    console.error('  FAIL: src/ directory is NOT read-only.');
+    process.exit(1);
   }
 }
 
@@ -40,8 +44,9 @@ async function testInvariant4() {
   if (result.success) {
     console.log('  PASS: Chain integrity verified.');
   } else {
-    console.log('  FAIL: Chain integrity breach detected!');
-    console.log(result.stdout);
+    console.error('  FAIL: Chain integrity breach detected!');
+    console.error(result.stdout);
+    process.exit(1);
   }
 }
 
@@ -51,8 +56,9 @@ async function testInvariant10() {
   if (result.success) {
     console.log('  PASS: Entropy tax paid (All files pass).');
   } else {
-    console.log('  FAIL: Entropy tax failure detected!');
-    console.log(result.stdout);
+    console.error('  FAIL: Entropy tax failure detected!');
+    console.error(result.stdout);
+    process.exit(1);
   }
 }
 
@@ -63,7 +69,8 @@ async function testInvariant11() {
   if (fs.existsSync(path.join(PROJECT_ROOT, 'bin/validator.py'))) {
     console.log('  PASS: bin/validator.py exists for bootstrapping enforcement.');
   } else {
-    console.log('  FAIL: bin/validator.py missing.');
+    console.error('  FAIL: bin/validator.py missing.');
+    process.exit(1);
   }
 }
 

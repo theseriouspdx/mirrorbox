@@ -7,7 +7,7 @@ async function testState() {
   console.log('--- Testing Mirror Box State Management ---');
 
   const Database = require('better-sqlite3');
-  const db = new Database(path.join(__dirname, '../data/mirrorbox.db'));
+  const db = new Database(path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db'));
 
   // 1. Initial Snapshot
   const initialSummary = {

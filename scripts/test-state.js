@@ -7,7 +7,8 @@ async function testState() {
   console.log('--- Testing Mirror Box State Management ---');
 
   const Database = require('better-sqlite3');
-  const db = new Database(path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db'));
+  const DB_PATH = path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db');
+  const db = new Database(DB_PATH);
 
   // 1. Initial Snapshot
   const initialSummary = {
@@ -18,7 +19,7 @@ async function testState() {
     recoveryAttempts: 0,
     progressSummary: 'Initializing state management modules.'
   };
-  stateManager.snapshot(initialSummary);
+  stateManager.snapshot(initialSummary, 'mirror');
   console.log('Step 1: Initial snapshot created.');
 
   // 2. Event with Secret (Testing Invariant 8)
@@ -53,7 +54,7 @@ async function testState() {
     currentStage: 'EXECUTION',
     progressSummary: 'State management validation complete.'
   };
-  stateManager.snapshot(finalSummary);
+  stateManager.snapshot(finalSummary, 'mirror');
   console.log('Step 3: Final snapshot created.');
 
   // 4. Verification

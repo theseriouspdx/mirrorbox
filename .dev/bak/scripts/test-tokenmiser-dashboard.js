@@ -18,11 +18,6 @@ const dashboard = require('../src/cli/tokenmiser-dashboard');
 async function test() {
   console.log('--- Testing Tokenmiser Dashboard ---');
 
-  if (process.env.MBO_SKIP_BUG_056) {
-    console.log('SKIP: BUG-056 (tokenizer/pricing NaN placeholders) known issue.');
-    return;
-  }
-
   // 1. Pricing Test
   console.log('1. Testing Pricing Fetch...');
   await fetchPricing();

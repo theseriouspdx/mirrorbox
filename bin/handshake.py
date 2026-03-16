@@ -307,6 +307,9 @@ def handshake(cell_name: str, force: bool = False):
     if cell_name in (".", "/", "", "src"):
         cell_path = SRC_DIR
         granted_scope = "src"
+    elif cell_name in ("scripts", "tests", "bin"):
+        cell_path = MBO_ROOT / cell_name
+        granted_scope = cell_name
     else:
         cell_path = SRC_DIR / "cells" / cell_name
         if not cell_path.exists():

@@ -4,19 +4,14 @@ const path = require('path');
 const http = require('http');
 
 const ROOT = path.resolve(__dirname, '..');
-const runDir = path.join(ROOT, '.dev/run');
+const runDir = path.join(ROOT, '.dev', 'run');
 const manifestPath = path.join(runDir, 'mcp.json');
 const serverPath = path.join(ROOT, 'src', 'graph', 'mcp-server.js');
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 function readManifest() {
-  try {
-    return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  } catch (e) {
-    // Fallback for pid-scoped manifests if symlink is missing/broken
-    return null;
-  }
+  return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 }
 
 function canonicalizeJSON(value) {
@@ -85,7 +80,8 @@ async function waitHealthy(port, timeoutMs = 12000) {
 }
 
 async function startServer(port) {
-  const proc = spawn('node', [serverPath, '--mode=dev', `--root=${ROOT}`, `--port=${port}`], {
+  const proc = spawn('node', [serverPath, '--mode=dev', `--root=${ROOT}`], {
+    env: { ...process.env, MBO_PORT: String(port) },
     stdio: ['ignore', 'ignore', 'ignore'],
   });
   const sid = await waitHealthy(port);
@@ -111,22 +107,27 @@ async function stopServer(proc) {
     await sleep(400);
     const m1 = readManifest();
 
-    if (!m1 || m1.status !== 'ready') failures.push(`status != ready (got ${m1 ? m1.status : 'null'})`);
+    if (m1.manifest_version !== 3) failures.push('manifest_version != 3');
+    if (m1.status !== 'ready') failures.push(`status != ready (got ${m1.status})`);
+    if (m1.checksum !== checksumOf(m1)) failures.push('checksum validation failed');
+    if (!m1.instance_id) failures.push('instance_id missing');
 
     await stopServer(a.proc);
 
     b = await startServer(portB);
     await sleep(400);
     const m2 = readManifest();
+    if (!(Number(m2.epoch) > Number(m1.epoch))) failures.push('epoch did not increment');
+    if (m2.instance_id === m1.instance_id) failures.push('instance_id did not change');
 
     await stopServer(b.proc);
 
-    // Test recovery from corrupt manifest
-    // Instead of clobbering, we just start on a new port and verify it writes a new one.
+    fs.writeFileSync(manifestPath, '{"manifest_version":3,"checksum":"broken"', 'utf8');
     b = await startServer(portB + 1);
     await sleep(400);
     const m3 = readManifest();
-    if (!m3 || m3.status !== 'ready') failures.push(`recovery status != ready (got ${m3 ? m3.status : 'null'})`);
+    if (m3.status !== 'ready') failures.push(`corrupt recovery status != ready (got ${m3.status})`);
+    if (m3.checksum !== checksumOf(m3)) failures.push('corrupt recovery checksum invalid');
 
     await stopServer(b.proc);
   } catch (e) {

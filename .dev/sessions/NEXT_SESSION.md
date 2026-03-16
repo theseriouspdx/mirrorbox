@@ -2,56 +2,26 @@
 ## Mirror Box Orchestrator — Session Handoff
 
 **Session ended:** 2026-03-16
-**Last task:** 1.1-ISS-05 — BUG-078 FULLY CLOSED (merged + installed)
-**Branch:** master (clean)
-**Status:** READY — BUG-080 audit pending (Gemini implementing)
+**Last task:** :  ()
+**Status:** Task Pending
 
 ---
 
 ## Section 1 — Next Action
 
-### BUG-080 — Test Suite Hardening (Tier 1) — AUDIT ROLE
-
-Gemini is implementing. Claude audits the diff when Gemini delivers.
-
-**7 known failures to be fixed:**
-1. `test-chain.js` — ordering dependency, needs seed from test-state.js first
-2. `test-mcp-contract-v3.js` — needs live MCP, no skip guard
-3. `test-mcp-server.js` — timeout, no ready signal
-4. `test-recovery.js` — passes invalid `world_id` to event-store
-5. `test-routing-matrix-live.js` — needs live MCP, `Invalid URL` on null port
-6. `test-tamper-chain.js` — BUG-076 (upstream tamper detection fix required)
-7. `test-tokenmiser-dashboard.js` — `getLifetimeSavings` missing (BUG-056 upstream)
-
-**Audit checklist (apply at review time):**
-- `npm test` passes with ≥ 97 tests passing (no regressions in unit + failure-modes suites)
-- MCP-dependent tests have explicit skip guard when daemon absent
-- Chain tests have ordering enforced in runner (`tests/run-all.js`)
-- BUG-076 and BUG-056 are NOT silently patched — only test infra fixed; root bugs remain logged
-- No stylistic changes beyond functional requirement
-- `python3 bin/validator.py --all` passes
+**Task TBD — TBD**
 
 **Graph queries to run at Gate 0:**
 ```
-graph_search("test-recovery world_id")
-graph_search("test-chain event-store seed")
-graph_search("runStage1_5")
+graph_search("TBD")
 ```
-
-### After BUG-080:
-- **1.1-H27** — Agent Output Streaming (Tier 2, DID required)
-- **1.1-H29** — Context Minimization & Tiered Routing (Tier 2, DID required)
 
 ---
 
 ## Section 2 — Session Summary
 
-- BUG-078 merged: `claude/bug-078-client-config-refresh` → master (fast-forward, 1677d16)
-- BUG-078 installed: MBO controller ✓ (port 65230, mcpClients registry populated)
-- johnseriouscom / MBO_Alpha: need interactive `mbo setup` to populate mcpClients registry
-- Stale branches deleted: `claude/bug-078-client-config-refresh`, `gemini/1.1-H26`
-- Open P1: BUG-076 (tamper detection non-functional)
-- Open P2: BUG-080 (test suite — Gemini implementing, Claude to audit)
+- Tasks completed this session: 0
+- Unresolved issues: Check BUGS.md for P0/P1 items.
 
 ---
 
@@ -59,6 +29,9 @@ graph_search("runStage1_5")
 (State snapshot captured in mirrorbox.db)
 
 ## Session End Checklist
-- Status: clean — master up to date, no open working branches
-- Previous cold storage: mirror_snapshot_20260316_014558.zip
-- PRAGMA integrity_check: ok (last verified 2026-03-16T08:46:28Z)
+- Status: closed_clean
+- Cold Storage: mirror_snapshot_20260316_030010.zip (SHA-256: 35ecf3b6ccfa685e4e837b7a08351969d7eed29f25dab4b3d3197a0ac84e27e3)
+- Backup file: mirrorbox_20260316_030010.bak
+- SHA-256: 5f540f9b269fee4493edb51e78f21cb8c38ea6b8e80d432c7cbfdaecd87b0263
+- PRAGMA integrity_check: ok
+- Timestamp: 2026-03-16T10:00:40Z

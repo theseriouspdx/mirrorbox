@@ -1,5 +1,5 @@
 {
-  "task_id": "1.1-H12",
+  "task_id": "1.1-H33",
   "steps": [
     {
       "file": "CHANGELOG.md",
@@ -59,6 +59,76 @@
     {
       "file": "src/templates/AGENTS.md",
       "ts": "2026-03-13T07:51:42Z",
+      "status": "written"
+    },
+    {
+      "file": "scripts/test-chain.js",
+      "ts": "2026-03-16T09:55:27Z",
+      "status": "written"
+    },
+    {
+      "file": "scripts/test-recovery.js",
+      "ts": "2026-03-16T09:55:37Z",
+      "status": "written"
+    },
+    {
+      "file": "scripts/test-state.js",
+      "ts": "2026-03-16T09:55:47Z",
+      "status": "written"
+    },
+    {
+      "file": "scripts/test-mcp-server.js",
+      "ts": "2026-03-16T09:55:56Z",
+      "status": "written"
+    },
+    {
+      "file": "scripts/test-mcp-contract-v3.js",
+      "ts": "2026-03-16T09:56:07Z",
+      "status": "written"
+    },
+    {
+      "file": "scripts/test-routing-matrix-live.js",
+      "ts": "2026-03-16T09:56:16Z",
+      "status": "written"
+    },
+    {
+      "file": "scripts/test-tamper-chain.js",
+      "ts": "2026-03-16T09:56:25Z",
+      "status": "written"
+    },
+    {
+      "file": "scripts/test-tokenmiser-dashboard.js",
+      "ts": "2026-03-16T09:56:37Z",
+      "status": "written"
+    },
+    {
+      "file": "tests/run-all.js",
+      "ts": "2026-03-16T09:57:53Z",
+      "status": "written"
+    },
+    {
+      "file": "scripts/test-routing-matrix-live.js",
+      "ts": "2026-03-16T10:00:55Z",
+      "status": "written"
+    },
+    {
+      "file": "scripts/test-mcp-contract-v3.js",
+      "ts": "2026-03-16T10:01:17Z",
+      "status": "written"
+    },
+    {
+      "file": "scripts/test-mcp-server.js",
+      "ts": "2026-03-16T10:06:20Z",
+      "status": "written"
+    },
+    {
+      "file": "scripts/test-routing-matrix.js",
+      "ts": "2026-03-16T10:06:33Z",
+      "status": "written"
+    },
+    {
+      "file": "scripts/test-invariants.js",
+      "ts": "2026-03-16T10:06:43Z",
       "status": "written"
     }
   ]

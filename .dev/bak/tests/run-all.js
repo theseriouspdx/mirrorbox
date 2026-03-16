@@ -17,11 +17,8 @@ function main() {
   const files = fs.readdirSync(SCRIPTS_DIR);
   // We consider "test-*.js" files to be active tests.
   // E.g., test-chain.js, test-graph-v2.js, test-mcp-server.js
-  let testFiles = files.filter(f => f.startsWith('test-') && f.endsWith('.js'));
+  const testFiles = files.filter(f => f.startsWith('test-') && f.endsWith('.js'));
   
-  // Explicit ordering: test-state must run before test-chain
-  testFiles.sort((a, b) => (a === 'test-state.js' ? -1 : b === 'test-state.js' ? 1 : 0));
-
   if (testFiles.length === 0) {
     console.error('No active test files found in scripts/ directory.');
     process.exit(1);
@@ -45,12 +42,7 @@ function main() {
     const result = spawnSync('node', [testPath], { 
       stdio: 'inherit',
       cwd: PROJECT_ROOT,
-      env: { 
-        ...process.env, 
-        MBO_PROJECT_ROOT: PROJECT_ROOT,
-        MBO_SKIP_BUG_076: '1',
-        MBO_SKIP_BUG_056: '1'
-      }
+      env: { ...process.env, MBO_PROJECT_ROOT: PROJECT_ROOT }
     });
 
     if (result.status === 0) {

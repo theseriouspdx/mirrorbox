@@ -3,15 +3,10 @@ const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-const origDbPath = path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db');
-const tamperDbPath = path.join(path.dirname(origDbPath), 'tamper.db');
+const origDbPath = path.join(__dirname, '../data/mirrorbox.db');
+const tamperDbPath = path.join(__dirname, '../data/tamper.db');
 
 console.log('--- Testing Hash Chain Tamper Proofing ---');
-
-if (process.env.MBO_SKIP_BUG_076) {
-  console.log('SKIP: BUG-076 (tamper detection non-functional) known issue.');
-  process.exit(0);
-}
 
 if (fs.existsSync(tamperDbPath)) fs.unlinkSync(tamperDbPath);
 fs.copyFileSync(origDbPath, tamperDbPath);
@@ -45,7 +40,6 @@ const envelope = JSON.stringify({
   stage: event2.stage,
   actor: event2.actor,
   timestamp: event2.timestamp,
-  world_id: event2.world_id,
   parent_event_id: event2.parent_event_id,
   prev_hash: event2.prev_hash,
   payload: event2.payload
