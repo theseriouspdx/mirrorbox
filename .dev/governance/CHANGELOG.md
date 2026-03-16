@@ -1,6 +1,16 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.23] — 2026-03-16
+#### Added
+- **Persona Store & Entropy Gate — Task 1.1-H26** (Tier 2 DID — Gemini impl, Claude review)
+  - `personalities/`: 5 builtin persona `.md` files (classifier, reviewer, planner, tiebreaker, operator). Each derived from role failure mode; reasoning constraint documented in frontmatter.
+  - `src/utils/persona-resolver.js`: New module. `resolvePersona(role, personaId)` — 3-level search (user library → project override → MBO builtin). Role alias map (`architecturePlanner`/`componentPlanner` → `planner`). YAML frontmatter stripping. `loadPersonaConfig()` reads `.mbo/persona.json`.
+  - `src/auth/call-model.js`: Persona injection prepended to `systemPrompt`. `validateOutputSchema()` demoted to `console.warn` (DDR-001).
+  - `src/auth/operator.js`: `_extractDecision(text, role)` NL fallback for all structured roles. `_safeParseJSON` auto-wire via optional `role` param. Entropy hard stop in `runStage1_5` (returns `status: 'blocked'` when score > 10). `processMessage` propagates blocked status.
+  - `src/templates/persona.json`: Default project template.
+- **BUG-080 logged**: 7 pre-existing test suite failures confirmed not H26 regressions.
+
 ### [1.1.22] — 2026-03-16
 #### Added
 - **npm test script — Task 1.1-ISS-03**

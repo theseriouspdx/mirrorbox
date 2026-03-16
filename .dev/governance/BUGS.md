@@ -375,4 +375,20 @@
 
 ---
 
-*Last updated: 2026-03-16 — BUG-072, 073, 074, 075 RESOLVED; BUG-076, 078 OPEN; BUG-077, 079 FIXED (claude/mcp-audit-fixes)*
+### BUG-080: 7 test suite failures — pre-existing, not H26 regressions | Milestone: 1.1 | OPEN
+- **Location:** `scripts/test-*.js`
+- **Severity:** P2
+- **Status:** OPEN — 2026-03-16
+- **Identified during:** H26 reviewer audit (Claude)
+- **Failures:**
+  1. `test-chain.js` — requires `test-state.js` run first to seed events; no ordering in runner
+  2. `test-mcp-contract-v3.js` — requires live MCP daemon; fails with `server_not_healthy` in isolation
+  3. `test-mcp-server.js` — test timeout; server starts on ephemeral port but test hangs waiting
+  4. `test-recovery.js` — passes invalid `world_id` to event-store; throws invariant violation
+  5. `test-routing-matrix-live.js` — requires live MCP; `TypeError: Invalid URL` on null port
+  6. `test-tamper-chain.js` — BUG-076 (tamper detection non-functional, already logged)
+  7. `test-tokenmiser-dashboard.js` — `statsManager.getLifetimeSavings is not a function` (BUG-056 family)
+- **None of these are H26 regressions.** All confirmed pre-existing against `gemini/1.1-H26` baseline.
+- **Fix required:** Test suite needs infra-dependency tagging (skip MCP tests when daemon absent), test ordering enforcement for chain tests, and BUG-076/BUG-056 fixes upstream.
+
+*Last updated: 2026-03-16 — BUG-072, 073, 074, 075 RESOLVED; BUG-076, 078, 080 OPEN; BUG-077, 079 FIXED (claude/mcp-audit-fixes)*
