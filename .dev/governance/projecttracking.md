@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Action:** Execute Task 1.1-H26 — Persona Store & Entropy Gate (Tier 2, DID required)
+**Next Action:** Execute Task 1.1-H34 — Model-Specific Token Budgeting (Tier 1)
 
 ---
 
@@ -66,10 +66,11 @@
 | 1.1-H26 | Implement Persona Store & Entropy Gate — personalities/ directory, default .md files for all 5 roles, .mbo/persona.json schema, ~/.orchestrator/personas/ user library, persona injection into callModel, Operator extraction pass replacing validateOutputSchema() JSON check, Entropy Score computation in Stage 1.5, hard stop at Entropy > 10, agent-onboarding.md Stage 1.5 update, AGENTS.md Section 13 | COMPLETED — 2026-03-16 — Gemini impl, Claude review/audit. DID reconciliation: Claude personas + persona-resolver, Gemini _safeParseJSON auto-wire. All checks APPROVED. |
 | 1.1-ISS-04 | MCP audit fixes — BUG-077 (stale symlink repair + orphaned manifest cleanup) + BUG-079 (project_id validation + dead-pid fallback in waitForHealth) | COMPLETED — 2026-03-16 — Claude |
 | 1.1-ISS-05 | Fix BUG-078: agent client configs self-heal on daemon startup — shared util, registry-driven, no-churn mbo mcp | COMPLETED — 2026-03-16 — Claude |
-| 1.1-H27 | Implement Agent Output Streaming (Section 33) — persona-consistent character output, inter-agent conversation visibility, per-agent streaming flags in operator config | OPEN |
+| 1.1-H27 | Implement Agent Output Streaming (Section 33) — persona-consistent character output, inter-agent conversation visibility, per-agent streaming flags in operator config | COMPLETED — 2026-03-16 — Claude — §33 gaps closed: chunk enrichment (sessionId/taskId/stage/human_visible_only), STREAM_COMPLETE/STREAM_ERROR events, CLI streaming path, flushMs config validation, DID→onChunk forwarding |
 | 1.1-H28 | Implement Persistent Operator Window (Section 34) — transition from process-per-task to persistent loop, mbo-start watchdog integration, session history persistence | COMPLETED — 2026-03-13 — Persistent REPL with background pipeline, abort, and status reporting implemented. |
-| 1.1-H29 | Implement Context Minimization & Tiered Routing (Section 35) — spec refinement gate, model-specific token budgeting, prompt caching for static governance docs | OPEN |
+| 1.1-H29 | Implement Context Minimization & Tiered Routing (Section 35) — spec refinement gate, model-specific token budgeting, prompt caching for static governance docs | COMPLETED — 2026-03-16 — Tiered Routing (0-3) + Prompt Caching + Refinement Gate (Blast Radius) + Tokenizer heuristic. All proofs PASS. |
 | 1.1-H33 | Fix BUG-080: 7 pre-existing test suite failures — modernize tests for world_id, HTTP transport, and path resolution | COMPLETED — 2026-03-16 — Gemini |
+| 1.1-H34 | Implement Model-Specific Token Budgeting (Section 35.5) — fine-grained per-model input/output limits, budget-exceeded early exit | OPEN |
 
 Audit addendum (2026-03-13):
 - Task `1.1-H12` is functionally complete, but its original closing commit (`becf656`) bundled unrelated fixes (`1.1-H19`/`1.1-H20`/`1.1-H21`).

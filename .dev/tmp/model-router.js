@@ -2,68 +2,18 @@ const { detectCliSessions } = require('./session-detector');
 const { detectLocalModels } = require('./local-detector');
 const { detectOpenRouter } = require('./openrouter-detector');
 const { loadOperatorConfig } = require('./config-loader');
-const fs = require('fs');
-const path = require('path');
-
-// Section 33.6: Validate streaming config at startup to catch misconfiguration early.
-function validateStreamingConfig(streaming) {
-  if (typeof streaming !== 'object' || streaming === null)
-    throw new Error('[Config] streaming must be an object');
-  if ('enabled' in streaming && typeof streaming.enabled !== 'boolean')
-    throw new Error('[Config] streaming.enabled must be a boolean');
-  if ('flushMs' in streaming && (typeof streaming.flushMs !== 'number' || streaming.flushMs <= 0))
-    throw new Error('[Config] streaming.flushMs must be a positive number');
-  if (streaming.roles) {
-    for (const [r, rc] of Object.entries(streaming.roles)) {
-      if ('enabled' in rc && typeof rc.enabled !== 'boolean')
-        throw new Error(`[Config] streaming.roles.${r}.enabled must be a boolean`);
-    }
-  }
-}
-
-/**
- * Section 35.4: Tiered Routing Policy
- * Map task complexity and blast radius to an execution tier (0-3).
- */
-function calculateTaskTier(classification, blastRadius = []) {
-  // Manual override from classification
-  if (classification.tier !== undefined) return Number(classification.tier);
-
-  const nodeCount = blastRadius.length;
-  const files = classification.files || [];
-  const isMultiFile = files.length > 1;
-  const isHighRisk = classification.risk === 'high';
-
-  // Section 8 Matrix: Tier 0 — Inline execution, no pipeline
-  // Only valid when blast radius is zero AND files are safelisted AND files exist.
-  if (nodeCount === 0 && !isMultiFile && !isHighRisk && files.length > 0) {
-    const safelist = ['SPEC.md', 'README.md', 'AGENTS.md', 'ROADMAP.md', 'CHANGELOG.md'];
-    const allSafelisted = files.every(f => safelist.includes(path.basename(f)) || f.endsWith('.css'));
-    
-    // Safety Invariant: New files never qualify for Tier 0.
-    const projectRoot = process.env.MBO_PROJECT_ROOT || process.cwd();
-    const allExist = files.every(f => fs.existsSync(path.resolve(projectRoot, f)));
-    
-    if (allSafelisted && allExist) return 0;
-  }
-
-  if (nodeCount <= 5 && !isHighRisk) return 1;                  // Tier 1: Small change
-  if (isHighRisk || nodeCount > 15) return 3;                  // Tier 3: High Risk / Architectural
-  return 2;                                                     // Tier 2: Standard DID
-}
 
 /**
  * Routes model roles to specific providers based on detection and priority.
  * Priority (Section 9): 1. Local, 2. CLI Session, 3. OpenRouter
  * Section 33: Incorporates global and per-role streaming settings from operator config.
  */
-async function routeModels(classification = {}, blastRadius = []) {
+async function routeModels() {
   const cli = detectCliSessions();
   const local = await detectLocalModels();
   const or = await detectOpenRouter();
   const opConfig = loadOperatorConfig();
 
-  const tier = calculateTaskTier(classification, blastRadius);
   const roles = [
     'classifier', 'operator', 'architecturePlanner', 'componentPlanner',
     'reviewer', 'tiebreaker', 'patchGenerator', 'onboarding'
@@ -74,9 +24,6 @@ async function routeModels(classification = {}, blastRadius = []) {
 
   // Load baseline overrides from ~/.mbo/config.json if present
   if (opConfig) {
-    if (opConfig.streaming) {
-      validateStreamingConfig(opConfig.streaming);
-    }
     roles.forEach(role => {
       if (opConfig[role]) {
         routingMap[role] = { ...opConfig[role] };
@@ -85,7 +32,6 @@ async function routeModels(classification = {}, blastRadius = []) {
           const globalStreaming = !!opConfig.streaming.enabled;
           const roleOverride = opConfig.streaming.roles?.[role]?.enabled;
           routingMap[role].streaming = (roleOverride !== undefined) ? !!roleOverride : globalStreaming;
-          if (opConfig.streaming.flushMs) routingMap[role].flushMs = opConfig.streaming.flushMs;
         }
       }
     });
@@ -169,7 +115,7 @@ async function routeModels(classification = {}, blastRadius = []) {
     }
   }
 
-  return { routingMap, tier, blastRadius, providers: { cli, local, or } };
+  return { routingMap, providers: { cli, local, or } };
 }
 
-module.exports = { routeModels, calculateTaskTier };
+module.exports = { routeModels };

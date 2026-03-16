@@ -67,17 +67,6 @@ class DIDOrchestrator {
       blastRadius: routing.blastRadius || []
     };
 
-    const wrapChunk = (role) => {
-      if (!options.onChunk) return null;
-      return (chunkObj) => options.onChunk({ ...chunkObj, role });
-    };
-
-    const callOpts = {
-      classification,
-      blastRadius: taskContext.blastRadius,
-      signal
-    };
-
     // Stage 1 — Planner
     const plannerRaw = await callModel(
       'architecturePlanner',
@@ -86,7 +75,7 @@ class DIDOrchestrator {
       hardState,
       [],
       null,
-      { ...callOpts, expectJson: false, onChunk: wrapChunk('architecturePlanner') }
+      { expectJson: false, signal }
     );
     this._persist(taskId, 'planner', plannerRaw);
     this._emitIfWired('architecturePlanner', plannerRaw);
@@ -104,7 +93,7 @@ class DIDOrchestrator {
       hardState,
       [],
       null,
-      { ...callOpts, expectJson: false, onChunk: wrapChunk('componentPlanner') }
+      { expectJson: false, signal }
     );
     this._persist(taskId, 'reviewer-r1', reviewerRaw);
     this._emitIfWired('componentPlanner', reviewerRaw);
@@ -128,7 +117,7 @@ class DIDOrchestrator {
       hardState,
       [],
       null,
-      { ...callOpts, expectJson: false, onChunk: wrapChunk('architecturePlanner') }
+      { expectJson: false, signal }
     );
     this._persist(taskId, 'planner-r2', plannerR2Raw);
     this._emitIfWired('architecturePlanner', plannerR2Raw);
@@ -145,7 +134,7 @@ class DIDOrchestrator {
       hardState,
       [],
       null,
-      { ...callOpts, expectJson: false, onChunk: wrapChunk('componentPlanner') }
+      { expectJson: false, signal }
     );
     this._persist(taskId, 'reviewer-r2', reviewerR2Raw);
     this._emitIfWired('componentPlanner', reviewerR2Raw);
@@ -171,7 +160,7 @@ class DIDOrchestrator {
       hardState,
       [],
       null,
-      { ...callOpts, expectJson: false, onChunk: wrapChunk('tiebreaker') }
+      { expectJson: false, signal }
     );
     this._persist(taskId, 'tiebreaker', tiebreakerRaw);
     this._emitIfWired('tiebreaker', tiebreakerRaw);

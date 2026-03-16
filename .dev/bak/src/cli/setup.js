@@ -88,8 +88,30 @@ function waitForHealth(projectRoot, projectId, timeoutMs = 10000) {
   const getPort = () => {
     try {
       let data = null;
-      if (fs.existsSync(devManifest)) data = JSON.parse(fs.readFileSync(devManifest, 'utf8'));
-      else if (fs.existsSync(userManifest)) data = JSON.parse(fs.readFileSync(userManifest, 'utf8'));
+      for (const mp of [devManifest, userManifest]) {
+        if (fs.existsSync(mp)) { data = JSON.parse(fs.readFileSync(mp, 'utf8')); break; }
+      }
+      // BUG-077: if symlink manifest's pid is dead, scan for a live pid-specific manifest.
+      if (data && data.pid) {
+        let pidAlive = false;
+        try { process.kill(data.pid, 0); pidAlive = true; } catch (_) {}
+        if (!pidAlive) {
+          data = null;
+          const runDir = path.dirname(devManifest);
+          if (fs.existsSync(runDir)) {
+            for (const f of fs.readdirSync(runDir)) {
+              if (!f.startsWith('mcp-') || f === 'mcp.json' || !f.endsWith('.json')) continue;
+              try {
+                const c = JSON.parse(fs.readFileSync(path.join(runDir, f), 'utf8'));
+                if (c.project_id !== projectId) continue;
+                try { process.kill(c.pid, 0); } catch (_) { continue; }
+                data = c;
+                break;
+              } catch (_) {}
+            }
+          }
+        }
+      }
       if (data && data.project_id === projectId) return data.port;
     } catch (_) {}
     return null;
@@ -159,20 +181,52 @@ async function installMCPDaemon(projectRoot = process.env.MBO_PROJECT_ROOT || pr
   const plist = buildPlist({ projectRoot: resolvedRoot, controllerRoot, nodePath, projectId });
   fs.writeFileSync(plistPath, plist, 'utf8');
 
-  const unload = spawnSync('launchctl', ['unload', '-w', plistPath], { encoding: 'utf8' });
-  if ((unload.status || 0) !== 0 && !(unload.stderr || '').includes('No such process')) {
-    // best-effort unload; non-fatal here
+  // BUG-077: clean up orphaned pid-specific manifests before launching a new daemon.
+  // These accumulate when the daemon is killed (SIGKILL/crash) without graceful shutdown.
+  const devRunDir = path.join(resolvedRoot, '.dev/run');
+  if (fs.existsSync(devRunDir)) {
+    for (const f of fs.readdirSync(devRunDir)) {
+      if (!f.startsWith(`mcp-${projectId}-`) || !f.endsWith('.json')) continue;
+      const mf = path.join(devRunDir, f);
+      try {
+        const m = JSON.parse(fs.readFileSync(mf, 'utf8'));
+        let pidAlive = false;
+        try { process.kill(m.pid, 0); pidAlive = true; } catch (_) {}
+        if (!pidAlive) fs.unlinkSync(mf);
+      } catch (_) {}
+    }
   }
 
-  const load = spawnSync('launchctl', ['load', '-w', plistPath], { encoding: 'utf8' });
-  if ((load.status || 0) !== 0) {
-    throw new Error(`launchctl load failed: ${(load.stderr || load.stdout || '').trim()}`);
+  // Check if a healthy daemon is already running for this project — skip restart if so.
+  // This preserves the existing ephemeral port across sessions (no unnecessary port churn).
+  const alreadyHealthy = await waitForHealth(resolvedRoot, projectId, 2000);
+  if (!alreadyHealthy) {
+    const unload = spawnSync('launchctl', ['unload', '-w', plistPath], { encoding: 'utf8' });
+    if ((unload.status || 0) !== 0 && !(unload.stderr || '').includes('No such process')) {
+      // best-effort unload; non-fatal here
+    }
+
+    const load = spawnSync('launchctl', ['load', '-w', plistPath], { encoding: 'utf8' });
+    if ((load.status || 0) !== 0) {
+      throw new Error(`launchctl load failed: ${(load.stderr || load.stdout || '').trim()}`);
+    }
+
+    const healthy = await waitForHealth(resolvedRoot, projectId, 10000);
+    if (!healthy) {
+      throw new Error('Graph server did not become healthy within 10s. Check logs in .dev/logs/');
+    }
   }
 
-  const healthy = await waitForHealth(resolvedRoot, projectId, 10000);
-  if (!healthy) {
-    throw new Error('Graph server did not become healthy within 10s. Check logs in .dev/logs/');
-  }
+  // Read live port from manifest and update all registered agent client configs.
+  const { updateClientConfigs } = require('../utils/update-client-configs');
+  const devManifest  = path.join(resolvedRoot, '.dev/run/mcp.json');
+  const userManifest = path.join(resolvedRoot, '.mbo/run/mcp.json');
+  let port = null;
+  try {
+    if (fs.existsSync(devManifest))       port = JSON.parse(fs.readFileSync(devManifest,  'utf8')).port;
+    else if (fs.existsSync(userManifest)) port = JSON.parse(fs.readFileSync(userManifest, 'utf8')).port;
+  } catch (_) {}
+  if (port) updateClientConfigs(resolvedRoot, port);
 }
 
 function persistInstallMetadata(configPath = CONFIG_PATH, installRoot = process.cwd(), options = {}) {
@@ -430,6 +484,37 @@ async function runSetup() {
 
     const devCmd = await ask(rl, `${m('Dev server command')} ${dim('(e.g. "npm run dev", Enter to skip): ')}`);
     if (devCmd) cfg.devServer = devCmd;
+
+    console.log(cy('\n── Project Configuration ──────────────────────────────────'));
+    const projectRoot = process.env.MBO_PROJECT_ROOT || process.cwd();
+    let defaultRoots = ['src'];
+    try {
+      if (!fs.existsSync(path.join(projectRoot, 'src'))) {
+        const entries = fs.readdirSync(projectRoot);
+        if (entries.includes('lib') && fs.statSync(path.join(projectRoot, 'lib')).isDirectory()) {
+          defaultRoots = ['lib'];
+        } else {
+          const hasSrcFiles = entries.some(e => e.endsWith('.js') || e.endsWith('.py') || e.endsWith('.ts'));
+          if (hasSrcFiles) defaultRoots = ['.'];
+        }
+      }
+    } catch (_) {}
+
+    const rootInput = await ask(rl, `  Scan roots (comma separated) [${defaultRoots.join(',')}]: `);
+    const scanRoots = rootInput ? rootInput.split(',').map(s => s.trim()).filter(Boolean) : defaultRoots;
+
+    const localConfigDir = path.join(projectRoot, '.mbo');
+    const localConfigPath = path.join(localConfigDir, 'config.json');
+    let localCfg = {};
+    try {
+      if (fs.existsSync(localConfigPath)) {
+        localCfg = JSON.parse(fs.readFileSync(localConfigPath, 'utf8'));
+      }
+    } catch (_) {}
+    localCfg.scanRoots = scanRoots;
+    localCfg.mcpClients = require('../utils/update-client-configs').buildClientRegistry(d);
+    if (!fs.existsSync(localConfigDir)) fs.mkdirSync(localConfigDir, { recursive: true });
+    fs.writeFileSync(localConfigPath, JSON.stringify(localCfg, null, 2), 'utf8');
 
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');

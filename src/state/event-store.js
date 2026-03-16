@@ -76,4 +76,6 @@ class EventStore extends EventEmitter {
   }
 }
 
-module.exports = new EventStore();
+const instance = new EventStore();
+instance.RUN_ID = RUN_ID;
+module.exports = instance;

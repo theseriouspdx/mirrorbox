@@ -1,5 +1,5 @@
 {
-  "task_id": "1.1-H33",
+  "task_id": "1.1-H27",
   "steps": [
     {
       "file": "CHANGELOG.md",
@@ -129,6 +129,41 @@
     {
       "file": "scripts/test-invariants.js",
       "ts": "2026-03-16T10:06:43Z",
+      "status": "written"
+    },
+    {
+      "file": "src/auth/call-model.js",
+      "ts": "2026-03-16T10:15:45Z",
+      "status": "written"
+    },
+    {
+      "file": "src/auth/config-loader.js",
+      "ts": "2026-03-16T10:17:34Z",
+      "status": "written"
+    },
+    {
+      "file": "src/auth/model-router.js",
+      "ts": "2026-03-16T10:17:47Z",
+      "status": "written"
+    },
+    {
+      "file": "src/cli/setup.js",
+      "ts": "2026-03-16T10:18:24Z",
+      "status": "written"
+    },
+    {
+      "file": "src/auth/did-orchestrator.js",
+      "ts": "2026-03-16T10:18:44Z",
+      "status": "written"
+    },
+    {
+      "file": "src/auth/operator.js",
+      "ts": "2026-03-16T10:23:58Z",
+      "status": "written"
+    },
+    {
+      "file": "src/index.js",
+      "ts": "2026-03-16T10:24:20Z",
       "status": "written"
     }
   ]

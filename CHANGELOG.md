@@ -1,6 +1,16 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.21] — 2026-03-16
+#### Added
+- **Context Minimization & Tiered Routing — Task 1.1-H29** (Tier 2 DID — Gemini impl, Claude audit)
+  - `src/auth/model-router.js`: Implemented `calculateTaskTier` (0-3) based on file safelists, blast radius, and risk.
+  - `src/auth/call-model.js`: Integrated `wrapContext` Refinement Gate (Section 35.3) using blast radius filtering and adaptive context budgets. Added `verifyContextIntegrity` quality guardrail.
+  - `src/utils/prompt-cache.js`: New MD5-digest based prompt caching for static governance and persona blocks.
+  - `src/utils/tokenizer.js`: New lightweight tokenizer using $chars/4 heuristic with signature-preserving truncation.
+  - `src/state/stats-manager.js`: Updated to track prompt cache hits/misses and raw vs. optimized token cost estimates. Fixed missing cache object initialization in `load()`.
+  - `scripts/verify-h29.js`: Empirical proof script for Section 35 implementation.
+
 ### [1.1.20] — 2026-03-16
 #### Fixed
 - **BUG-080 — 16/16 Test Suite Modernization (P1):** Entire test suite (scripts/test-*.js) rewritten for Milestone 1.1 architecture. Corrected DB path resolution (BUG-051 alignment), added mandatory `world_id` to event store appends, and migrated MCP tests to HTTP/SSE transport. (Gemini)

@@ -20,17 +20,21 @@ class StatsManager {
       if (fs.existsSync(STATS_FILE)) {
         const loaded = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'));
         if (!loaded.session) loaded.session = { models: {} };
+        if (!loaded.session.cache) loaded.session.cache = { hits: 0, misses: 0 };
         if (!loaded.lifetime) loaded.lifetime = { models: {} };
+        if (!loaded.lifetime.cache) loaded.lifetime.cache = { hits: 0, misses: 0 };
         return loaded;
       }
     } catch (_) {}
 
     return {
       session: {
-        models: {}
+        models: {},
+        cache: { hits: 0, misses: 0 }
       },
       lifetime: {
-        models: {}
+        models: {},
+        cache: { hits: 0, misses: 0 }
       },
       largestSessionDelta: 0,
       lastUpdate: new Date().toISOString()
@@ -38,7 +42,7 @@ class StatsManager {
   }
 
   resetSession() {
-    this.stats.session = { models: {} };
+    this.stats.session = { models: {}, cache: { hits: 0, misses: 0 } };
     this.save();
   }
 
@@ -52,7 +56,7 @@ class StatsManager {
     }
   }
 
-  recordCall({ model, actualTokens, actualCost, rawTokens, rawCost }) {
+  recordCall({ model, actualTokens, actualCost, rawTokens, rawCost, cacheMetrics }) {
     const m = model || 'unknown';
     
     // Update Session
@@ -63,6 +67,16 @@ class StatsManager {
     s.optimized += (actualTokens || 0);
     s.notOptimized = NaN; // Per user instruction: NaN for now
     s.costEst += (actualCost || 0);
+
+    if (cacheMetrics) {
+      if (!this.stats.session.cache) this.stats.session.cache = { hits: 0, misses: 0 };
+      if (!this.stats.lifetime.cache) this.stats.lifetime.cache = { hits: 0, misses: 0 };
+      
+      this.stats.session.cache.hits += (cacheMetrics.hits || 0);
+      this.stats.session.cache.misses += (cacheMetrics.misses || 0);
+      this.stats.lifetime.cache.hits += (cacheMetrics.hits || 0);
+      this.stats.lifetime.cache.misses += (cacheMetrics.misses || 0);
+    }
 
     // Update Lifetime
     if (!this.stats.lifetime.models[m]) {

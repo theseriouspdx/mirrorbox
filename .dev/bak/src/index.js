@@ -80,16 +80,6 @@ async function main() {
 
   rl.prompt();
 
-  // Section 33: Agent Output Streaming
-  let lastStreamingRole = null;
-  operator.onChunk = ({ role, chunk, sequence }) => {
-    if (role !== lastStreamingRole) {
-      process.stdout.write(`\n\x1b[1m\x1b[35m[${role}]\x1b[0m `);
-      lastStreamingRole = role;
-    }
-    process.stdout.write(chunk);
-  };
-
   process.stdin.on('keypress', (str, key) => {
     // SHIFT+T (toggle stats overlay)
     if (key.shift && key.name === 't') {
@@ -122,9 +112,6 @@ async function main() {
       rl.prompt();
       return;
     }
-
-    // Reset streaming state for new task
-    lastStreamingRole = null;
 
     // §34.2: Status, stop, and session continuity — bypass pipeline guard.
     const lower = trimmed.toLowerCase();
@@ -193,8 +180,6 @@ async function main() {
       .then(result => {
         operator._pipelineRunning = false;
         if (result && result.status !== 'started') {
-          // If we were streaming, make sure we newline before the final JSON/Header
-          if (lastStreamingRole) process.stdout.write('\n');
           write(dashboard.renderHeader() + '\n' + JSON.stringify(result, null, 2));
         }
       })

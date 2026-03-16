@@ -58,12 +58,20 @@ class Operator {
     this.didOrchestrator = new DIDOrchestrator({
       eventStore,
       // DDR-005: Stream agent messages to operator window as produced.
-      emit: (role, text) => process.stdout.write(`\n[${role}] ${text}\n`)
+      emit: (role, text) => {
+        // Fallback for non-streaming output or legacy code
+        if (this.onChunk) {
+          this.onChunk({ role, chunk: text, sequence: 0 });
+        } else {
+          process.stdout.write(`\n[${role}] ${text}\n`);
+        }
+      }
     });
     this.didStreamBuffer = [];
     this.userHintBuffer = [];
     this.abortController = null;
     this._pipelineRunning = false;
+    this.onChunk = null; // Section 33: Streaming callback
     this.loadHistory();
   }
 
@@ -393,8 +401,10 @@ User request: "${userMessage}"
 Return ONLY the JSON object. Do not provide conversational filler.`;
 
     try {
-      const response = await callModel('classifier', prompt, input, hardState);
-      if (process.env.MBO_DEBUG) console.error(`[DEBUG] Classifier response: ${response}`);
+      const { routingMap } = await (require('./model-router').routeModels());
+      const onChunk = routingMap.classifier?.streaming ? this.onChunk : null;
+      const response = await callModel('classifier', prompt, input, hardState, [], null, { onChunk });
+      if (process.env.MBO_DEBUG) console.error(`\n[DEBUG] Classifier response: ${response}`);
       const classification = this._safeParseJSON(response, null, 'classifier');
       
       if (!classification || classification.confidence < 0.6) {
@@ -910,7 +920,9 @@ The output will be used as the new system context.`;
    * Section 15: Stage 3D — Tiebreaker (Plan)
    */
   async runStage3D(conflict, classification, routing) {
-    const options = { signal: this.abortController?.signal };
+    const { routingMap } = await (require('./model-router').routeModels());
+    const onChunk = routingMap.tiebreaker?.streaming ? this.onChunk : null;
+    const options = { signal: this.abortController?.signal, onChunk };
     this.stateSummary.currentStage = 'tiebreaker_plan';
     const hardState = this.getHardState();
     const prompt = `Arbitrate the following plan conflict and produce a single convergent ExecutionPlan.\nConflict: ${conflict}\nTask: ${classification.rationale}\n\nReturn ONLY JSON per SPEC Section 13 (ExecutionPlan).`;
@@ -927,7 +939,9 @@ The output will be used as the new system context.`;
    * Audit every assumption before planning begins.
    */
   async generateAssumptionLedger(classification, routing, context) {
-    const options = { signal: this.abortController?.signal };
+    const { routingMap } = await (require('./model-router').routeModels());
+    const onChunk = routingMap.classifier?.streaming ? this.onChunk : null;
+    const options = { signal: this.abortController?.signal, onChunk };
     const hardState = this.getHardState();
     const prompt = `Audit every assumption for the following task. 
   Task: ${classification.rationale}
@@ -1033,7 +1047,8 @@ The output will be used as the new system context.`;
    * Qualitative consensus based on Spec Adherence.
    */
   async runStage3(classification, routing, pinnedContext = [], executorLogs = null) {
-    const options = { signal: this.abortController?.signal };
+    const { routingMap } = await (require('./model-router').routeModels());
+    const options = { signal: this.abortController?.signal, onChunk: this.onChunk };
     this.stateSummary.currentStage = 'planning';
     const hardState = this.getHardState();
 
@@ -1090,8 +1105,10 @@ Return ONLY JSON per SPEC Section 13:
 
     // Stage 3A & 3B: Independent derivation (Blind Isolation)
     const [planARaw, planBRaw] = await Promise.all([
-      callModel('architecturePlanner', planPrompt, { classification, routing }, hardState, [], null, options),
-      callModel('componentPlanner', planPrompt, { classification, routing }, hardState, [], null, options)
+      callModel('architecturePlanner', planPrompt, { classification, routing }, hardState, [], null, 
+        { ...options, onChunk: routingMap.architecturePlanner?.streaming ? this.onChunk : null }),
+      callModel('componentPlanner', planPrompt, { classification, routing }, hardState, [], null, 
+        { ...options, onChunk: routingMap.componentPlanner?.streaming ? this.onChunk : null })
     ]);
 
     const planA = this._safeParseJSON(planARaw, null, 'architecturePlanner');
@@ -1126,7 +1143,8 @@ Return ONLY JSON per SPEC Section 13:
    * Milestone 0.7-03 & 0.7-04.
    */
   async runStage4(plan, classification, routing) {
-    const options = { signal: this.abortController?.signal };
+    const { routingMap } = await (require('./model-router').routeModels());
+    const options = { signal: this.abortController?.signal, onChunk: this.onChunk };
     this.stateSummary.currentStage = 'code_derivation';
     const hardState = this.getHardState();
     this.stateSummary.blockCounter = 0;
@@ -1134,7 +1152,8 @@ Return ONLY JSON per SPEC Section 13:
     while (this.stateSummary.blockCounter < 3) {
       // Stage 4A: Architecture Planner
       const plannerPrompt = `Write the implementation code for the agreed plan.\nPlan: ${JSON.stringify(plan)}\nTask: ${classification.rationale}\nFiles: ${classification.files.join(', ')}`;
-      const codeA = await callModel('architecturePlanner', plannerPrompt, { plan, classification }, hardState, [], null, options);
+      const codeA = await callModel('architecturePlanner', plannerPrompt, { plan, classification }, hardState, [], null, 
+        { ...options, onChunk: routingMap.architecturePlanner?.streaming ? this.onChunk : null });
 
       // Invariant 7: Compute Planner hashes for blindness enforcement
       const plannerHashes = computeContentHashes(codeA);
@@ -1143,7 +1162,8 @@ Return ONLY JSON per SPEC Section 13:
 
       // Stage 4B: Adversarial Reviewer (blind)
       const reviewerPrompt = `Independent Code Derivation (Blind). Derive your own ExecutionPlan and write the code independently.\nTask: ${classification.rationale}\nReturn ReviewerOutput JSON.`;
-      const reviewerOutputRaw = await callModel('reviewer', reviewerPrompt, { classification }, hardState, allProtectedHashes, null, options);
+      const reviewerOutputRaw = await callModel('reviewer', reviewerPrompt, { classification }, hardState, allProtectedHashes, null, 
+        { ...options, onChunk: routingMap.reviewer?.streaming ? this.onChunk : null });
       const reviewerOutput = this._safeParseJSON(reviewerOutputRaw);
 
       if (!reviewerOutput || !reviewerOutput.independentCode) {
@@ -1230,8 +1250,10 @@ Return ONLY JSON per SPEC Section 13:
   }
 
   async evaluateCodeConsensus(codeA, plan, reviewerOutput, hardState, options = {}) {
+    const { routingMap } = await (require('./model-router').routeModels());
+    const onChunk = routingMap.reviewer?.streaming ? this.onChunk : null;
     const auditPrompt = `Audit the Planner's code against the agreed plan and Reviewer's independent derivation.\nPlan: ${JSON.stringify(plan)}\nPlanner Code: ${codeA}\nReviewer Code: ${reviewerOutput.independentCode}\nReviewer Concerns: ${JSON.stringify(reviewerOutput.concerns)}\n\nDoes the code correctly implement state transitions? Return JSON with verdict, reason, citation, and consensusIntent.`;
-    const result = await callModel('reviewer', auditPrompt, {}, hardState, [], null, options);
+    const result = await callModel('reviewer', auditPrompt, {}, hardState, [], null, { ...options, onChunk });
     if (process.env.MBO_DEBUG) console.error(`[DEBUG] evaluateCodeConsensus response: ${result}`);
     return this._safeParseJSON(result, { verdict: 'block', reason: 'JSON Parse Failure' }, 'reviewer');
   }
@@ -1241,18 +1263,21 @@ Return ONLY JSON per SPEC Section 13:
    * Milestone 0.7-05.
    */
   async runStage4D(plan, classification, routing) {
-    const options = { signal: this.abortController?.signal };
+    const { routingMap } = await (require('./model-router').routeModels());
+    const options = { signal: this.abortController?.signal, onChunk: this.onChunk };
     this.stateSummary.currentStage = 'tiebreaker_code';
     const hardState = this.getHardState();
     let retries = 0;
 
     while (retries < 3) {
       const prompt = `Tiebreaker: Produce the final arbitrated code draft based on competing derivations.\nPlan: ${JSON.stringify(plan)}\nTask: ${classification.rationale}\n\nReturn the final code/diff only.`;
-      const codeTied = await callModel('tiebreaker', prompt, { classification, routing }, hardState, [], null, options);
+      const codeTied = await callModel('tiebreaker', prompt, { classification, routing }, hardState, [], null, 
+        { ...options, onChunk: routingMap.tiebreaker?.streaming ? this.onChunk : null });
 
       // Spec Note (BUG-010): One final audit for Tiebreaker code.
       const reviewerPrompt = `Final Audit of Tiebreaker Code.\nTask: ${classification.rationale}\nCode: ${codeTied}\n\nReturn ONLY JSON verdict per SPEC Section 11.`;
-      const finalAuditRaw = await callModel('reviewer', reviewerPrompt, { classification }, hardState, [], null, options);
+      const finalAuditRaw = await callModel('reviewer', reviewerPrompt, { classification }, hardState, [], null, 
+        { ...options, onChunk: routingMap.reviewer?.streaming ? this.onChunk : null });
       const finalAudit = this._safeParseJSON(finalAuditRaw, null, 'reviewer');
 
       if (finalAudit && finalAudit.verdict === 'pass') {
@@ -1291,6 +1316,8 @@ Return ONLY JSON per SPEC Section 13:
    * Section 15.3C: Qualitative Convergence Audit.
    */
   async evaluateSpecAdherence(planA, planB, hardState) {
+    const { routingMap } = await (require('./model-router').routeModels());
+    const onChunk = routingMap.classifier?.streaming ? this.onChunk : null;
     const auditPrompt = `Audit these independent plans against the Prime Directive.
 Prime Directive: ${hardState.primeDirective}
 Plan A: ${JSON.stringify(planA)}
@@ -1303,7 +1330,7 @@ Return JSON:
   "conflict": "Describe any contradiction in state transitions or safety logic",
   "consensusIntent": "The shared goal both plans achieve"
 }`;
-    const result = await callModel('classifier', auditPrompt, {}, hardState);
+    const result = await callModel('classifier', auditPrompt, {}, hardState, [], null, { onChunk });
     if (process.env.MBO_DEBUG) console.error(`[DEBUG] evaluateSpecAdherence response: ${result}`);
     return this._safeParseJSON(result, { verdict: 'divergent', conflict: 'JSON Parse Failure' }, 'classifier');
   }

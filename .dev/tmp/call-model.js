@@ -202,20 +202,22 @@ function dispatchCLI(config, systemPrompt, userPrompt, signal = null) {
   });
 }
 
-function dispatchOpenRouter(model, systemPrompt, userPrompt, signal = null) {
+function dispatchOpenRouter(model, systemPrompt, userPrompt, signal = null, options = {}) {
   return new Promise((resolve, reject) => {
     const key = getOpenRouterKey();
     if (!key) return reject(new Error('OpenRouter key not configured'));
 
+    const isStreaming = !!options.onChunk;
     const body = JSON.stringify({
       model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
-      ]
+      ],
+      stream: isStreaming
     });
 
-    const options = {
+    const reqOptions = {
       hostname: 'openrouter.ai',
       port: 443,
       path: '/api/v1/chat/completions',
@@ -230,21 +232,50 @@ function dispatchOpenRouter(model, systemPrompt, userPrompt, signal = null) {
       signal
     };
 
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', d => data += d);
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          if (json.error) return reject(new Error(`OpenRouter error: ${json.error.message}`));
-          resolve({
-            text: json.choices?.[0]?.message?.content || '',
-            usage: json.usage || null
-          });
-        } catch (e) {
-          reject(new Error(`OpenRouter parse error: ${e.message}`));
-        }
-      });
+    const req = https.request(reqOptions, (res) => {
+      let fullText = '';
+      let usage = null;
+      let sequence = 0;
+
+      if (isStreaming) {
+        res.on('data', d => {
+          const lines = d.toString().split('\n');
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') continue;
+            try {
+              const json = JSON.parse(data);
+              const chunk = json.choices?.[0]?.delta?.content || '';
+              if (chunk) {
+                fullText += chunk;
+                options.onChunk({
+                  chunk,
+                  role: options.role,
+                  sequence: sequence++
+                });
+              }
+              if (json.usage) usage = json.usage;
+            } catch (e) { /* ignore partial/malformed frames */ }
+          }
+        });
+        res.on('end', () => resolve({ text: fullText, usage }));
+      } else {
+        let data = '';
+        res.on('data', d => data += d);
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            if (json.error) return reject(new Error(`OpenRouter error: ${json.error.message}`));
+            resolve({
+              text: json.choices?.[0]?.message?.content || '',
+              usage: json.usage || null
+            });
+          } catch (e) {
+            reject(new Error(`OpenRouter parse error: ${e.message}`));
+          }
+        });
+      }
     });
     req.on('error', (err) => {
       if (err.name === 'AbortError') return reject(new Error('OpenRouter request aborted'));
@@ -256,19 +287,20 @@ function dispatchOpenRouter(model, systemPrompt, userPrompt, signal = null) {
   });
 }
 
-function dispatchLocal(url, systemPrompt, userPrompt, signal = null) {
+function dispatchLocal(url, systemPrompt, userPrompt, signal = null, options = {}) {
   return new Promise((resolve, reject) => {
+    const isStreaming = !!options.onChunk;
     const body = JSON.stringify({
       model: 'default',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ],
-      stream: false
+      stream: isStreaming
     });
 
     const parsedUrl = new URL(`${url}/api/chat`);
-    const options = {
+    const reqOptions = {
       hostname: parsedUrl.hostname,
       port: parsedUrl.port || 11434,
       path: parsedUrl.pathname,
@@ -278,20 +310,47 @@ function dispatchLocal(url, systemPrompt, userPrompt, signal = null) {
       signal
     };
 
-    const req = http.request(options, (res) => {
-      let data = '';
-      res.on('data', d => data += d);
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          resolve({
-            text: json.message?.content || json.response || '',
-            usage: json.usage || null
-          });
-        } catch (e) {
-          reject(new Error(`Local model parse error: ${e.message}`));
-        }
-      });
+    const req = http.request(reqOptions, (res) => {
+      let fullText = '';
+      let usage = null;
+      let sequence = 0;
+
+      if (isStreaming) {
+        res.on('data', d => {
+          const lines = d.toString().split('\n');
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const json = JSON.parse(line);
+              const chunk = json.message?.content || json.response || '';
+              if (chunk) {
+                fullText += chunk;
+                options.onChunk({
+                  chunk,
+                  role: options.role,
+                  sequence: sequence++
+                });
+              }
+              if (json.done) usage = json.usage || null;
+            } catch (e) { /* ignore partial frames */ }
+          }
+        });
+        res.on('end', () => resolve({ text: fullText, usage }));
+      } else {
+        let data = '';
+        res.on('data', d => data += d);
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            resolve({
+              text: json.message?.content || json.response || '',
+              usage: json.usage || null
+            });
+          } catch (e) {
+            reject(new Error(`Local model parse error: ${e.message}`));
+          }
+        });
+      }
     });
     req.on('error', (err) => {
       if (err.name === 'AbortError') return reject(new Error('Local model request aborted'));
@@ -351,16 +410,18 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
 
   let response;
   let usageData = null;
+  const dispatchOptions = { onChunk: options.onChunk, role };
+
   try {
     if (config.provider === 'cli') {
       const result = await dispatchCLI(config, systemPrompt, userPrompt, signal);
       response = typeof result === 'string' ? result : result.text;
       usageData = result.usage || null;
     } else if (config.provider === 'openrouter') {
-      const result = await dispatchOpenRouter(config.model, systemPrompt, userPrompt, signal);
+      const result = await dispatchOpenRouter(config.model, systemPrompt, userPrompt, signal, dispatchOptions);
       response = result.text; usageData = result.usage;
     } else if (config.provider === 'local') {
-      const result = await dispatchLocal(config.url, systemPrompt, userPrompt, signal);
+      const result = await dispatchLocal(config.url, systemPrompt, userPrompt, signal, dispatchOptions);
       response = result.text; usageData = result.usage;
     } else {
       throw new Error(`[callModel] Unknown provider type: ${config.provider}`);
