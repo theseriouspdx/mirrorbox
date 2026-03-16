@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Action:** Execute Task 1.1-H35 — Operator Human-Readable Output Enforcement (Tier 1)
+**Next Action:** Select next queued 1.1 hardening task after H35 completion
 
 ---
 
@@ -71,7 +71,7 @@
 | 1.1-H29 | Implement Context Minimization & Tiered Routing (Section 35) — spec refinement gate, model-specific token budgeting, prompt caching for static governance docs | COMPLETED — 2026-03-16 — Tiered Routing (0-3) + Prompt Caching + Refinement Gate (Blast Radius) + Tokenizer heuristic. All proofs PASS. |
 | 1.1-H33 | Fix BUG-080: 7 pre-existing test suite failures — modernize tests for world_id, HTTP transport, and path resolution | COMPLETED — 2026-03-16 — Gemini |
 | 1.1-H34 | Implement Model-Specific Token Budgeting (Section 35.5) — fine-grained per-model input/output limits, budget-exceeded early exit | COMPLETED — 2026-03-16 |
-| 1.1-H35 | Enforce English, human-readable operator responses across all stages — no raw JSON dumps to human; keep structured data internal | OPEN |
+| 1.1-H35 | Enforce English, human-readable operator responses across all stages — no raw JSON dumps to human; keep structured data internal | COMPLETED — 2026-03-16 |
 
 Audit addendum (2026-03-13):
 - Task `1.1-H12` is functionally complete, but its original closing commit (`becf656`) bundled unrelated fixes (`1.1-H19`/`1.1-H20`/`1.1-H21`).
