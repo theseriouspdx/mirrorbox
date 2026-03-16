@@ -31,6 +31,14 @@
   1. MBO project: `FOREIGN KEY constraint failed` when scanner deleted stale nodes still referenced by `edges` table. Fixed by adding `ON DELETE CASCADE` to both FK definitions in `edges` table + idempotent startup migration. (commit 2e83368 — Gemini, verified by Claude)
   2. johnseriouscom/MBO_Alpha: scanner hard-codes `<root>/src` as scan root; these projects have no `src/` directory. Deferred to Task 1.1-H32 (configurable scan roots via `.mbo/config.json` + `mbo setup` source detection).
 
+### BUG-074: mbo setup does not write MCP client configs or detect scan roots | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/setup.js`, `src/graph/mcp-server.js`
+- **Severity:** P0
+- **Status:** OPEN — 2026-03-16
+- **Description:** After `mbo setup`, no MCP client config (.mcp.json, .gemini/settings.json, etc.) is written with the live daemon port. Any agent (Claude, Gemini, Codex, local) must manually configure its MCP URL. Additionally, scanner hard-codes `src/` as scan root — projects without a `src/` directory (e.g. johnseriouscom) always fail with `failed_critical`. Setup has no scan root detection step.
+- **Impact:** MCP tools non-functional for all clients after fresh install. johnseriouscom and MBO_Alpha daemons return 0 nodes.
+- **Fix:** Task 1.1-H32 — client config registry (write URL to all detected clients after daemon starts; refresh on `mbo mcp`) + scan root detection (walk project, detect source dirs, prompt, write to `<project>/.mbo/config.json`; mcp-server reads with `['src']` fallback).
+
 ### BUG-068: Temporary MCP suspension to prevent non-productive troubleshooting loops | Milestone: 1.1 | RESOLVED
 - **Location:** `AGENTS.md`, runtime operational policy
 - **Severity:** P0 (operational blocker)
