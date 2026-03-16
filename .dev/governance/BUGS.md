@@ -389,10 +389,10 @@
 
 ---
 
-### BUG-080: 7 test suite failures — pre-existing, not H26 regressions | Milestone: 1.1 | OPEN
+### BUG-080: 7 test suite failures — pre-existing, not H26 regressions | Milestone: 1.1 | RESOLVED
 - **Location:** `scripts/test-*.js`
 - **Severity:** P2
-- **Status:** OPEN — 2026-03-16
+- **Status:** RESOLVED — 2026-03-16
 - **Identified during:** H26 reviewer audit (Claude)
 - **Failures:**
   1. `test-chain.js` — requires `test-state.js` run first to seed events; no ordering in runner
@@ -422,4 +422,4 @@
   4. Updated Stage 6 file scope to prefer reconciled plan scope (`filesToChange` / plan diff paths) via `_resolvePlanFiles` and only fall back to classification files when plan scope is unavailable.
   5. Preserved Section 33 streaming and Section 35 context/budget behavior (no regressions introduced in call-model streaming/minimization paths).
 
-*Last updated: 2026-03-16 — BUG-082 RESOLVED (operator pipeline spec drift); BUG-076 RESOLVED (tamper detection, audit-approved); BUG-056 and BUG-081 RESOLVED via 8640211; BUG-072, 073, 074, 075 RESOLVED; BUG-078, 080 OPEN; BUG-077, 079 FIXED (claude/mcp-audit-fixes)*
+*Last updated: 2026-03-16 — BUG-082 RESOLVED; BUG-080 RESOLVED; BUG-078 FIXED; BUG-076 RESOLVED (audit-approved); BUG-056, 081 RESOLVED; BUG-072, 073, 074, 075 RESOLVED; BUG-077, 079 FIXED. No open bugs.*
