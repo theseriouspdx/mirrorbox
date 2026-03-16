@@ -1,7 +1,16 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
-### [1.1.18] — 2026-03-15
+### [1.1.19] — 2026-03-16
+#### Added
+- **npm test script (Task 1.1-ISS-03):** 
+  - Created `tests/run-all.js` as the central test runner for all active project tests.
+  - Added `"test"` and `"start"` scripts to `package.json`.
+
+#### Fixed
+- **BUG-076 logged:** Identified and logged tamper detection regression in `scripts/test-tamper-chain.js` where database mutations were not being correctly flagged.
+
+### [1.1.18] — 2026-03-16
 #### Added
 - **`mbo mcp` recovery shortcut (`bin/mbo.js`):** one-command MCP recovery and verification flow (`teardown`, `setup`, `/health`, `graph_rescan`, `graph_server_info`, `init_state`, `handshake --status`, sqlite integrity check).
 
