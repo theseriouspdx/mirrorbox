@@ -405,21 +405,4 @@
 - **None of these are H26 regressions.** All confirmed pre-existing against `gemini/1.1-H26` baseline.
 - **Fix required:** Test suite needs infra-dependency tagging (skip MCP tests when daemon absent), test ordering enforcement for chain tests, and BUG-076/BUG-056 fixes upstream.
 
-### BUG-082: Operator pipeline spec drift / stubbed stages | Milestone: 1.1 | RESOLVED
-- **Location:** `src/auth/operator.js`, `src/auth/did-orchestrator.js`, `src/index.js`
-- **Severity:** P1
-- **Status:** RESOLVED — 2026-03-16 (codex/1.1-H36-spec-parity-pipeline)
-- **Description:** Runtime pipeline diverged from SPEC Sections 15/27/33/35 and currently runs with stubbed/non-spec behavior in core stages.
-- **Required fixes:**
-  1. Stage flow mismatch: explicit `go` approval appears before the full Stage 1.5 → 3/4/4.5 chain has completed.
-  2. Stage 11 not chained after approval/audit success path.
-  3. DID blind violation: reviewer derivation can see planner output before allowed stage.
-  4. Stage implementations are stubbed or bypassed in Stage 3/4/4.5/6/7/1.5/hard-state paths and must be restored to real implementations.
-- **Fix implemented:**
-  1. Restored non-stubbed Stage 1.5/3/4/4.5/6/7/hard-state paths in `src/auth/operator.js` from project backup baseline.
-  2. Chained Stage 11 directly after Stage 8 (`runStage8` now calls `runStage11`).
-  3. Enforced DID blindness in round-1 reviewer derivation: removed planner output from reviewer prompt and passed protected hashes into reviewer call in `src/auth/did-orchestrator.js`.
-  4. Updated Stage 6 file scope to prefer reconciled plan scope (`filesToChange` / plan diff paths) via `_resolvePlanFiles` and only fall back to classification files when plan scope is unavailable.
-  5. Preserved Section 33 streaming and Section 35 context/budget behavior (no regressions introduced in call-model streaming/minimization paths).
-
-*Last updated: 2026-03-16 — BUG-082 RESOLVED (operator pipeline spec drift); BUG-056 and BUG-081 RESOLVED via 8640211; BUG-072, 073, 074, 075 RESOLVED; BUG-076, 078, 080 OPEN; BUG-077, 079 FIXED (claude/mcp-audit-fixes)*
+*Last updated: 2026-03-16 — BUG-056 and BUG-081 RESOLVED via 8640211; BUG-072, 073, 074, 075 RESOLVED; BUG-076, 078, 080 OPEN; BUG-077, 079 FIXED (claude/mcp-audit-fixes)*

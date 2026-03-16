@@ -625,10 +625,6 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
     }
 
     eventStore.append('STATE_SYNCED', 'operator', { task: classification.files, tier: routing.tier }, 'mirror');
-
-    // Section 15: Stage 11 must run after approval/state sync path.
-    await this.runStage11();
-
     this.stateSummary.currentStage = 'idle';
   }
 
@@ -848,15 +844,6 @@ The output will be used as the new system context.`;
     try {
       // Stage 3: Planning
       const planResult = await this.runStage3(classification, routing, [], this.stateSummary.executorLogs);
-      if (planResult.escalatedToHuman) {
-        this.abortController = null;
-        this._pipelineRunning = false;
-        return {
-          status: 'blocked',
-          reason: planResult.conflict || 'DID could not converge and requires human decision.',
-          didPackage: planResult.didPackage
-        };
-      }
       let agreedPlan = planResult.plan;
 
       if (planResult.needsTiebreaker) {
@@ -870,8 +857,7 @@ The output will be used as the new system context.`;
       const dryRun = await this.runStage4_5(codeResult.code);
 
       // Stage 6: Write + Validate
-      const scopedFiles = this._resolvePlanFiles(agreedPlan, classification);
-      const writeResult = await this.runStage6(codeResult.code, scopedFiles);
+      const writeResult = await this.runStage6(codeResult.code, classification.files);
 
       if (!writeResult.validatorPassed) {
         const errorHash = require('crypto').createHash('sha256').update(writeResult.validatorOutput).digest('hex').slice(0, 16);
@@ -918,22 +904,6 @@ The output will be used as the new system context.`;
 
       return { status: 'error', reason: `Pipeline failure after ${this.stateSummary.recoveryAttempts} recovery attempts: ${e.message}` };
     }
-  }
-
-  _resolvePlanFiles(plan, classification) {
-    const candidateSets = [];
-    if (plan && Array.isArray(plan.filesToChange)) candidateSets.push(plan.filesToChange);
-    if (plan && Array.isArray(plan.files)) candidateSets.push(plan.files);
-    if (plan && plan.diff && typeof plan.diff === 'string') {
-      const diffFiles = [...plan.diff.matchAll(/^\+\+\+\s+b\/(.+)$/gm)].map((m) => m[1].trim());
-      if (diffFiles.length) candidateSets.push(diffFiles);
-    }
-
-    const all = candidateSets.flat().filter(Boolean).map((f) => String(f).trim());
-    const unique = [...new Set(all)].filter((f) => f && !f.startsWith('/dev/null'));
-    if (unique.length > 0) return unique;
-
-    return Array.isArray(classification.files) ? classification.files : [];
   }
 
   /**
@@ -1228,9 +1198,7 @@ Return ONLY JSON per SPEC Section 13:
       }
 
       // 2. Re-index files modified during this run
-      const modifiedFiles =
-        (this.stateSummary.pendingAuditContext && this.stateSummary.pendingAuditContext.modifiedFiles) ||
-        this.stateSummary.filesInScope || [];
+      const modifiedFiles = this.stateSummary.filesInScope || [];
       if (modifiedFiles.length > 0) {
         console.error(`[Operator] Stage 11: Re-indexing ${modifiedFiles.length} modified file(s)...`);
         // Capture revision before and after to verify the scan completed successfully.

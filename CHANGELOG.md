@@ -1,6 +1,19 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.23] — 2026-03-16
+#### Fixed
+- **Task 1.1-H36 / BUG-082 — Operator pipeline SPEC parity restoration (Sections 15/27/33/35):**
+  - `src/auth/operator.js`: Restored non-stubbed Stage 1.5/3/4/4.5/6/7 and hard-state-driven paths from backup baseline.
+  - `src/auth/operator.js`: Stage 6 now derives write scope from reconciled plan (`filesToChange`/diff file headers) via `_resolvePlanFiles`, falling back to classification files only when needed.
+  - `src/auth/operator.js`: Stage 8 now chains Stage 11 (`runStage11`) after approval path.
+  - `src/auth/operator.js`: Stage 11 re-index now prioritizes files from `pendingAuditContext.modifiedFiles` (approved implementation scope).
+  - `src/auth/did-prompts.js`: Reviewer round-1 prompt is blind (planner output removed).
+  - `src/auth/did-orchestrator.js`: Reviewer round-1 now receives protected planner hashes for blind isolation enforcement.
+  - `src/index.js`: Audit approval message now explicitly reflects Stage 11 completion.
+  - `scripts/test-h36-operator-did-approval.js`: Added targeted verification for DID blindness, stage order through audit pause, Stage 6 scoped writes, and Stage 11 chaining after Stage 8.
+
+
 ### [1.1.22] — 2026-03-16
 #### Added
 - **Model-Specific Token Budgeting — Task 1.1-H34** (Gemini)
