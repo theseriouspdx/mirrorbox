@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Action:** 1.0-09 — Sovereign Loop validation. All 1.1 hardening tasks COMPLETED. All bugs RESOLVED. Pre-req: confirm 1.0-06/1.0-07/1.0-08 implementation status before running sovereign loop.
+**Next Action:** 1.0-09 — Sovereign Loop validation. BUG-083 resolution required (onboarding subjectRoot) before sovereign loop.
 
 ---
 
@@ -76,6 +76,7 @@
 | 1.1-H34 | Implement Model-Specific Token Budgeting (Section 35.5) — fine-grained per-model input/output limits, budget-exceeded early exit | COMPLETED — 2026-03-16 |
 | 1.1-H35 | Enforce English, human-readable operator responses across all stages — no raw JSON dumps to human; keep structured data internal | COMPLETED — 2026-03-16 |
 | 1.1-H36 | Restore full SPEC-compliant operator pipeline (Sections 15/27/33/35) and remove stubs | COMPLETED — 2026-03-16 — codex/1.1-H36-spec-parity-pipeline |
+| 1.1-H37 | Implement Granular UTC Versioning (v0.Milestone.Point-YYYYMMDD.HHMM) in src/index.js and prompt | COMPLETED — 2026-03-16 — Gemini |
 
 Audit addendum (2026-03-13):
 - Task `1.1-H12` is functionally complete, but its original closing commit (`becf656`) bundled unrelated fixes (`1.1-H19`/`1.1-H20`/`1.1-H21`).
