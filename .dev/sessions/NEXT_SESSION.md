@@ -11,9 +11,12 @@
 
 **Task v0.11.88 — Section 36 Chat-Native Operator & Onboarding Contract**
 
-- Status: READY
+- Status: IN_PROGRESS
 - Linked P0/P1 blockers:
-None
+- BUG-106: Structural Regression
+- BUG-108: Conversational Awareness
+- BUG-110: Legacy scripted onboarding fallback still active
+- BUG-111: Scan-first onboarding order regression
 
 **Graph queries to run at Gate 0:**
 ```

@@ -170,7 +170,9 @@ Identify the next scheduled task from `projecttracking.md` and ask: "Would you l
 
 ## Section 10 — Hard State Persistence
 
-Explicitly state your **Hard State Anchor** at the beginning of every internal `<thinking>` block: `<thinking>[Hard State: X] ...`
+Explicitly state your **Hard State Anchor** and the current step of the **Sovereign Loop** (Section 12) at the beginning of every internal `<thinking>` block: `<thinking>[Hard State: X | Loop: Step Y] ...`
+
+**Hard State Sovereign Loop:** The Sovereign Loop protocol is a foundational component of the Hard State. It must be maintained and verified across all turns of a task. Failure to report the Loop step alongside the Anchor is a Hard State violation.
 
 **No File Modifications Without Explicit Approval:** Agents must NOT edit, create, or modify any file without explicit human authorization ("go"). All file interactions must use MCP tools. Hard state is tracked in agent sessions — if using an MCP server, state must be saved and the server restarted before proceeding.
 

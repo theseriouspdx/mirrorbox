@@ -11,7 +11,7 @@
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
 | v0.11.87 | audit | Live UX Workflow Audit (Human-Driven) | COMPLETED | claude | master | 2026-03-17 | UX-022..028,Section-36 | Section 36 authored and merged to SPEC.md; chat-native contract fully specified |
-| v0.11.88 | feature | Section 36 Chat-Native Operator & Onboarding Contract | READY | claude | section-36-chat-native | 2026-03-17 | BUG-106,BUG-107,BUG-108 | All X.10 acceptance tests pass; no shell dump on recoverable errors; natural-language dialogue loop live |
+| v0.11.88 | feature | Section 36 Chat-Native Operator & Onboarding Contract | IN_PROGRESS | gemini | gemini/v0.11.88-gov | 2026-03-17 | BUG-106,BUG-107,BUG-108,DID-Override-JES | AGENTS.md Hard State Sovereign Loop implemented; DID override logged; Section 36 persona live |
 | v0.11.61 | bug | BUG-061 Merkle scope + MCP query path drift closure | READY | gemini | gemini/bug-061-closure | 2026-03-17 | BUG-061 | Merkle scope contract implemented + non-src drift tests + standardized `node scripts/mcp_query.js` path |
 | v0.11.52 | bug | BUG-052 global mbo CLI entrypoint packaging | READY | codex | codex/bug-052-cli-entrypoint | 2026-03-17 | BUG-052 | `mbo` installable globally and validated in clean environment |
 | v0.11.36 | docs | Workflow canonicalization and validator enforcement | IN_PROGRESS | codex | codex/workflow-canonicalization | 2026-03-17 | BUG-048 | AGENTS/protocol updated, session-close generator deterministic, validator drift checks enforced |
