@@ -124,35 +124,54 @@ async function runMcpRecoveryCommand() {
   // BUG-079: added project_id validation + dead-pid fallback scan.
   const devManifestPath = path.join(PROJECT_ROOT, '.dev/run/mcp.json');
   const userManifestPath = path.join(PROJECT_ROOT, '.mbo/run/mcp.json');
-  const getPort = () => {
+
+  const isPidAlive = (pid) => {
+    try { process.kill(pid, 0); return true; } catch (_) { return false; }
+  };
+
+  const readManifest = (manifestPath) => {
     try {
-      let m = null;
-      for (const mp of [devManifestPath, userManifestPath]) {
-        if (fs.existsSync(mp)) { m = JSON.parse(fs.readFileSync(mp, 'utf8')); break; }
+      if (!fs.existsSync(manifestPath)) return null;
+      return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const pickLiveManifest = (runDir) => {
+    try {
+      if (!fs.existsSync(runDir)) return null;
+      const files = fs.readdirSync(runDir)
+        .filter((f) => f.startsWith(`mcp-${projectId}-`) && f.endsWith('.json'))
+        .map((f) => path.join(runDir, f));
+
+      files.sort((a, b) => {
+        try { return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs; } catch (_) { return 0; }
+      });
+
+      for (const fp of files) {
+        const m = readManifest(fp);
+        if (!m || m.project_id !== projectId || !m.port || !m.pid) continue;
+        if (!isPidAlive(m.pid)) continue;
+        return m;
       }
-      // If symlink manifest's pid is dead, scan dir for a live pid-specific manifest.
-      if (m && m.pid) {
-        let pidAlive = false;
-        try { process.kill(m.pid, 0); pidAlive = true; } catch (_) {}
-        if (!pidAlive) {
-          m = null;
-          const runDir = path.dirname(devManifestPath);
-          if (fs.existsSync(runDir)) {
-            for (const f of fs.readdirSync(runDir)) {
-              if (!f.startsWith('mcp-') || f === 'mcp.json' || !f.endsWith('.json')) continue;
-              try {
-                const c = JSON.parse(fs.readFileSync(path.join(runDir, f), 'utf8'));
-                if (c.project_id !== projectId) continue;
-                try { process.kill(c.pid, 0); } catch (_) { continue; }
-                m = c;
-                break;
-              } catch (_) {}
-            }
-          }
-        }
-      }
-      if (m && m.project_id === projectId && m.port) return m.port;
     } catch (_) {}
+    return null;
+  };
+
+  const getPort = () => {
+    let m = null;
+    for (const mp of [devManifestPath, userManifestPath]) {
+      m = readManifest(mp);
+      if (m) break;
+    }
+
+    // Handle dead PID, dangling symlink target, unreadable manifest, or project mismatch.
+    if (!m || m.project_id !== projectId || !m.pid || !isPidAlive(m.pid)) {
+      m = pickLiveManifest(path.dirname(devManifestPath)) || pickLiveManifest(path.dirname(userManifestPath));
+    }
+
+    if (m && m.project_id === projectId && m.port) return m.port;
     return null;
   };
 
