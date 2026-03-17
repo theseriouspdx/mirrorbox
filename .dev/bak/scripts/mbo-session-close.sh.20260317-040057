@@ -130,7 +130,7 @@ if [[ -z "$LAST_TASK_NAME" ]]; then LAST_TASK_NAME="No task recorded in DB"; fi
 if [[ -z "$LAST_TASK_STATUS" ]]; then LAST_TASK_STATUS="N/A"; fi
 COMPLETED_COUNT="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tasks WHERE status = 'COMPLETED';" || echo "0")"
 
-# 2.5 Find Next Action from canonical task ledger (`**Next Task:**`)
+# 2.5 Find Next Action from canonical task ledger
 NEXT_TASK_ID="TBD"
 NEXT_TASK_TITLE="TBD"
 NEXT_TASK_STATUS="TBD"
@@ -140,23 +140,31 @@ if [[ ! -f "$TRACKING_FILE" && -f "$ROOT_DIR/projecttracking.md" ]]; then
 fi
 
 if [[ -f "$TRACKING_FILE" ]]; then
-  DECLARED_NEXT_TASK="$(sed -n 's/^\*\*Next Task:\*\* //p' "$TRACKING_FILE" | head -n 1 | xargs || true)"
-  if [[ -n "$DECLARED_NEXT_TASK" ]]; then
-    NEXT_ROW=$(awk -F'|' -v tid="$DECLARED_NEXT_TASK" '
-      BEGIN { have_header=0 }
-      /^\| Task ID \| Type \| Title \| Status \| Owner \| Branch \| Updated \| Links \| Acceptance \|$/ { have_header=1; next }
-      have_header && /^\|---/ { next }
-      have_header && /^\|/ {
-        id=$2; gsub(/^ +| +$/, "", id)
-        if (id == tid) { print $0; exit }
-      }
-    ' "$TRACKING_FILE" | head -n 1 || true)
+  # Prefer IN_PROGRESS first, then READY, then BLOCKED from the canonical table.
+  NEXT_ROW=$(awk -F'|' '
+    BEGIN { have_header=0 }
+    /^\| Task ID \| Type \| Title \| Status \| Owner \| Branch \| Updated \| Links \| Acceptance \|$/ { have_header=1; next }
+    have_header && /^\|---/ { next }
+    have_header && /^\|/ {
+      id=$2; gsub(/^ +| +$/, "", id)
+      title=$4; gsub(/^ +| +$/, "", title)
+      status=$5; gsub(/^ +| +$/, "", status)
+      if (status=="IN_PROGRESS") { print $0; exit }
+      if (!ready && status=="READY") ready=$0
+      if (!blocked && status=="BLOCKED") blocked=$0
+    }
+    END {
+      if (!NR) exit
+      if (!ready && !blocked) exit
+      if (ready) print ready
+      else if (blocked) print blocked
+    }
+  ' "$TRACKING_FILE" | head -n 1 || true)
 
-    if [[ -n "$NEXT_ROW" ]]; then
-      NEXT_TASK_ID=$(echo "$NEXT_ROW" | awk -F'|' '{print $2}' | xargs)
-      NEXT_TASK_TITLE=$(echo "$NEXT_ROW" | awk -F'|' '{print $4}' | xargs)
-      NEXT_TASK_STATUS=$(echo "$NEXT_ROW" | awk -F'|' '{print $5}' | xargs)
-    fi
+  if [[ -n "$NEXT_ROW" ]]; then
+    NEXT_TASK_ID=$(echo "$NEXT_ROW" | awk -F'|' '{print $2}' | xargs)
+    NEXT_TASK_TITLE=$(echo "$NEXT_ROW" | awk -F'|' '{print $4}' | xargs)
+    NEXT_TASK_STATUS=$(echo "$NEXT_ROW" | awk -F'|' '{print $5}' | xargs)
   fi
 fi
 

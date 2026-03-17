@@ -128,7 +128,6 @@
 - **Location:** `src/cli/onboarding.js` (`checkOnboarding`)
 - **Severity:** P1
 - **Status:** PARTIAL — fix incomplete (validation 2026-03-16 FAIL)
-- **Task:** v0.11.86
 - **Description:** When `.mbo/onboarding.json` is copied from another project, `checkOnboarding` validates the schema but never checks whether the profile's origin matches the current project root. A foreign profile passes validation and the onboarding interview is skipped entirely.
 - **Fix shipped:** `buildProfile` now stores `projectRoot: path.resolve(projectRoot)` in the profile at write time. `checkOnboarding` canonicalizes both the stored root and the current cwd via `fs.realpathSync`; if they differ, logs a warning and triggers `runOnboarding`.
 - **Validation result (2026-03-16 FAIL):** Fresh-install test (`rm -rf MBO_Alpha && cp -r MBO/. MBO_Alpha/ && node bin/mbo.js setup`) produced no `[SYSTEM]` warning and no interview — daemon started silently.
@@ -461,7 +460,6 @@
 - **Location:** `bin/handshake.py`, `src/relay/pile.js`, `mcp_query.js`, `src/utils/resolve-manifest.js`
 - **Severity:** P0
 - **Status:** PARTIAL FIXED — 2026-03-13
-- **Task:** v0.11.61
 - **Description:** Two coupled drift failures were tracked: (1) Merkle scope mismatch (`handshake.py` validates `src/` baseline while `pile.js` computes project-root hashes), so non-`src` changes can trigger false promotion mismatches; (2) preflight query usage still appears as `mcp_query.js ...` in operator flows, which fails with `command not found` unless `node` is explicit and can bypass manifest-root assertions when stale scripts are used.
 - **Implemented:**
   1. `mcp_query.js` endpoint selection now validates/ranks manifests and prefers matching `project_id` for current cwd.
@@ -491,7 +489,6 @@
 - **Location:** `bin/handshake.py` (`_macos_keychain_presence_check`)
 - **Severity:** P2
 - **Status:** OPEN — 2026-03-13
-- **Task:** v0.11.63
 - **Description:** Primary auth path uses LocalAuthentication prompt; fallback path uses Keychain lookup which can succeed silently when keychain is already unlocked, depending on host policy. This is acceptable as a fallback but should be hardened to guarantee explicit user-presence semantics.
 - **Fix Required:** Move fallback to a keychain item that requires user-presence ACL (`SecAccessControl` with `biometryCurrentSet`/`userPresence`) and validate deterministic prompt behavior.
 
@@ -529,7 +526,6 @@
 - **Location:** `package.json`, `bin/` (missing)
 - **Severity:** P1
 - **Status:** OPEN
-- **Task:** v0.11.52
 - **Description:** No `bin` field in `package.json`. No `bin/mbo.js` launcher exists. MBO cannot be installed globally via `npm install -g` and invoked as `mbo` from a project directory.
 - **Fix:** Create `bin/mbo.js` thin launcher (delegates to `src/index.js` via tsx). Add `"bin": { "mbo": "bin/mbo.js", "mboalpha": "bin/mbo.js" }` to `package.json`. See Section 28.
 

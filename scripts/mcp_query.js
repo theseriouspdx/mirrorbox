@@ -43,22 +43,112 @@ function hashProjectId(projectRoot) {
     .slice(0, 16);
 }
 
+function isPidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM means process exists but caller cannot signal it.
+    if (err && err.code === 'EPERM') return true;
+    return false;
+  }
+}
+
+function readManifest(manifestPath) {
+  try {
+    if (!fs.existsSync(manifestPath)) return null;
+    const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    return (m && typeof m === 'object') ? m : null;
+  } catch {
+    return null;
+  }
+}
+
+function pickLiveManifest(runDir, projectId) {
+  try {
+    if (!fs.existsSync(runDir)) return null;
+    const files = fs.readdirSync(runDir)
+      .filter((f) => f.startsWith(`mcp-${projectId}-`) && f.endsWith('.json'))
+      .map((f) => path.join(runDir, f));
+
+    files.sort((a, b) => {
+      try {
+        return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs;
+      } catch {
+        return 0;
+      }
+    });
+
+    for (const fp of files) {
+      const m = readManifest(fp);
+      if (!m || m.project_id !== projectId || !m.port || !m.pid) continue;
+      if (!isPidAlive(m.pid)) continue;
+      return m;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function readPortFromClientConfigs(cwdRoot) {
+  const configPaths = [
+    path.join(cwdRoot, '.mcp.json'),
+    path.join(cwdRoot, '.gemini', 'settings.json'),
+  ];
+
+  for (const cfgPath of configPaths) {
+    try {
+      if (!fs.existsSync(cfgPath)) continue;
+      const raw = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+      const url = raw && raw.mcpServers && raw.mcpServers['mbo-graph'] && raw.mcpServers['mbo-graph'].url;
+      if (!url || typeof url !== 'string') continue;
+
+      const parsed = new URL(url);
+      const p = Number(parsed.port);
+      if (Number.isInteger(p) && p > 0 && p <= 65535) {
+        return { port: p, configPath: cfgPath };
+      }
+    } catch {
+      // Best effort only.
+    }
+  }
+
+  return null;
+}
+
 function resolveCandidates() {
   const cwdRoot = canonicalPath(process.cwd());
   const candidates = [];
   const diagnostics = [];
+  const expectedProjectId = hashProjectId(cwdRoot);
 
   const devManifest = path.join(cwdRoot, '.dev/run/mcp.json');
   const userManifest = path.join(cwdRoot, '.mbo/run/mcp.json');
+  const devRunDir = path.dirname(devManifest);
+  const userRunDir = path.dirname(userManifest);
+
+  let m = readManifest(devManifest) || readManifest(userManifest);
+  if (!m || m.project_id !== expectedProjectId || !m.pid || !isPidAlive(m.pid)) {
+    m = pickLiveManifest(devRunDir, expectedProjectId) || pickLiveManifest(userRunDir, expectedProjectId);
+    if (m) diagnostics.push('primary manifest missing/stale, recovered from pid-scoped manifest');
+  }
+
   let port = null;
-  try {
-    let m = null;
-    if (fs.existsSync(devManifest)) m = JSON.parse(fs.readFileSync(devManifest, 'utf8'));
-    else if (fs.existsSync(userManifest)) m = JSON.parse(fs.readFileSync(userManifest, 'utf8'));
-    if (m && (m.project_id === hashProjectId(cwdRoot) || canonicalPath(m.project_root) === cwdRoot)) {
-      port = m.port;
+  if (m && (m.project_id === expectedProjectId || canonicalPath(m.project_root) === cwdRoot)) {
+    port = m.port;
+  }
+
+  if (!port) {
+    const fromConfig = readPortFromClientConfigs(cwdRoot);
+    if (fromConfig) {
+      port = fromConfig.port;
+      diagnostics.push(`manifest unavailable, recovered MCP port from ${path.relative(cwdRoot, fromConfig.configPath) || fromConfig.configPath}`);
     }
-  } catch (_) {}
+  }
+
+  if (!port) diagnostics.push('no valid manifest-derived MCP port found');
 
   if (port) {
     candidates.push({
@@ -67,7 +157,7 @@ function resolveCandidates() {
     });
   }
 
-  return { candidates, diagnostics, cwdRoot, expectedProjectId: hashProjectId(cwdRoot) };
+  return { candidates, diagnostics, cwdRoot, expectedProjectId };
 }
 
 async function callMCP(endpoint, method, params = {}, sessionId = null, timeoutMs = DEFAULT_TIMEOUT_MS) {
@@ -271,8 +361,9 @@ async function initializeWithFallback(candidates, diagnose = false) {
     try {
       await tcpProbe(candidate.endpoint);
     } catch (err) {
-      errors.push(`${endpointTag} probe failed: ${err.message}`);
-      continue;
+      // Advisory-only: keep going. Some environments can deny probe sockets
+      // while regular MCP POST requests still succeed.
+      errors.push(`${endpointTag} probe warning: ${err.message}`);
     }
 
     try {
