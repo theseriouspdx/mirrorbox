@@ -1339,7 +1339,9 @@ async function runOnboarding(projectRoot, priorData = null, options = {}) {
 
 // ─── checkOnboarding (gate for session start) ─────────────────────────────────
 
-async function checkOnboarding(projectRoot) {
+async function checkOnboarding(projectRoot, options = {}) {
+  const autoRun = options.autoRun !== false;
+  const returnStatus = !!options.returnStatus;
   const interactive = isTTY();
   const fileProfile = readOnboardingFile(projectRoot);
   const dbProfile = readLatestDbProfile(projectRoot);
@@ -1348,6 +1350,7 @@ async function checkOnboarding(projectRoot) {
 
   if (conflict.needsPrompt && !interactive) {
     console.error('[Onboarding] Profile drift detected and DB appears newer. Re-run in TTY to reconcile.');
+    if (returnStatus) return { needsOnboarding: true, reason: 'profile_drift', profile: null };
     return true;
   }
 
@@ -1357,7 +1360,8 @@ async function checkOnboarding(projectRoot) {
   }
 
   if (!activeProfile) {
-    if (interactive) await runOnboarding(projectRoot);
+    if (interactive && autoRun) await runOnboarding(projectRoot);
+    if (returnStatus) return { needsOnboarding: true, reason: 'missing_profile', profile: null };
     return true;
   }
 
@@ -1374,11 +1378,13 @@ async function checkOnboarding(projectRoot) {
   }
 
   if (needsReonboard) {
-    if (interactive) await runOnboarding(projectRoot, activeProfile);
+    if (interactive && autoRun) await runOnboarding(projectRoot, activeProfile);
+    if (returnStatus) return { needsOnboarding: true, reason: 'profile_incomplete_or_stale', profile: activeProfile };
     return true;
   }
 
   persistProfile(projectRoot, activeProfile);
+  if (returnStatus) return { needsOnboarding: false, reason: null, profile: activeProfile };
   return false;
 }
 

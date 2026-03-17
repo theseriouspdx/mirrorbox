@@ -85,15 +85,23 @@ async function main() {
   initProject(PROJECT_ROOT);
 
   // §28.5 Step 5 & 6: Run/check onboarding and version re-onboard
-  const needsOnboarding = await checkOnboarding(PROJECT_ROOT);
+  const onboardingStatus = await checkOnboarding(PROJECT_ROOT, { autoRun: false, returnStatus: true });
+  const needsOnboarding = onboardingStatus.needsOnboarding;
   if (needsOnboarding && !process.stdout.isTTY) {
     process.stderr.write('ERROR: Non-TTY launch requires onboarding but no onboarding.json found.\n');
     process.exit(1);
   }
 
   // §28.5 Step 7: Start operator
-  const operator = new Operator('runtime');
+  const operator = new Operator('runtime', { onboardingStatus });
   await operator.startMCP();
+
+  if (needsOnboarding) {
+    const onboardingGreeting = operator.startOnboardingDialogue();
+    if (onboardingGreeting && onboardingGreeting.prompt) {
+      console.log(onboardingGreeting.prompt);
+    }
+  }
 
   // §24.7: Start Relay listener for Subject → Mirror telemetry
   relay.start();

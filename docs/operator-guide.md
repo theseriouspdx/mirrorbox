@@ -19,6 +19,15 @@ Every working session follows this pattern:
 12. Commit + update projecttracking.md
 ```
 
+## Chat-Native Onboarding (v0.11.88)
+
+- Onboarding now runs inside the Operator dialogue loop, not a separate blocking questionnaire.
+- Startup checks onboarding status in read-only mode (`checkOnboarding(..., { autoRun: false, returnStatus: true })`).
+- If onboarding is required and the session is interactive, Operator enters `onboarding` stage and gathers required profile goals conversationally.
+- Required onboarding goals are: project type, users, prime directive seed, collaboration notes, staging path, verification commands, danger zones.
+- Clarification requests (`?`, `help`, `what does that mean?`) are handled inline without leaving the dialogue.
+- Profile persistence still uses `runOnboarding(..., { nonInteractive: true })` for canonical validation and storage.
+
 ---
 
 ## Gate 0 Protocol (STRICT MODE)

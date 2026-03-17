@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
+  checkOnboarding,
   runOnboarding,
   validateProfile,
   readLatestDbProfile,
@@ -49,6 +50,13 @@ function mktempProject() {
   fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
   fs.writeFileSync(path.join(root, 'tests', 'index.test.js'), 'test("ok", ()=>{});\n');
   return root;
+}
+
+async function testChatNativeOnboardingModeGate() {
+  const projectRoot = mktempProject();
+  const status = await checkOnboarding(projectRoot, { autoRun: false, returnStatus: true });
+  assert(status.needsOnboarding === true, 'Expected onboarding to be required for fresh project');
+  eq(status.reason, 'missing_profile', 'Onboarding reason');
 }
 
 // ─── Original tests ───────────────────────────────────────────────────────────
@@ -428,6 +436,9 @@ function testInferRealConstraints() {
 
 async function main() {
   console.log('--- test-onboarding.js ---\n');
+
+  await testChatNativeOnboardingModeGate();
+  console.log('PASS  chat-native onboarding mode gate');
 
   // Original tests
   await testFreshOnboarding();

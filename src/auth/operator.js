@@ -7,10 +7,75 @@ const { DIDOrchestrator } = require('./did-orchestrator');
 const stateManager = require('../state/state-manager');
 const db = require('../state/db-manager');
 const eventStore = require('../state/event-store');
+const {
+  runOnboarding,
+  validateSubjectRoot,
+  validateVerificationCommands,
+  validateDangerZones,
+} = require('../cli/onboarding');
 
 const RUNTIME_ROOT = path.resolve(process.env.MBO_PROJECT_ROOT || process.cwd());
 const SESSION_HISTORY_PATH = path.join(RUNTIME_ROOT, '.mbo', 'session_history.json');
 const MBO_ROOT = path.resolve(__dirname, '../..');
+
+const ONBOARDING_QUESTIONS = [
+  {
+    key: 'projectType',
+    target: 'answers',
+    prompt: 'Is this a new project or an existing one?',
+    help: 'This sets safe defaults. Example: "new" or "existing".',
+  },
+  {
+    key: 'users',
+    target: 'answers',
+    prompt: 'Who is this project for?',
+    help: 'Example: "internal engineering team" or "public customers".',
+  },
+  {
+    key: 'q3Raw',
+    target: 'answers',
+    prompt: 'What is the single most important thing I should always protect while working here?',
+    help: 'This becomes the load-bearing project directive.',
+  },
+  {
+    key: 'q4Raw',
+    target: 'answers',
+    prompt: 'Anything else that helps us work well together on this project?',
+    help: 'Share constraints, preferences, or previous failure patterns.',
+  },
+  {
+    key: 'subjectRoot',
+    target: 'followup',
+    prompt: 'Where is your staging copy path? (absolute directory path)',
+    help: 'Use an existing absolute path. Example: /Users/you/myapp_staging',
+  },
+  {
+    key: 'verificationCommands',
+    target: 'followup',
+    prompt: 'What commands should I run to verify changes are safe? (comma-separated)',
+    help: 'Example: npm test,npm run lint',
+  },
+  {
+    key: 'dangerZones',
+    target: 'followup',
+    prompt: 'Which files/directories are high-risk and need extra caution? (comma-separated paths)',
+    help: 'Example: src/auth,config/production.yml',
+  },
+  {
+    key: 'realConstraints',
+    target: 'followup',
+    prompt: 'Any hard constraints that cannot change? (optional, comma-separated)',
+    help: 'You can answer "none" or give concrete constraints.',
+    optional: true,
+  },
+  {
+    key: 'assumedConstraints',
+    target: 'followup',
+    prompt: 'Any assumed constraints that might need verification? (optional, comma-separated)',
+    help: 'You can answer "none" if there are none.',
+    optional: true,
+  },
+];
 
 /**
  * Detect if running in development/worktree context vs. target project context.
@@ -44,7 +109,7 @@ class Operator {
     'default':                 32000,
   };
 
-  constructor(mode = 'runtime') {
+  constructor(mode = 'runtime', options = {}) {
     this.mode = mode;
     this.sessionHistory = [];
     this.stateSummary = {
@@ -77,7 +142,146 @@ class Operator {
     this.userHintBuffer = [];
     this.abortController = null;
     this._pipelineRunning = false;
+    this.onboardingState = {
+      active: false,
+      started: false,
+      reason: null,
+      profile: null,
+      questionIndex: 0,
+      answers: {},
+      followup: {},
+    };
+    this.configureOnboarding(options.onboardingStatus || null);
     this.loadHistory();
+  }
+
+  configureOnboarding(status) {
+    if (!status || !status.needsOnboarding) return;
+    this.onboardingState.active = true;
+    this.onboardingState.reason = status.reason || 'missing_profile';
+    this.onboardingState.profile = status.profile || null;
+    this.stateSummary.currentStage = 'onboarding';
+  }
+
+  startOnboardingDialogue() {
+    if (!this.onboardingState.active) return null;
+    this.onboardingState.started = true;
+    const reasonMap = {
+      missing_profile: 'No onboarding profile was found.',
+      profile_drift: 'Profile drift was detected between local file and DB.',
+      profile_incomplete_or_stale: 'Existing onboarding profile is incomplete or stale.',
+    };
+    const reasonText = reasonMap[this.onboardingState.reason] || 'Onboarding is required for this project.';
+    const first = ONBOARDING_QUESTIONS[0];
+    return {
+      status: 'onboarding_active',
+      prompt: `${reasonText}\n\nI will gather the required profile in this chat.\n${first.prompt}`,
+    };
+  }
+
+  _currentOnboardingQuestion() {
+    return ONBOARDING_QUESTIONS[this.onboardingState.questionIndex] || null;
+  }
+
+  _normalizeOnboardingAnswer(question, input) {
+    const raw = String(input || '').trim();
+
+    if (question.key === 'projectType') {
+      const v = raw.toLowerCase();
+      if (v.includes('new') || v.includes('green')) return { ok: true, value: 'greenfield' };
+      if (v.includes('exist')) return { ok: true, value: 'existing' };
+      return { ok: false, reason: 'Please answer with "new" or "existing".' };
+    }
+
+    if (question.key === 'subjectRoot') {
+      const checked = validateSubjectRoot(raw, RUNTIME_ROOT);
+      if (!checked.ok) return { ok: false, reason: checked.reason };
+      return { ok: true, value: checked.resolved };
+    }
+
+    if (question.key === 'verificationCommands') {
+      const list = raw.split(',').map((v) => v.trim()).filter(Boolean);
+      const checked = validateVerificationCommands(list);
+      if (!checked.ok) return { ok: false, reason: checked.reason };
+      return { ok: true, value: list.join(',') };
+    }
+
+    if (question.key === 'dangerZones') {
+      const list = raw.split(',').map((v) => v.trim()).filter(Boolean);
+      const checked = validateDangerZones(list);
+      if (!checked.ok) return { ok: false, reason: checked.reason };
+      return { ok: true, value: list.join(',') };
+    }
+
+    if (question.optional && (raw.toLowerCase() === 'none' || raw.toLowerCase() === 'skip')) {
+      return { ok: true, value: '' };
+    }
+
+    if (!raw && !question.optional) {
+      return { ok: false, reason: 'This field is required.' };
+    }
+
+    return { ok: true, value: raw };
+  }
+
+  async processOnboardingMessage(userMessage) {
+    const input = String(userMessage || '').trim();
+    if (!this.onboardingState.started) {
+      return this.startOnboardingDialogue();
+    }
+
+    const question = this._currentOnboardingQuestion();
+    if (!question) {
+      return { status: 'onboarding_active', prompt: 'Preparing profile synthesis...' };
+    }
+
+    const lower = input.toLowerCase();
+    if (lower === '?' || lower === 'help' || lower === 'what does that mean?') {
+      return { status: 'onboarding_active', prompt: `${question.help}\n\n${question.prompt}` };
+    }
+
+    const normalized = this._normalizeOnboardingAnswer(question, input);
+    if (!normalized.ok) {
+      return { status: 'onboarding_active', prompt: `${normalized.reason}\n\n${question.prompt}` };
+    }
+
+    if (question.target === 'answers') this.onboardingState.answers[question.key] = normalized.value;
+    else this.onboardingState.followup[question.key] = normalized.value;
+
+    this.onboardingState.questionIndex += 1;
+    const next = this._currentOnboardingQuestion();
+    if (next) {
+      return { status: 'onboarding_active', prompt: next.prompt };
+    }
+
+    try {
+      const profile = await runOnboarding(RUNTIME_ROOT, this.onboardingState.profile, {
+        nonInteractive: true,
+        fullRedo: true,
+        answers: this.onboardingState.answers,
+        followup: this.onboardingState.followup,
+      });
+
+      this.onboardingState.active = false;
+      this.stateSummary.currentStage = 'classification';
+      return {
+        status: 'onboarding_complete',
+        prompt: `Onboarding saved. Prime directive locked. You can now describe the task you want to run.`,
+        onboardingProfile: {
+          projectType: profile.projectType,
+          users: profile.users,
+          primeDirective: profile.primeDirective,
+        },
+      };
+    } catch (e) {
+      this.onboardingState.active = true;
+      this.onboardingState.questionIndex = 0;
+      this.onboardingState.started = true;
+      return {
+        status: 'onboarding_active',
+        prompt: `I couldn't finalize onboarding yet: ${e.message}\n\nLet's retry from the start.\n${ONBOARDING_QUESTIONS[0].prompt}`,
+      };
+    }
   }
 
   _streamDIDMessage(msg) {
@@ -798,6 +1002,10 @@ The output will be used as the new system context.`;
   }
 
   async processMessage(userMessage) {
+    if (this.onboardingState.active) {
+      return this.processOnboardingMessage(userMessage);
+    }
+
     await this.checkContextLifecycle();
     const input = userMessage.trim().toLowerCase();
 
