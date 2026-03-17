@@ -114,16 +114,54 @@ class Operator {
       else if (fs.existsSync(userManifest)) manifest = JSON.parse(fs.readFileSync(userManifest, 'utf8'));
     } catch (_) {}
 
-    if (!manifest || !manifest.port) {
-      throw new Error(`No MCP manifest found in ${RUNTIME_ROOT}. Run 'mbo setup' first.`);
-    }
-
     const canonicalRuntimeRoot = fs.realpathSync(RUNTIME_ROOT);
     const expectedProjectId = require('crypto')
       .createHash('sha256')
       .update(Buffer.from(canonicalRuntimeRoot, 'utf8'))
       .digest('hex')
       .slice(0, 16);
+
+    const isPidAlive = (pid) => {
+      try { process.kill(pid, 0); return true; } catch (_) { return false; }
+    };
+
+    const readManifest = (manifestPath) => {
+      try {
+        if (!fs.existsSync(manifestPath)) return null;
+        return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      } catch (_) {
+        return null;
+      }
+    };
+
+    const pickLiveManifest = (runDir) => {
+      try {
+        if (!fs.existsSync(runDir)) return null;
+        const files = fs.readdirSync(runDir)
+          .filter((f) => f.startsWith(`mcp-${expectedProjectId}-`) && f.endsWith('.json'))
+          .map((f) => path.join(runDir, f));
+
+        files.sort((a, b) => {
+          try { return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs; } catch (_) { return 0; }
+        });
+
+        for (const fp of files) {
+          const m = readManifest(fp);
+          if (!m || m.project_id !== expectedProjectId || !m.port || !m.pid) continue;
+          if (!isPidAlive(m.pid)) continue;
+          return m;
+        }
+      } catch (_) {}
+      return null;
+    };
+
+    if (!manifest || !manifest.port || manifest.project_id !== expectedProjectId || !manifest.pid || !isPidAlive(manifest.pid)) {
+      manifest = pickLiveManifest(path.dirname(devManifest)) || pickLiveManifest(path.dirname(userManifest));
+    }
+
+    if (!manifest || !manifest.port) {
+      throw new Error(`No active MCP manifest found for project ${canonicalRuntimeRoot}. Setup may still be in progress or daemon failed to start. Check .dev/logs/mcp-stderr.log.`);
+    }
 
     if (manifest.project_id !== expectedProjectId || fs.realpathSync(manifest.project_root) !== canonicalRuntimeRoot) {
       throw new Error(`MCP identity mismatch! Expected ${canonicalRuntimeRoot} (${expectedProjectId}), got ${manifest.project_root} (${manifest.project_id})`);

@@ -191,13 +191,102 @@ function inferVerificationCommands(projectRoot, buildSystem) {
   return cmds;
 }
 
-function synthesizePrimeDirective(q3Raw, realConstraints, scanSummary) {
-  const base = String(q3Raw || '').trim() || 'Preserve project stability and intent.';
-  const constraint = Array.isArray(realConstraints) && realConstraints.length > 0
-    ? realConstraints[0]
-    : (scanSummary.canonicalConfigPath || 'existing architecture constraints');
+function inferRealConstraints(projectRoot, scan) {
+  const constraints = new Set();
 
-  return `Keep this project stable and aligned with user intent. Protect ${constraint}. Priority signal: ${base}`;
+  const pkg = readJSON(path.join(projectRoot, 'package.json')) || {};
+  const engines = pkg.engines || {};
+  if (engines.node) constraints.add(`node ${engines.node}`);
+  if (engines.npm) constraints.add(`npm ${engines.npm}`);
+
+  const vercelPath = path.join(projectRoot, 'vercel.json');
+  const vercel = readJSON(vercelPath);
+  if (vercel) {
+    constraints.add('deploy target: vercel');
+    if (typeof vercel.framework === 'string' && vercel.framework.trim()) {
+      constraints.add(`vercel framework: ${vercel.framework.trim()}`);
+    }
+  }
+
+  if (fs.existsSync(path.join(projectRoot, 'netlify.toml'))) {
+    constraints.add('deploy target: netlify');
+  }
+
+  if (fs.existsSync(path.join(projectRoot, 'docker-compose.yml')) || fs.existsSync(path.join(projectRoot, 'Dockerfile'))) {
+    constraints.add('containerized runtime (docker)');
+  }
+
+  const nextConfigCandidates = [
+    path.join(projectRoot, 'next.config.js'),
+    path.join(projectRoot, 'next.config.mjs'),
+    path.join(projectRoot, 'next.config.cjs'),
+  ];
+  for (const cfgPath of nextConfigCandidates) {
+    if (!fs.existsSync(cfgPath)) continue;
+    try {
+      const text = fs.readFileSync(cfgPath, 'utf8');
+      if (/output\s*:\s*['"]export['"]/.test(text)) constraints.add('Next.js static export mode');
+      if (/output\s*:\s*['"]standalone['"]/.test(text)) constraints.add('Next.js standalone server mode');
+      break;
+    } catch (_) {}
+  }
+
+  const envExample = path.join(projectRoot, '.env.example');
+  if (fs.existsSync(envExample)) {
+    try {
+      const lines = fs.readFileSync(envExample, 'utf8').split(/\r?\n/);
+      const keys = lines
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith('#') && /^[A-Za-z_][A-Za-z0-9_]*=/.test(line))
+        .map((line) => line.split('=')[0]);
+      if (keys.length > 0) {
+        constraints.add(`required env vars: ${keys.slice(0, 6).join(', ')}${keys.length > 6 ? ', ...' : ''}`);
+      }
+    } catch (_) {}
+  }
+
+  if (scan && scan.buildSystem) constraints.add(`build system: ${scan.buildSystem}`);
+  if (scan && Array.isArray(scan.frameworks) && scan.frameworks.length > 0) {
+    constraints.add(`frameworks: ${scan.frameworks.join(', ')}`);
+  }
+
+  return [...constraints];
+}
+
+function synthesizePrimeDirective(context) {
+  const q3 = String(context.q3Raw || '').trim();
+  const q4 = String(context.q4Raw || '').trim();
+  const users = String(context.users || '').trim();
+  const realConstraints = normalizeList(context.realConstraints);
+  const scan = context.scan || {};
+  const followup = context.followup || {};
+
+  const userClause = users
+    ? `for ${users}`
+    : 'for the project stakeholders';
+
+  const priority = q3
+    ? q3.replace(/\s+/g, ' ').trim()
+    : 'Preserve project stability and intent.';
+
+  const constraints = realConstraints.length > 0
+    ? realConstraints
+    : normalizeList(scan.realConstraintCandidates || []);
+
+  const constraintClause = constraints.length > 0
+    ? `Respect these confirmed constraints: ${constraints.slice(0, 3).join('; ')}.`
+    : `Respect the established project constraints, including ${scan.canonicalConfigPath || 'canonical config files'}.`;
+
+  const verification = normalizeList(followup.verificationCommands || scan.verificationCommands || []);
+  const verificationClause = verification.length > 0
+    ? `Validate changes with: ${verification.slice(0, 2).join(' then ')}.`
+    : 'Validate changes with the project test and lint workflow.';
+
+  const collaborationClause = q4
+    ? `Collaboration preference: ${q4.replace(/\s+/g, ' ').trim()}.`
+    : '';
+
+  return `Primary objective ${userClause}: ${priority}. ${constraintClause} ${verificationClause}${collaborationClause ? ` ${collaborationClause}` : ''}`;
 }
 
 function normalizeList(value) {
@@ -223,8 +312,13 @@ function buildProfile({
   const realConstraints = normalizeList(followup.realConstraints);
   const assumedConstraints = normalizeList(followup.assumedConstraints);
 
-  const primeDirective = synthesizePrimeDirective(answers.q3Raw, realConstraints, {
-    canonicalConfigPath: followup.canonicalConfigPath || scan.canonicalConfigPath || null,
+  const primeDirective = synthesizePrimeDirective({
+    q3Raw: answers.q3Raw,
+    q4Raw: answers.q4Raw,
+    users: answers.users,
+    realConstraints,
+    scan,
+    followup,
   });
 
   const subjectRootCandidate = String(followup.subjectRoot || prior.subjectRoot || DEFAULT_SUBJECT_ROOT).trim();
@@ -434,6 +528,11 @@ function scanProject(projectRoot) {
     testCoverage,
     hasCI,
     verificationCommands: inferVerificationCommands(projectRoot, fw.buildSystem),
+    realConstraintCandidates: inferRealConstraints(projectRoot, {
+      frameworks: fw.frameworks,
+      buildSystem: fw.buildSystem,
+      canonicalConfigPath,
+    }),
     canonicalConfigPath,
     suggestedDangerZones,
   };
@@ -446,31 +545,56 @@ function deriveFollowupQuestions(scan, prior) {
     questions.push({ key: 'testCoverageIntent', prompt: `I detected low test signal (${Math.round(scan.testCoverage * 100)}%). Is this intentional or a gap?` });
   }
   if (!scan.hasCI) {
-    questions.push({ key: 'ciIntent', prompt: 'No CI configuration detected. Should I treat this as intentional?' });
+    questions.push({
+      key: 'ciIntent',
+      prompt: `I did not detect CI (automated checks run on each commit/PR). Should I treat that as intentional?
+Example: "Yes, intentional for now" or "No, add GitHub Actions soon."`
+    });
   }
   if (!prior.subjectRoot) {
-    questions.push({ key: 'subjectRoot', prompt: 'Provide the Subject-world root path for promotion/cross-world telemetry.' });
+    questions.push({
+      key: 'subjectRoot',
+      prompt: `What project folder should I treat as your execution target root path?
+This is the main directory where changes are applied and validated.
+Example: /Users/johnserious/MBO_Alpha`
+    });
   }
   if (!scan.canonicalConfigPath) {
-    questions.push({ key: 'canonicalConfigPath', prompt: 'I could not infer a canonical config path. Which config file is authoritative?' });
+    questions.push({
+      key: 'canonicalConfigPath',
+      prompt: `I could not infer the primary config file I should treat as authoritative.
+Which file should be treated as the source of truth? Example: package.json`
+    });
   }
 
   // BUG-088/089/090: Seed danger zones and verification commands from scan data.
   const dangerDefault = scan.suggestedDangerZones && scan.suggestedDangerZones.length > 0
     ? scan.suggestedDangerZones.join(', ') : '';
   const dangerPrompt = dangerDefault
-    ? `I suggest these danger zones based on your project: ${dangerDefault}\nConfirm or modify (comma-separated)`
-    : 'List any danger zones (files/dirs) I should treat as high-risk (comma-separated).';
+    ? `I found likely danger zones (high-risk files/dirs to avoid accidental edits): ${dangerDefault}\nConfirm or modify (comma-separated).\nExample: .mbo/, .dev/, package-lock.json`
+    : 'List high-risk files/dirs I should treat as danger zones (comma-separated).\nExample: .mbo/, .dev/, package-lock.json';
   questions.push({ key: 'dangerZones', prompt: dangerPrompt, defaultValue: dangerDefault });
 
   const verifDefault = scan.verificationCommands && scan.verificationCommands.length > 0
     ? scan.verificationCommands.join(', ') : '';
   const verifPrompt = verifDefault
-    ? `I detected these verification commands: ${verifDefault}\nConfirm or modify (comma-separated)`
-    : 'List verification commands for this project (comma-separated).';
+    ? `I detected these verification commands (checks to run before shipping): ${verifDefault}\nConfirm or modify (comma-separated).\nExample: npm test, npm run lint`
+    : 'List verification commands to run before shipping (comma-separated).\nExample: npm test, npm run lint';
   questions.push({ key: 'verificationCommands', prompt: verifPrompt, defaultValue: verifDefault });
-  questions.push({ key: 'realConstraints', prompt: 'List confirmed real constraints (comma-separated).' });
-  questions.push({ key: 'assumedConstraints', prompt: 'List assumed constraints that may need verification (comma-separated).' });
+  const realConstraintsDefault = Array.isArray(scan.realConstraintCandidates) && scan.realConstraintCandidates.length > 0
+    ? scan.realConstraintCandidates.join(', ')
+    : '';
+  questions.push({
+    key: 'realConstraints',
+    prompt: realConstraintsDefault
+      ? `I inferred these confirmed constraints from repo artifacts: ${realConstraintsDefault}\nConfirm or modify (comma-separated).`
+      : 'List confirmed real constraints from this project (comma-separated).\nExample: deploy target: vercel, node >=20',
+    defaultValue: realConstraintsDefault,
+  });
+  questions.push({
+    key: 'assumedConstraints',
+    prompt: 'List assumed constraints that still need verification (comma-separated).\nExample: memory budget < 512MB',
+  });
 
   return questions.slice(0, MAX_FOLLOWUPS);
 }
@@ -489,7 +613,15 @@ async function runFollowups(io, scan, prior, options = {}) {
 
     if (nonInteractive) continue;
 
-    const value = await io.ask(`${q.prompt}\n(Type 'done' to stop follow-up questions)`, q.defaultValue || '');
+    const value = await io.ask(`${q.prompt}\n(Type 'done' to stop follow-up questions, or '?' / 'help' for clarification)`, q.defaultValue || '');
+    const normalizedValue = String(value).trim().toLowerCase();
+    if (normalizedValue === '?' || normalizedValue === 'help') {
+      console.log('[Onboarding] Clarification: answer in plain language. If unsure, keep the default and refine later.');
+      const retry = await io.ask(`${q.prompt}\n(Type 'done' to stop follow-up questions)`, q.defaultValue || '');
+      if (String(retry).trim().toLowerCase() === 'done') break;
+      if (retry) answers[q.key] = retry;
+      continue;
+    }
     if (String(value).trim().toLowerCase() === 'done') break;
     if (value) answers[q.key] = value;
   }
@@ -606,9 +738,17 @@ async function runOnboarding(projectRoot, priorData = null, options = {}) {
       answers[q.key] = q.normalize(raw);
     }
 
-    // Phase 2: silent scan.
+    // Phase 2: scan.
     console.log('[Onboarding] Running repository scan...');
     const scan = scanProject(projectRoot);
+    const scanSummary = [
+      `${scan.fileCount} files`,
+      scan.languages.length > 0 ? scan.languages.join('/') : 'unknown language',
+      scan.frameworks.length > 0 ? scan.frameworks.join(', ') : 'no framework detected',
+      scan.buildSystem || 'unknown build system',
+      scan.hasCI ? 'CI detected' : 'no CI detected',
+    ].join(', ');
+    console.log(`[Onboarding] Scan complete: ${scanSummary}.`);
 
     // Phase 3: targeted follow-up.
     const followup = await runFollowups(io, scan, prior, options);

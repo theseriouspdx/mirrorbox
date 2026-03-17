@@ -85,35 +85,51 @@ function waitForHealth(projectRoot, projectId, timeoutMs = 10000) {
   const userManifest = path.join(projectRoot, '.mbo/run/mcp.json');
   const canonicalRoot = canonicalPath(projectRoot);
 
-  const getPort = () => {
+  const isPidAlive = (pid) => {
+    try { process.kill(pid, 0); return true; } catch (_) { return false; }
+  };
+
+  const readManifest = (manifestPath) => {
     try {
-      let data = null;
-      for (const mp of [devManifest, userManifest]) {
-        if (fs.existsSync(mp)) { data = JSON.parse(fs.readFileSync(mp, 'utf8')); break; }
-      }
-      // BUG-077: if symlink manifest's pid is dead, scan for a live pid-specific manifest.
-      if (data && data.pid) {
-        let pidAlive = false;
-        try { process.kill(data.pid, 0); pidAlive = true; } catch (_) {}
-        if (!pidAlive) {
-          data = null;
-          const runDir = path.dirname(devManifest);
-          if (fs.existsSync(runDir)) {
-            for (const f of fs.readdirSync(runDir)) {
-              if (!f.startsWith('mcp-') || f === 'mcp.json' || !f.endsWith('.json')) continue;
-              try {
-                const c = JSON.parse(fs.readFileSync(path.join(runDir, f), 'utf8'));
-                if (c.project_id !== projectId) continue;
-                try { process.kill(c.pid, 0); } catch (_) { continue; }
-                data = c;
-                break;
-              } catch (_) {}
-            }
-          }
-        }
-      }
-      if (data && data.project_id === projectId) return data.port;
-    } catch (_) {}
+      if (!fs.existsSync(manifestPath)) return null;
+      return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const pickLiveManifest = (runDir) => {
+    if (!fs.existsSync(runDir)) return null;
+    const files = fs.readdirSync(runDir)
+      .filter((f) => f.startsWith(`mcp-${projectId}-`) && f.endsWith('.json'))
+      .map((f) => path.join(runDir, f));
+
+    files.sort((a, b) => {
+      try { return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs; } catch (_) { return 0; }
+    });
+
+    for (const fp of files) {
+      const m = readManifest(fp);
+      if (!m || m.project_id !== projectId || !m.port || !m.pid) continue;
+      if (!isPidAlive(m.pid)) continue;
+      return m;
+    }
+    return null;
+  };
+
+  const getPort = () => {
+    let data = null;
+    for (const mp of [devManifest, userManifest]) {
+      data = readManifest(mp);
+      if (data) break;
+    }
+
+    // Handle dead PID, missing symlink target, or unreadable symlink target.
+    if (!data || data.project_id !== projectId || !data.pid || !isPidAlive(data.pid)) {
+      data = pickLiveManifest(path.dirname(devManifest)) || pickLiveManifest(path.dirname(userManifest));
+    }
+
+    if (data && data.project_id === projectId && data.port) return data.port;
     return null;
   };
 
@@ -184,6 +200,7 @@ async function installMCPDaemon(projectRoot = process.env.MBO_PROJECT_ROOT || pr
   // BUG-077: clean up orphaned pid-specific manifests before launching a new daemon.
   // These accumulate when the daemon is killed (SIGKILL/crash) without graceful shutdown.
   const devRunDir = path.join(resolvedRoot, '.dev/run');
+  let removedManifestCount = 0;
   if (fs.existsSync(devRunDir)) {
     for (const f of fs.readdirSync(devRunDir)) {
       if (!f.startsWith(`mcp-${projectId}-`) || !f.endsWith('.json')) continue;
@@ -192,7 +209,37 @@ async function installMCPDaemon(projectRoot = process.env.MBO_PROJECT_ROOT || pr
         const m = JSON.parse(fs.readFileSync(mf, 'utf8'));
         let pidAlive = false;
         try { process.kill(m.pid, 0); pidAlive = true; } catch (_) {}
-        if (!pidAlive) fs.unlinkSync(mf);
+        if (!pidAlive) {
+          fs.unlinkSync(mf);
+          removedManifestCount += 1;
+        }
+      } catch (_) {}
+    }
+
+    // Repair dangling mcp.json symlink if cleanup removed its target.
+    if (removedManifestCount > 0) {
+      const symlinkPath = path.join(devRunDir, 'mcp.json');
+      try {
+        if (fs.existsSync(symlinkPath)) {
+          const target = fs.readlinkSync(symlinkPath);
+          const targetPath = path.join(devRunDir, target);
+          if (!fs.existsSync(targetPath)) {
+            const remaining = fs.readdirSync(devRunDir)
+              .filter((f) => f.startsWith(`mcp-${projectId}-`) && f.endsWith('.json'))
+              .sort((a, b) => {
+                try {
+                  return fs.statSync(path.join(devRunDir, b)).mtimeMs - fs.statSync(path.join(devRunDir, a)).mtimeMs;
+                } catch (_) {
+                  return 0;
+                }
+              });
+
+            fs.unlinkSync(symlinkPath);
+            if (remaining.length > 0) {
+              fs.symlinkSync(remaining[0], symlinkPath);
+            }
+          }
+        }
       } catch (_) {}
     }
   }

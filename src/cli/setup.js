@@ -244,6 +244,9 @@ async function installMCPDaemon(projectRoot = process.env.MBO_PROJECT_ROOT || pr
     }
   }
 
+  // Ensure run dir exists before any health probe / manifest lookup on first install.
+  fs.mkdirSync(path.join(resolvedRoot, '.dev', 'run'), { recursive: true });
+
   // Check if a healthy daemon is already running for this project — skip restart if so.
   // This preserves the existing ephemeral port across sessions (no unnecessary port churn).
   const alreadyHealthy = await waitForHealth(resolvedRoot, projectId, 2000);
