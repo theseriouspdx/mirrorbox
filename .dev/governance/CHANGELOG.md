@@ -1,6 +1,14 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [1.1.25] — 2026-03-16
+#### Added
+- **1.0-09A: relay-emitter.js + seed-subject-profile.js — Sovereign Loop prereqs (claude/1.0-relay-emitter-seed-profile)**
+  - `src/relay/relay-emitter.js` (new): Subject-side UDS emitter (§24). Singleton. Resolves socket path via `MBO_RELAY_SOCK` env or `.mbo/config.json relaySocket`. `connect(taskId, merkleRoot)` opens socket; `emit(event, actor, payload)` sends newline-delimited JSON packets with canonical Guard schema (8 required fields, monotonic seq). `disconnect()` cleans up.
+  - `scripts/seed-subject-profile.js` (new): Idempotent setup script. Upserts `subjectRoot` + `testCommand` into `onboarding_profiles` (mirrorbox.db). Writes `relaySocket` path into `MBO_Alpha/.mbo/config.json`. Accepts `--subject-root` and `--test-command` args; defaults to `/Users/johnserious/MBO_Alpha` and `npm test`.
+  - Tasks 1.0-06, 1.0-07, 1.0-08 confirmed implemented and logged in projecttracking.
+  - Tests: 17/17 passing. `python3 bin/validator.py --all` PASS.
+
 ### [1.1.24] — 2026-03-16
 #### Fixed
 - **BUG-078: Agent client configs self-heal on daemon startup (claude/bug-078-client-config-refresh)**

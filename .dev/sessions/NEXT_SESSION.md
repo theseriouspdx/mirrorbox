@@ -2,41 +2,40 @@
 ## Mirror Box Orchestrator — Session Handoff
 
 **Session ended:** 2026-03-16
-**Last task:** Branch cleanup + master push (post H35/H36/BUG-076)
-**Status:** COMPLETED
+**Last task:** 1.0-09A — relay-emitter + seed-subject-profile (Sovereign Loop prereqs)
+**Status:** COMPLETED — merged to master, pushed
 
 ---
 
 ## Section 1 — Next Action
 
-**Select next 1.1 hardening task**
+**1.0-09 — Sovereign Loop (Self-Patching Validation)**
 
-All queued hardening tasks through H36 are COMPLETED. Two bugs remain open:
+All prerequisites are now confirmed COMPLETED (1.0-03 through 1.0-09A). The system is ready to run the Sovereign Loop:
 
-- **BUG-078** — No auto-refresh of client configs after daemon respawn (P2, code fix landed, but `mbo setup` must be re-run on MBO_Alpha and johnseriouscom)
-- **BUG-080** — 7 pre-existing test suite failures (infra-dependency tagging, MCP skip guards needed)
+1. Run `node scripts/seed-subject-profile.js` to seed the onboarding profile (subjectRoot + relaySocket)
+2. Observe a real bug in Relay/Pile/Guard code via the Event Relay
+3. Draft a fix in Mirror (full pipeline Stages 1–5)
+4. Test fix in Docker sandbox (Stage 4.5)
+5. Human approves → Pile promotes fix to MBO_Alpha
+6. Relay confirms receipt event from Subject (relay-emitter.js → relay-listener.js)
+7. Verify Merkle root valid throughout
 
-Candidate next tasks:
-1. Fix BUG-080 — tag MCP-dependent tests, add skip guards for daemon-absent environments
-2. BUG-078 follow-through — verify `mbo setup` re-run on MBO_Alpha and johnseriouscom
-3. 1.0-09 — Sovereign Loop (self-patching validation), the one remaining IN PROGRESS 1.0 task
+Pass condition: system patches itself while maintaining valid Merkle root and all invariants hold.
 
 ---
 
 ## Section 2 — Session Summary
 
 - Tasks completed this session:
-  - Fixed BUG-076 — self-contained tamper detection test, audit-approved (Claude + adversarial agent audit)
-  - Merged 1.1-H36 (Codex — operator pipeline SPEC parity / BUG-082) to master
-  - Branch cleanup — all feature branches merged, deleted locally and remotely
-  - Documentation — BUGS.md footer, projecttracking Next Action, all governance current
+  - Gate 0 audit: confirmed 1.0-06, 1.0-07, 1.0-08 all implemented (logged in projecttracking)
+  - 1.0-09A: implemented `src/relay/relay-emitter.js` (Subject-side UDS emitter, §24)
+  - 1.0-09A: implemented `scripts/seed-subject-profile.js` (onboarding profile seed, idempotent)
+  - Branch `claude/1.0-relay-emitter-seed-profile` created, verified, merged to master, pushed
+  - All governance docs updated (CHANGELOG, projecttracking, NEXT_SESSION)
 - Key changes landed on master:
-  - `scripts/test-tamper-chain.js` — self-seeding tamper test, no live DB dependency
-  - `src/auth/operator.js` — full SPEC-compliant pipeline (Stages 1.5/3/4/4.5/6/7/8→11)
-  - `src/auth/did-orchestrator.js` — DID blind derivation enforced
-  - `src/auth/did-prompts.js` — reviewer round-1 blind
-  - `src/index.js` — Stage 11 completion reflected in audit message
-  - `scripts/test-h36-operator-did-approval.js` — H36 verification script
+  - `src/relay/relay-emitter.js` — Subject-side UDS emitter, canonical Guard schema
+  - `scripts/seed-subject-profile.js` — seeds subjectRoot + testCommand + relaySocket path
 - Tests: 17/17 passing
 - Repo state: master only, local and remote in sync
 
@@ -49,4 +48,4 @@ Candidate next tasks:
 - Status: closed_clean
 - Branch state: master only (local + remote)
 - Tests: 17/17 PASS
-- Timestamp: 2026-03-16T23:XX:00Z
+- Timestamp: 2026-03-16
