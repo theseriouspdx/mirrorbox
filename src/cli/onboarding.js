@@ -55,7 +55,9 @@ function createPromptIO() {
       resolve(trimmed || defaultValue || '');
     });
   });
-  return { ask, close: () => rl.close() };
+  // BUG-092: After rl.close(), resume stdin so closing the readline interface
+  // does not drain the event loop before the caller's promise chain completes.
+  return { ask, close: () => { rl.close(); process.stdin.resume(); } };
 }
 
 function readJSON(filePath) {
@@ -229,6 +231,7 @@ function buildProfile({
   const subjectRoot = subjectRootCandidate ? path.resolve(subjectRootCandidate) : null;
 
   return {
+    projectRoot: path.resolve(projectRoot),
     projectType: answers.projectType,
     users: answers.users,
     primeDirective,
@@ -410,6 +413,16 @@ function scanProject(projectRoot) {
     }
   }
 
+  // BUG-088/089/090: Build suggested danger zones from detected state dirs, config path, and lock files.
+  const suggestedDangerZones = [];
+  for (const stateDir of ['.git', '.mbo', '.dev']) {
+    if (fs.existsSync(path.join(projectRoot, stateDir))) suggestedDangerZones.push(`${stateDir}/`);
+  }
+  if (canonicalConfigPath) suggestedDangerZones.push(canonicalConfigPath);
+  for (const lockFile of ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Cargo.lock', 'poetry.lock']) {
+    if (fs.existsSync(path.join(projectRoot, lockFile))) { suggestedDangerZones.push(lockFile); break; }
+  }
+
   return {
     tokenCountRaw,
     fileCount,
@@ -422,6 +435,7 @@ function scanProject(projectRoot) {
     hasCI,
     verificationCommands: inferVerificationCommands(projectRoot, fw.buildSystem),
     canonicalConfigPath,
+    suggestedDangerZones,
   };
 }
 
@@ -441,8 +455,20 @@ function deriveFollowupQuestions(scan, prior) {
     questions.push({ key: 'canonicalConfigPath', prompt: 'I could not infer a canonical config path. Which config file is authoritative?' });
   }
 
-  questions.push({ key: 'dangerZones', prompt: 'List any danger zones (files/dirs) I should treat as high-risk (comma-separated).' });
-  questions.push({ key: 'verificationCommands', prompt: 'List verification commands for this project (comma-separated).' });
+  // BUG-088/089/090: Seed danger zones and verification commands from scan data.
+  const dangerDefault = scan.suggestedDangerZones && scan.suggestedDangerZones.length > 0
+    ? scan.suggestedDangerZones.join(', ') : '';
+  const dangerPrompt = dangerDefault
+    ? `I suggest these danger zones based on your project: ${dangerDefault}\nConfirm or modify (comma-separated)`
+    : 'List any danger zones (files/dirs) I should treat as high-risk (comma-separated).';
+  questions.push({ key: 'dangerZones', prompt: dangerPrompt, defaultValue: dangerDefault });
+
+  const verifDefault = scan.verificationCommands && scan.verificationCommands.length > 0
+    ? scan.verificationCommands.join(', ') : '';
+  const verifPrompt = verifDefault
+    ? `I detected these verification commands: ${verifDefault}\nConfirm or modify (comma-separated)`
+    : 'List verification commands for this project (comma-separated).';
+  questions.push({ key: 'verificationCommands', prompt: verifPrompt, defaultValue: verifDefault });
   questions.push({ key: 'realConstraints', prompt: 'List confirmed real constraints (comma-separated).' });
   questions.push({ key: 'assumedConstraints', prompt: 'List assumed constraints that may need verification (comma-separated).' });
 
@@ -463,7 +489,7 @@ async function runFollowups(io, scan, prior, options = {}) {
 
     if (nonInteractive) continue;
 
-    const value = await io.ask(`${q.prompt}\n(Type 'done' to stop follow-up questions)`, '');
+    const value = await io.ask(`${q.prompt}\n(Type 'done' to stop follow-up questions)`, q.defaultValue || '');
     if (String(value).trim().toLowerCase() === 'done') break;
     if (value) answers[q.key] = value;
   }
@@ -492,7 +518,10 @@ async function runPrimeDirectiveHandshake(io, profile, options = {}) {
       return profile;
     }
 
-    console.log('[Onboarding] Paraphrase diverged. Let\'s clarify and try again.');
+    // BUG-091: Show overlap ratio and threshold so the user knows why they failed
+    // and what a passing answer requires.
+    const pct = Math.round(ratio * 100);
+    console.log(`[Onboarding] Paraphrase diverged (overlap: ${pct}%, threshold: 15%). Tip: reuse key words from the directive text above. (Attempt ${attempts}/3)`);
   }
 
   throw new Error('Prime directive handshake failed after 3 attempts.');
@@ -634,6 +663,21 @@ async function checkOnboarding(projectRoot) {
   let activeProfile = conflict.profile;
   if (conflict.needsPrompt && conflict.reason === 'db_newer_conflict' && interactive) {
     activeProfile = await promptConflictResolution(conflict);
+  }
+
+  // BUG-086: Detect project root mismatch (e.g. profile copied from another project via cp -r).
+  // If stored projectRoot doesn't match current cwd, treat as fresh install.
+  // Also treat absent projectRoot (profile predates BUG-086 fix) as a mismatch.
+  if (activeProfile) {
+    const canonicalize = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+    const canonicalCwd = canonicalize(projectRoot);
+    const canonicalStored = activeProfile.projectRoot ? canonicalize(activeProfile.projectRoot) : null;
+    if (canonicalStored !== canonicalCwd) {
+      const storedLabel = activeProfile.projectRoot || '(unknown — profile predates root-tracking)';
+      console.log(`[SYSTEM] Onboarding profile belongs to a different project (${storedLabel}). Re-onboarding required.`);
+      if (interactive) await runOnboarding(projectRoot);
+      return true;
+    }
   }
 
   if (!activeProfile) {

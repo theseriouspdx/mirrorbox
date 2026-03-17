@@ -24,12 +24,26 @@ const entry = path.join(__dirname, '..', 'src', 'index.js');
 
 function runSetupCommand() {
   const setup = require('../src/cli/setup');
+  const { checkOnboarding } = require('../src/cli/onboarding');
   Promise.resolve()
     .then(async () => {
-      const hasConfig = setup.validateConfig();
-      if (!hasConfig) {
+      // BUG-085 fix (1): Gate on project-local .mbo/config.json, not global ~/.mbo/config.json.
+      // This ensures the setup wizard runs for each new project even on machines that
+      // previously ran `mbo setup` for a different project.
+      const localConfigPath = path.join(PROJECT_ROOT, '.mbo', 'config.json');
+      const hasLocalConfig = fs.existsSync(localConfigPath) && (() => {
+        try { JSON.parse(fs.readFileSync(localConfigPath, 'utf8')); return true; } catch { return false; }
+      })();
+
+      if (!hasLocalConfig) {
         await setup.runSetup();
       }
+
+      // BUG-085 fix (2): Wire onboarding into setup flow.
+      // checkOnboarding triggers the 4-phase interview when no valid project-local
+      // onboarding.json exists, or when the stored projectRoot doesn't match cwd (BUG-086).
+      await checkOnboarding(PROJECT_ROOT);
+
       setup.persistInstallMetadata(setup.CONFIG_PATH, PACKAGE_ROOT, { force: true });
     })
     .then(() => setup.installMCPDaemon(PROJECT_ROOT))
@@ -518,6 +532,20 @@ function reapStaleHelpers(packageRoot) {
 
   process.stderr.write(`[MBO] Recovered ${pids.length} stale helper process(es).\n`);
 }
+
+// BUG-084: Self-heal missing/incomplete node_modules before any command dispatch.
+function ensureNodeModules() {
+  const lockFile = path.join(PACKAGE_ROOT, 'node_modules', '.package-lock.json');
+  if (fs.existsSync(lockFile)) return;
+  process.stdout.write('[MBO] node_modules missing or incomplete — running npm install...\n');
+  const result = spawnSync('npm', ['install', '--prefix', PACKAGE_ROOT], { stdio: 'inherit' });
+  if ((result.status || 0) !== 0) {
+    process.stderr.write('[MBO] npm install failed. Please run `npm install` manually.\n');
+    process.exit(1);
+  }
+}
+
+ensureNodeModules();
 
 if (process.argv[2] === 'setup') {
   runSetupCommand();

@@ -9,6 +9,148 @@
 
 (None. Milestone 0.5 SUCCESS. Pre-0.6 Audit PASS.)
 
+### BUG-101: Error message tells user to run `mbo setup` while they are already running `mbo setup` | Milestone: 1.1 | OPEN
+- **Location:** `src/auth/operator.js:118` (`_resolveMCP`)
+- **Severity:** P1
+- **Status:** OPEN — 2026-03-16
+- **Description:** When `installMCPDaemon` fails during `mbo setup` for a new project, the error message says `Run 'mbo setup' first`. This is emitted while the user is already mid-setup. The message is circular and gives no actionable path forward.
+- **Observed:** `Error: No MCP manifest found in /Users/johnserious/johnseriouscom. Run 'mbo setup' first.`
+- **Expected:** Error message should describe the actual problem (no manifest yet, first-time install) and a real remediation step, or be suppressed entirely in first-install context.
+
+### BUG-100: `installMCPDaemon` fails and hangs for a genuine new project — no manifest bootstrap | Milestone: 1.1 | OPEN
+- **Location:** `src/auth/operator.js:118` (`_resolveMCP`), `bin/mbo.js:53` (`runSetupCommand` `.catch`)
+- **Severity:** P0 (blocks setup completion)
+- **Status:** OPEN — 2026-03-16
+- **Description:** After onboarding completes for a fresh external project with no prior `.mbo/` state, `installMCPDaemon` launches the operator which throws `No MCP manifest found`. The manifest doesn't exist yet — this is a first-time install. Additionally, the process hangs indefinitely after the error rather than exiting; `process.exit(1)` in the `.catch` handler does not fire, likely due to a dangling async operation or stdin remaining open.
+- **Observed:** Error printed, then process stalls. User must Ctrl+C to recover. `[MBO] MCP daemon ready.` is never printed.
+- **Expected:** `installMCPDaemon` should handle the no-manifest-yet case as a valid first-install state, bootstrap the manifest, and complete normally. If it does error, the process must exit cleanly.
+
+### BUG-099: Paraphrase handshake asks user to confirm their own words back to themselves | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/onboarding.js:500` (`runPrimeDirectiveHandshake`)
+- **Severity:** P2
+- **Status:** OPEN — 2026-03-16
+- **Description:** When the prime directive is largely the user's own Q3 answer verbatim (per BUG-098), asking them to paraphrase it is circular — they are being asked to re-summarize what they just typed. The handshake is designed to confirm MBO understood the directive, but in the current flow it confirms nothing meaningful.
+- **Observed:** User typed the prime directive content in Q3, then was immediately asked to paraphrase it back.
+- **Expected:** The handshake should confirm MBO's synthesis, not echo the user's own input. Once BUG-098 is fixed and the directive is genuinely synthesized, the handshake becomes meaningful. Alternatively, reframe from "paraphrase this" to "confirm or correct MBO's interpretation."
+
+### BUG-098: Prime directive is not synthesized — echoes user's raw Q3 answer verbatim including typos | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/onboarding.js:194` (`synthesizePrimeDirective`)
+- **Severity:** P1
+- **Status:** OPEN — 2026-03-16
+- **Description:** `synthesizePrimeDirective` concatenates a boilerplate prefix with the raw Q3 answer unchanged. It does not incorporate scan findings, follow-up answers, or any other interview input. Typos, fragments, and informal phrasing pass through unmodified.
+- **Observed:** Prime directive contained user's exact Q3 text with typos intact, plus a hardcoded constraint string that did not reflect what the scan actually found.
+- **Expected:** The prime directive should be synthesized from all interview inputs — Q3 as the priority signal, Q4 for partnership context, real constraints from follow-ups, scan findings — into a clean actionable statement.
+
+### BUG-097: Scan does not infer confirmed real constraints from project artifacts | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/onboarding.js` (`scanProject`, `deriveFollowupQuestions`)
+- **Severity:** P1
+- **Status:** OPEN — 2026-03-16
+- **Description:** The scan detects frameworks, build system, CI, and lock files, but makes no attempt to infer confirmed real constraints readable from the project — e.g. deployment target from `vercel.json`/`netlify.toml`, static vs. server rendering from Next.js config, environment requirements from `.env.example`. The user is then asked to list these from memory with a blank prompt.
+- **Observed:** `List confirmed real constraints (comma-separated).` — blank prompt, no defaults, no scan-seeded suggestions.
+- **Expected:** `scanProject` should detect common constraint signals (deploy config files, Next.js export mode, `.env.example` keys, etc.) and seed the `realConstraints` prompt with detected candidates, the same way it already seeds `dangerZones` and `verificationCommands`.
+
+### BUG-096: No mechanism for user to ask clarifying questions during follow-up interview | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/onboarding.js` (`runFollowups`, `createPromptIO`)
+- **Severity:** P2
+- **Status:** OPEN — 2026-03-16
+- **Description:** When a follow-up question is unclear, the user has no recourse except to guess, skip with `done`, or abandon the session. There is no way to ask for clarification inline.
+- **Observed:** Prompt appears, accepts any text or `done`. No help affordance.
+- **Expected:** A reserved keyword (e.g. `?` or `help`) at any prompt should print a plain-language explanation of what the question is asking and why, then re-ask the same question. The explanation should be derived from the same context used to generate the question.
+
+### BUG-095: "Subject-world root path" question is unexplained internal jargon with no context or example | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/onboarding.js:452` (`deriveFollowupQuestions`)
+- **Severity:** P2
+- **Status:** OPEN — 2026-03-16
+- **Description:** `Provide the Subject-world root path for promotion/cross-world telemetry.` uses MBO-internal terminology ("Subject-world", "promotion", "cross-world telemetry") that is meaningless to a user who hasn't read MBO internals. No explanation, no example path, no indication of what a correct answer looks like. Covered by BUG-093 (jargon) and BUG-094 (no scan context shown) but called out separately due to severity of this specific prompt.
+- **Observed:** Bare prompt, no hint, no plain-language explanation.
+- **Expected:** See BUG-093 and BUG-094 fixes. At minimum: plain-language prompt with an example path.
+
+### BUG-094: Scan results not surfaced to user before follow-up questions | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/onboarding.js` (`runOnboarding`, phase 2→3 transition)
+- **Severity:** P1
+- **Status:** OPEN — 2026-03-16
+- **Description:** After the silent scan runs, the detected state (frameworks, build system, languages, file count, CI status) is never printed to the terminal. The user has no visibility into what MBO found before being asked follow-up questions seeded from that scan data.
+- **Observed:** `[Onboarding] Running repository scan...` prints, then follow-up questions appear immediately with no summary of what was detected.
+- **Expected:** After the scan, print a brief summary before any follow-up questions: e.g. `[Onboarding] Scan complete: 47 files, JavaScript, Next.js, npm, no CI detected.`
+
+### BUG-093: Follow-up questions use unexplained jargon with no inline definition | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/onboarding.js` (`deriveFollowupQuestions`)
+- **Severity:** P2
+- **Status:** OPEN — 2026-03-16
+- **Description:** Follow-up questions use technical terms (e.g. "CI", "danger zones", "verification commands", "canonical config path", "Subject-world root path") without inline explanation. Terms like "CI" have multiple industry meanings, and non-technical project owners may not know what is being asked at all. Because questions are dynamically generated, hardcoded fixes per-string won't scale.
+- **Observed:** `No CI configuration detected. Should I treat this as intentional?` — no explanation of what CI means or why it matters.
+- **Expected:** The prompt generation logic should be responsible for constructing each question with: (1) plain-language explanation of the term, (2) why MBO needs this based on what was already gathered, and (3) an example of a valid answer.
+
+### BUG-092: `mbo setup` exits to shell after onboarding completes — does not continue to daemon start | Milestone: 1.1 | RESOLVED
+- **Location:** `bin/mbo.js` (`runSetupCommand`), `src/cli/onboarding.js` (`runOnboarding`, `createPromptIO`)
+- **Severity:** P0 (Operational Blocker)
+- **Status:** RESOLVED — 2026-03-16
+- **Description:** After the onboarding interview completes and `[Onboarding] Completed.` is printed, the process exits to the shell. `persistInstallMetadata` and `installMCPDaemon` never run. The expected final output `[MBO] MCP daemon ready. Port written to .dev/run/mcp.json` is never seen.
+- **Root cause:** `runOnboarding` calls `io.close()` in its `finally` block, which calls `rl.close()` on the readline interface bound to `process.stdin`. In Node.js, closing a readline interface in TTY mode causes stdin to emit `end`, draining the event loop and allowing the process to exit before the rest of the `runSetupCommand` promise chain (`persistInstallMetadata` → `installMCPDaemon`) executes.
+- **Fix:** `createPromptIO`'s `close` method now calls `process.stdin.resume()` after `rl.close()`. This keeps stdin alive so the event loop persists until the outer promise chain completes.
+
+### BUG-091: Prime directive handshake gives no feedback on why it failed or how to pass | Milestone: 1.1 | RESOLVED
+- **Location:** `src/cli/onboarding.js` (`runPrimeDirectiveHandshake`)
+- **Severity:** P1
+- **Status:** RESOLVED — 2026-03-16
+- **Description:** When the paraphrase fails the word-overlap check, the system prints "Paraphrase diverged. Let's clarify and try again." and re-prompts with no additional guidance. The user has no way to know (1) what the threshold is, (2) why their answer failed, or (3) what a passing answer looks like.
+- **Fix:** On failure, the message now shows the overlap % and threshold (15%), and advises the user to reuse key words from the directive text. Attempt number (N/3) is also shown.
+
+### BUG-090: Verification commands and danger zones prompts don't seed from scan-detected build system | Milestone: 1.1 | RESOLVED
+- **Location:** `src/cli/onboarding.js` (`deriveFollowupQuestions`)
+- **Severity:** P1
+- **Status:** RESOLVED — 2026-03-16 (covered by BUG-088/089 fix)
+- **Description:** `scanProject()` returns `verificationCommands` but `deriveFollowupQuestions` ignored it, presenting a blank field. Same for danger zones.
+- **Fix:** Resolved as part of BUG-088/089: `scan.verificationCommands` and `scan.suggestedDangerZones` are now injected as defaults with "I detected X — confirm or modify" prompts.
+
+### BUG-089: Follow-up questions don't use scan data — user must free-form answer what the scan already knows | Milestone: 1.1 | RESOLVED
+- **Location:** `src/cli/onboarding.js` (`deriveFollowupQuestions`, `runFollowups`)
+- **Severity:** P1
+- **Status:** RESOLVED — 2026-03-16
+- **Description:** Phase 3 follow-up questions presented blank prompts for danger zones and verification commands even though the scan had already collected this data.
+- **Fix:** `deriveFollowupQuestions` now attaches `defaultValue` to each seeded question. `runFollowups` passes `q.defaultValue` to `io.ask`, so the detected values appear in brackets and are accepted on Enter. Prompts read "I detected X — confirm or modify."
+
+### BUG-088: Danger zones question is structurally wrong — asks user to list what the system should infer | Milestone: 1.1 | RESOLVED
+- **Location:** `src/cli/onboarding.js` (`deriveFollowupQuestions`, `scanProject`)
+- **Severity:** P1
+- **Status:** RESOLVED — 2026-03-16
+- **Description:** The danger zones prompt asked the user to enumerate from memory instead of presenting scan-detected candidates.
+- **Fix:** `scanProject` now computes `suggestedDangerZones` from detected state dirs (`.git/`, `.mbo/`, `.dev/`), `canonicalConfigPath`, and the first lock file found. `deriveFollowupQuestions` uses this to build the prompt: "I suggest these danger zones based on your project: [list]. Confirm or modify (comma-separated)." The list is pre-populated as the default so pressing Enter accepts it.
+
+### BUG-087: `cp -r` of MBO source transplants controller `.mbo/` state into subject install | Milestone: 1.1 | RESOLVED
+- **Location:** Install workflow / `src/cli/onboarding.js` (`checkOnboarding`)
+- **Severity:** P1
+- **Status:** RESOLVED — 2026-03-17 (covered by BUG-086 fix)
+- **Description:** The standard install path (`cp -r MBO/. MBO_Alpha/`) copies `.mbo/` wholesale, including `onboarding.json`, `mirrorbox.db`, logs, and runtime state. The subject project inherits the controller's identity. `checkOnboarding` validates the schema but does not verify that the profile's `projectRoot` matches the current working directory, so the stale controller profile silently passes validation.
+- **Fix:** Resolved by BUG-086: `checkOnboarding` now reads `profile.projectRoot`, canonicalizes it, and compares against the current `cwd`. If mismatch is detected, the function logs a warning and triggers a full re-onboarding interview. The transplanted controller profile is rejected at runtime without requiring any changes to the copy workflow.
+
+### BUG-086: `mbo setup` accepts copied profile from a different project — no project root validation | Milestone: 1.1 | PARTIAL
+- **Location:** `src/cli/onboarding.js` (`checkOnboarding`)
+- **Severity:** P1
+- **Status:** PARTIAL — fix incomplete (validation 2026-03-16 FAIL)
+- **Description:** When `.mbo/onboarding.json` is copied from another project, `checkOnboarding` validates the schema but never checks whether the profile's origin matches the current project root. A foreign profile passes validation and the onboarding interview is skipped entirely.
+- **Fix shipped:** `buildProfile` now stores `projectRoot: path.resolve(projectRoot)` in the profile at write time. `checkOnboarding` canonicalizes both the stored root and the current cwd via `fs.realpathSync`; if they differ, logs a warning and triggers `runOnboarding`.
+- **Validation result (2026-03-16 FAIL):** Fresh-install test (`rm -rf MBO_Alpha && cp -r MBO/. MBO_Alpha/ && node bin/mbo.js setup`) produced no `[SYSTEM]` warning and no interview — daemon started silently.
+- **Root cause of failure:** The mismatch guard is `if (activeProfile && activeProfile.projectRoot)` — it is skipped when `projectRoot` is absent. The MBO controller's own `onboarding.json` was written before BUG-086 shipped and has no `projectRoot` field. When copied into MBO_Alpha, `activeProfile.projectRoot === undefined` and the entire detection block is bypassed.
+- **Fix (round 2):** Changed guard from `if (activeProfile && activeProfile.projectRoot)` to `if (activeProfile)`. When `projectRoot` is absent, `canonicalStored` is set to `null`, which cannot match `canonicalCwd`, so re-onboarding is always triggered. Label in log message now shows `(unknown — profile predates root-tracking)` when field is missing. Awaiting re-validation.
+
+### BUG-085: `mbo setup` skips onboarding interview on fresh project install | Milestone: 1.1 | RESOLVED
+- **Location:** `bin/mbo.js` (`runSetupCommand`), `src/cli/setup.js` (`runSetup`)
+- **Severity:** P0 (Operational Blocker)
+- **Status:** RESOLVED — 2026-03-17
+- **Description:** Two compounding layers:
+  1. `runSetupCommand` gates on `~/.mbo/config.json` (global config). Any machine that previously ran `mbo setup` skips the entire setup wizard on all subsequent projects — only `installMCPDaemon` runs.
+  2. Even if `runSetup()` executes, it never calls `checkOnboarding` or `runOnboarding`. The 4-phase interview (`onboarding.js`) is completely disconnected from the setup flow.
+- **Observed:** On a fresh Alpha install, `mbo setup` printed only `[MBO] MCP daemon ready. Port written to .dev/run/mcp.json` — no questions asked, no `onboarding.json` written for the new project.
+- **Fix:** (1) `runSetupCommand` now checks project-local `.mbo/config.json` (not global `~/.mbo/config.json`) to decide whether to run the setup wizard — every new project directory triggers the wizard. (2) `checkOnboarding(PROJECT_ROOT)` is called after the wizard completes, wiring the 4-phase onboarding interview into the setup flow.
+
+### BUG-084: `mbo` does not auto-run `npm install` on first launch | Milestone: 1.1 | RESOLVED
+- **Location:** `bin/mbo.js` (launch / setup path)
+- **Severity:** P2
+- **Status:** RESOLVED — 2026-03-17
+- **Description:** On a fresh installation, the user must manually run `npm install` before any `mbo` command is usable. MBO should detect missing or incomplete `node_modules` on launch and either self-heal automatically or prompt the user to confirm before installing.
+- **Fix:** Added `ensureNodeModules()` to `bin/mbo.js`. Checks for `node_modules/.package-lock.json` at the package root; if absent, runs `npm install --prefix <PACKAGE_ROOT>` before the command dispatch. Exits with an error message if install fails.
+
 ### BUG-075: DB path resolution regression in test scripts (BUG-051 aftershock) | Milestone: 1.1 | RESOLVED
 ... (rest of BUG-075)
 
@@ -429,4 +571,4 @@
 - **Description:** Readiness assessment for Task 1.0-09 (Sovereign Loop) revealed that `subjectRoot` is missing from the active onboarding profile. This prevents any Subject-world promotion or cross-world telemetry from functioning.
 - **Fix:** Updated `runOnboarding` to include `subjectRoot` in the `onboarding.json` payload, defaulting to `/Users/johnserious/MBO_Alpha` if missing. Fixed function nesting in `src/cli/onboarding.js`.
 
-*Last updated: 2026-03-16 — BUG-083 OPEN (missing subjectRoot); BUG-082 RESOLVED; BUG-080 RESOLVED; BUG-078 FIXED; BUG-076 RESOLVED; BUG-056, 081 RESOLVED; BUG-072, 073, 074, 075 RESOLVED; BUG-077, 079 FIXED.*
+*Last updated: 2026-03-17 — BUG-084, 085, 086, 087 RESOLVED; BUG-083 RESOLVED; BUG-082 RESOLVED; BUG-080 RESOLVED; BUG-078 FIXED; BUG-076 RESOLVED; BUG-056, 081 RESOLVED; BUG-072, 073, 074, 075 RESOLVED; BUG-077, 079 FIXED.*
