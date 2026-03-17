@@ -27,6 +27,7 @@ const HOME_CONFIG_PATH = path.join(HOME_CONFIG_DIR, 'config.json');
 function runSetupCommand() {
   const setup = require('../src/cli/setup');
   const { checkOnboarding } = require('../src/cli/onboarding');
+  const { detectProviders } = require('../src/cli/detect-providers');
   Promise.resolve()
     .then(async () => {
       // BUG-085 fix (1): Gate on project-local .mbo/config.json, not global ~/.mbo/config.json.
@@ -37,7 +38,16 @@ function runSetupCommand() {
         try { JSON.parse(fs.readFileSync(localConfigPath, 'utf8')); return true; } catch { return false; }
       })();
 
-      if (!hasLocalConfig) {
+      const providers = await detectProviders();
+      const hasRuntimeProvider = !!(
+        providers.claudeCLI ||
+        providers.geminiCLI ||
+        providers.codexCLI ||
+        providers.openrouterKey ||
+        providers.anthropicKey
+      );
+
+      if (!hasLocalConfig || !hasRuntimeProvider) {
         await setup.runSetup();
       }
 

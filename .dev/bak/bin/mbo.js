@@ -21,6 +21,8 @@ const PACKAGE_ROOT = path.resolve(__dirname, '..');
 const INVOCATION_CWD = process.cwd();
 const PROJECT_ROOT = process.env.MBO_PROJECT_ROOT || findProjectRoot(INVOCATION_CWD);
 const entry = path.join(__dirname, '..', 'src', 'index.js');
+const HOME_CONFIG_DIR = path.join(require('os').homedir(), '.mbo');
+const HOME_CONFIG_PATH = path.join(HOME_CONFIG_DIR, 'config.json');
 
 function runSetupCommand() {
   const setup = require('../src/cli/setup');
@@ -44,7 +46,12 @@ function runSetupCommand() {
       // onboarding.json exists, or when the stored projectRoot doesn't match cwd (BUG-086).
       await checkOnboarding(PROJECT_ROOT);
 
-      setup.persistInstallMetadata(setup.CONFIG_PATH, PACKAGE_ROOT, { force: true });
+      // Keep setup non-blocking in restricted environments where ~/.mbo is not writable.
+      try {
+        setup.persistInstallMetadata(HOME_CONFIG_PATH, PACKAGE_ROOT, { force: true });
+      } catch (err) {
+        process.stderr.write(`[MBO] Warning: unable to write ${HOME_CONFIG_PATH}: ${err.message}\n`);
+      }
     })
     .then(() => setup.installMCPDaemon(PROJECT_ROOT))
     .then(() => {
