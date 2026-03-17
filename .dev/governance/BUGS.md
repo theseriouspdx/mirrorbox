@@ -576,3 +576,83 @@
 - **Fix:** Updated `runOnboarding` to include `subjectRoot` in the `onboarding.json` payload, defaulting to `/Users/johnserious/MBO_Alpha` if missing. Fixed function nesting in `src/cli/onboarding.js`.
 
 *Last updated: 2026-03-17 — BUG-084, 085, 086, 087 RESOLVED; BUG-083 RESOLVED; BUG-082 RESOLVED; BUG-080 RESOLVED; BUG-078 FIXED; BUG-076 RESOLVED; BUG-056, 081 RESOLVED; BUG-072, 073, 074, 075 RESOLVED; BUG-077, 079 FIXED.*
+
+### BUG-119: Chat-native onboarding shell UX/regression bundle (verbatim operator report) | Milestone: 1.1 | OPEN
+- **Location:** `src/index.js`, `src/auth/operator.js`, onboarding/prompt rendering path
+- **Severity:** P1
+- **Status:** OPEN
+- **Task:** v0.11.86
+- **User Comment (verbatim):**
+
+Another bug is it doesn't have the default filled in and it's supposed to be like this.
+
+- **Expected Terminal Mock (verbatim):**
+
+[Operator] Context window set to 32000 tokens (threshold: 25600)
+No onboarding profile was found.
+[Relay] Listening at /Users/johnserious/MBO_Alpha/.dev/run/relay.sock
+MBO Engine v0.11.24-20260317.2153 initialized
+
+Before questions, here is what I found from your project scan:
+Confirmed:
+- Build system: npm
+- Canonical config: package.json
+- Files scanned: 0 <WHY NOT?>
+Inferred (please confirm):
+- Framework: none detected
+- CI: not found — treating as intentional until confirmed
+Unknown (I will ask):
+- Language (no source files detected)
+- Tests
+- Deployment target
+Welcome to Mirror Box Orchestrator
+Please spend  a few miunutyes to help us get aquainted with you and your project.  Feel free to ask for clarification on any question, or go back to a previous question, or ask for help.
+
+[CTRL-F to focus sandbox, SHIFT+T for Tokenmiser stats]
+Question in different color (TEAL?)
+MBO <VERSION NUMBER> > <defauilt or answer from system scan in grey, hit enter to accept> ( type ON TOP of text. )
+
+- **UI Requirement Notes (verbatim):**
+
+system messages, operator, relay <and all other agents> all should be different colors.
+
+### BUG-120: Tokenmiser window needs dedicated UI pass/session | Milestone: 1.1 | OPEN
+- **Location:** Tokenmiser UI / terminal overlay flow
+- **Severity:** P2
+- **Status:** OPEN
+- **Task:** v0.11.86
+- **Description:** Tokenmiser window requires a dedicated UI session to review and fix layout, behavior, and integration issues separately from onboarding/runtime fixes.
+- **Operator note (verbatim):** the token miser window is gonna need a whole session when we go through the UI on it
+
+### BUG-121: SPEC mismatch — onboarding question wording and UX behavior diverge from Section 5/Section 36 | Milestone: 1.1 | OPEN
+- **Location:** `src/auth/operator.js`, `src/cli/onboarding.js`, runtime onboarding shell flow
+- **Severity:** P1
+- **Status:** OPEN
+- **Task:** v0.11.86
+- **Description:** Runtime onboarding copy/behavior does not match SPEC-defined wording and chat-native UX contract. Example mismatch: runtime asks "always protect while working here" while SPEC defines "always keep in mind". Additional UX contract gaps are present in prompt framing and interaction behavior.
+- **Expected:** Runtime onboarding prompts and UX behavior must match SPEC Section 5 + Section 36 contract exactly.
+
+### BUG-122: Staging path prompt is non-conversational and creates a hard blocker (requires pre-created directory) | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/onboarding.js` (`askSubjectRoot`, `validateSubjectRoot`), operator onboarding question flow
+- **Severity:** P0 (workflow blocker)
+- **Status:** OPEN
+- **Task:** v0.11.86
+- **Description:** Prompt forces user to provide an existing absolute staging path, rejects common answers, and blocks progression unless user manually creates directory out-of-band. This is non-conversational and interrupts active onboarding session.
+- **Observed:** "Directory does not exist ... Create it first, then re-run setup." while session is already in-progress.
+- **Expected:** Offer to create missing directory automatically (with confirmation) and continue without requiring restart or shell detour.
+
+### BUG-123: Default workflow should not require external staging path prompt when internal `.dev` staging is active | Milestone: 1.1 | OPEN
+- **Location:** onboarding staging-path question contract / runtime defaults
+- **Severity:** P1
+- **Status:** OPEN
+- **Task:** v0.11.86
+- **Description:** Current onboarding always asks for external staging path despite project using internal managed staging/worktree flow. This introduces unnecessary friction and confusion.
+- **Expected:** Default to internal managed staging (`.dev/worktree`) and only ask for external staging path when user explicitly opts in.
+
+### BUG-124: Onboarding scan briefing reports `Files scanned: 0` in active project with files present | Milestone: 1.1 | OPEN
+- **Location:** onboarding scan root detection / scan briefing output
+- **Severity:** P1
+- **Status:** OPEN
+- **Task:** v0.11.86
+- **Description:** During onboarding in `MBO_Alpha`, briefing reports zero scanned files despite repository containing code, causing low-confidence prompts and incorrect UX flow.
+- **Expected:** Scan should detect project files and produce non-zero scan counts for active source roots.

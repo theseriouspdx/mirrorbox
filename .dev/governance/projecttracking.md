@@ -10,7 +10,7 @@
 ## Active Tasks
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
-| v0.11.86 | bug | BUG-086 root-mismatch re-onboarding validation round 2 | IN_PROGRESS | gemini | gemini/bug-086-revalidate | 2026-03-17 | BUG-086 | Fresh install re-onboards when copied profile has missing/foreign `projectRoot`; evidence logged in BUGS.md |
+| v0.11.86 | bug | BUG-086 root-mismatch re-onboarding validation round 2 | IN_PROGRESS | gemini | gemini/bug-086-revalidate | 2026-03-17 | BUG-086,BUG-119,BUG-120,BUG-121,BUG-122,BUG-123,BUG-124 | Fresh install re-onboards when copied profile has missing/foreign `projectRoot`; evidence logged in BUGS.md |
 | v0.11.61 | bug | BUG-061 Merkle scope + MCP query path drift closure | READY | gemini | gemini/bug-061-closure | 2026-03-17 | BUG-061 | Merkle scope contract implemented + non-src drift tests + standardized `node scripts/mcp_query.js` path |
 | v0.11.52 | bug | BUG-052 global mbo CLI entrypoint packaging | READY | codex | codex/bug-052-cli-entrypoint | 2026-03-17 | BUG-052 | `mbo` installable globally and validated in clean environment |
 | v0.11.36 | docs | Workflow canonicalization and validator enforcement | IN_PROGRESS | codex | codex/workflow-canonicalization | 2026-03-17 | BUG-048 | AGENTS/protocol updated, session-close generator deterministic, validator drift checks enforced |
