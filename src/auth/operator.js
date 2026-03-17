@@ -119,8 +119,24 @@ class Operator {
   }
 
   _resolveMCP() {
-    const devManifest = path.join(RUNTIME_ROOT, '.dev/run/mcp.json');
-    const userManifest = path.join(RUNTIME_ROOT, '.mbo/run/mcp.json');
+    // Support worktrees: walk up directory tree to find manifest from parent repo
+    const findManifestDir = () => {
+      let current = RUNTIME_ROOT;
+      const visited = new Set();
+      while (current !== '/' && !visited.has(current)) {
+        visited.add(current);
+        if (fs.existsSync(path.join(current, '.dev/run/mcp.json')) ||
+            fs.existsSync(path.join(current, '.mbo/run/mcp.json'))) {
+          return current;
+        }
+        current = path.dirname(current);
+      }
+      return RUNTIME_ROOT;
+    };
+
+    const manifestDir = findManifestDir();
+    const devManifest = path.join(manifestDir, '.dev/run/mcp.json');
+    const userManifest = path.join(manifestDir, '.mbo/run/mcp.json');
     let manifest = null;
     try {
       if (fs.existsSync(devManifest)) manifest = JSON.parse(fs.readFileSync(devManifest, 'utf8'));
@@ -180,12 +196,17 @@ class Operator {
       throw new Error(`No active MCP manifest found for project ${canonicalRuntimeRoot}.\n[RECOMMENDED ACTION]: ${action}`);
     }
 
-    if (manifest.project_id !== expectedProjectId || fs.realpathSync(manifest.project_root) !== canonicalRuntimeRoot) {
+    // Allow worktrees: accept manifest if current path is under the manifest's project_root
+    const manifestRoot = fs.realpathSync(manifest.project_root);
+    const isUnderManifestRoot = canonicalRuntimeRoot === manifestRoot ||
+                                canonicalRuntimeRoot.startsWith(manifestRoot + path.sep);
+
+    if (!isUnderManifestRoot) {
       const isDev = isDevContext(canonicalRuntimeRoot);
       const action = isDev
         ? `Verify the correct worktree is active and restart 'mbo mcp' if needed.`
         : `Run 'mbo setup' in the correct project directory to re-index.`;
-      throw new Error(`MCP identity mismatch! Expected ${canonicalRuntimeRoot} (${expectedProjectId}), got ${manifest.project_root} (${manifest.project_id})\n[RECOMMENDED ACTION]: ${action}`);
+      throw new Error(`MCP location mismatch! Manifest points to ${manifest.project_root}, but running from ${canonicalRuntimeRoot}.\n[RECOMMENDED ACTION]: ${action}`);
     }
 
     this.stateSummary.mcp.url = `http://127.0.0.1:${manifest.port}`;
