@@ -31,7 +31,7 @@ MCP is launchd-owned on macOS and binds a project-scoped dynamic port.
 
 ```bash
 mbo setup
-node ./scripts/mcp_query.js --diagnose graph_server_info
+curl http://127.0.0.1:$(node -e 'const fs=require("fs");const f=[".dev/run/mcp.json",".mbo/run/mcp.json"].find(x=>fs.existsSync(x));console.log(f?require("./"+f).port:7337)')/health
 ```
 
 Recovery shortcut:
@@ -51,14 +51,6 @@ Use explicit Node invocation:
 ```bash
 node ./scripts/mcp_query.js tools_list
 node ./scripts/mcp_query.js graph_search "open tasks"
-```
-
-Gemini CLI validation in-session:
-
-```text
-mcp_mbo-graph_graph_server_info
-# or
-mcp_mbo-graph_graph_rescan
 ```
 
 ## Notes

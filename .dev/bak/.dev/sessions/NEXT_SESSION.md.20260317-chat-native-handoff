@@ -1,0 +1,43 @@
+# NEXT_SESSION.md
+## Mirror Box Orchestrator — Session Handoff
+
+**Session ended:** 2026-03-17
+**Last task:** v0.11.87 — Live UX Workflow Audit (BLOCKED by BUG-106)
+**Status:** Structural Reconciliation Required
+
+---
+
+## Section 1 — Next Action
+
+**Task v0.11.88 — Structural Reconciliation & Conversational Pivot**
+
+- Status: READY
+- Objective: Investigate why UX-022..028 logic is missing from `master` and pivot the onboarding architecture to an LLM-driven dialogue (BUG-108).
+- Linked P0/P1 blockers:
+  - BUG-106: Structural Regression — UX-022..028 logic missing from master
+  - BUG-107: Non-Terminal Architecture — Hard crash to shell
+  - BUG-108: Conversational Awareness — Onboarding is a static script
+
+**Graph queries to run at Gate 0:**
+```
+graph_search("BUG-106 Structural Regression")
+graph_search("src/cli/onboarding.js")
+```
+
+---
+
+## Section 2 — Session Summary
+
+- Tasks completed this session: 0 (v0.11.87 blocked)
+- Audit Outcome: 7 new critical bugs/architectural failures logged (BUG-102..BUG-108).
+- Discovery: The current `master` branch used for `MBO_Alpha` lacks the empathy, synthesis, and conversational logic supposedly implemented in the previous milestone.
+
+---
+
+## Section 3 — Directory State
+(State snapshot captured in mirrorbox.db)
+
+## Session End Checklist
+- Status: closed_clean
+- PRAGMA integrity_check: ok
+- Timestamp: 2026-03-17T15:00:00Z

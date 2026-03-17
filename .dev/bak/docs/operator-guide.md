@@ -52,7 +52,6 @@ Graph guardrails (required):
 - After 2 empty broadened `graph_search` retries, switch to `rg`/file search. Do not keep retry-looping.
 - Do not start orientation with literal graph query seeds longer than 48 characters.
 - MCP recovery success is defined by successful MCP tool execution (for example `mcp_mbo-graph_graph_server_info`), not by handshake status output.
-- During orientation/read-only startup, do not run `python3 bin/handshake.py ...` unless the human explicitly asks.
 
 ---
 
@@ -67,7 +66,7 @@ mbo auth <scope>
 | `mbo auth <scope>` | Grant write access to `src/<scope>` |
 | `mbo auth status` | Check active session |
 | `mbo auth <same-scope>` | Toggle revoke for active same scope |
-| `python3 bin/handshake.py --pulse` | Integrity check (write phase only or explicit human request) |
+| `python3 bin/handshake.py --pulse` | Integrity check (no side effects) |
 
 Scope examples: `auth/operator`, `relay`, `cells/graph`, `index.js`
 

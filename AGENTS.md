@@ -16,6 +16,10 @@ Every development session begins in this order. No exceptions.
 
 No code is written before this sequence completes.
 
+Session-start hard rule:
+- During orientation/read-only startup, agents MUST NOT run any `handshake.py` command (`--status`, `--pulse`, `--revoke`, or scope grant) unless the human explicitly instructs it.
+- During orientation/read-only startup, agents MUST NOT request permission for `python3 bin/handshake.py ...`.
+
 ---
 
 ## Section 2 — Development Protocol (DID) & Routing Tiers
@@ -193,10 +197,15 @@ No fixed port, manifest-based discovery required, no port negotiation, no sessio
 
 If the dev graph server is unavailable:
 - Check: `node scripts/mcp_query.js --diagnose graph_server_info`
-- Start: `mbo setup`
-- State: "Dev graph unavailable. Ran `curl /health` — [result]. Awaiting human instruction."
+- Recover: `mbo mcp`
+- Validate recovery by running either `mcp_mbo-graph_graph_rescan` or `mcp_mbo-graph_graph_server_info` from the active client session.
+- State: "Dev graph unavailable. Ran MCP diagnostics/recovery. Awaiting human instruction."
 
-MCP is available via dynamic manifest-resolved endpoint. Run `node scripts/mcp_query.js --diagnose graph_server_info` to verify before starting.
+MCP recovery/orientation hard rule:
+- Do not run `handshake.py` as part of MCP recovery validation.
+- MCP success is determined by successful MCP tool execution, not handshake output.
+
+MCP is available when `graph_server_info` returns a valid result for the current `project_root`.
 
 ---
 
@@ -204,7 +213,8 @@ MCP is available via dynamic manifest-resolved endpoint. Run `node scripts/mcp_q
 
 Every development session MUST follow this checklist:
 1. **Identify Task** from `projecttracking.md`.
-2. **Permission Check** via `python3 bin/handshake.py <cell_name>`.
+2. **Permission Check (write phase only)** via `python3 bin/handshake.py <cell_name>` only after human "go" to modify files.
+   - Prohibited before "go": any `handshake.py` command.
 3. **Create Working Branch** (`<agent>/<task-or-scope>`) and keep all edits isolated there.
 4. **Derive & Propose** solution from graph context.
 5. **Human Approval** ("go").

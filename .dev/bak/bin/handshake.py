@@ -16,111 +16,6 @@ KEYCHAIN_SERVICE = "com.mbo.auth.user-presence"
 CI_POLICY_FLAG = "MBO_CI_AUTH_APPROVED"
 CI_POLICY_SCOPES = "MBO_CI_AUTH_SCOPES"
 CI_POLICY_ACTIONS = "MBO_CI_AUTH_ACTIONS"
-AUTH_HELPER_NAME = "Mirror Box Orchestrator"
-AUTH_HELPER_CACHE_DIR = MBO_ROOT / ".mbo" / "cache" / "auth"
-
-
-def _macos_auth_helper_source() -> str:
-    return r'''
-#import <Foundation/Foundation.h>
-#import <LocalAuthentication/LocalAuthentication.h>
-#import <dispatch/dispatch.h>
-
-int main(int argc, const char * argv[]) {
-  @autoreleasepool {
-    NSString *reason = @"authorize write access to src for 30 minutes";
-    if (argc > 1) {
-      reason = [NSString stringWithUTF8String:argv[1]];
-    }
-
-    LAContext *context = [[LAContext alloc] init];
-    context.localizedCancelTitle = @"Cancel";
-
-    NSError *error = nil;
-    if (![context canEvaluatePolicy:LAPolicyDeviceOwnerAuthentication error:&error]) {
-      fprintf(stderr, "NO_POLICY\\n");
-      return 2;
-    }
-
-    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-    __block int status = 1;
-    [context evaluatePolicy:LAPolicyDeviceOwnerAuthentication
-            localizedReason:reason
-                      reply:^(BOOL success, NSError * _Nullable evalError) {
-      status = success ? 0 : 1;
-      dispatch_semaphore_signal(sem);
-    }];
-
-    long timed = dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC));
-    if (timed != 0) {
-      fprintf(stderr, "TIMEOUT\\n");
-      return 3;
-    }
-
-    if (status == 0) {
-      printf("OK\\n");
-      return 0;
-    }
-
-    fprintf(stderr, "DENIED\\n");
-    return 1;
-  }
-}
-'''
-
-
-def _macos_auth_helper_path() -> Optional[Path]:
-    clang = shutil.which("clang")
-    if clang is None:
-        return None
-
-    helper_dir = AUTH_HELPER_CACHE_DIR
-    helper_path = helper_dir / AUTH_HELPER_NAME
-    version_path = helper_dir / ".helper.version"
-    source_path = helper_dir / "mbo_auth_prompt.m"
-
-    source = _macos_auth_helper_source()
-    source_hash = hashlib.sha256(source.encode()).hexdigest()
-
-    try:
-        helper_dir.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        return None
-
-    current_version = version_path.read_text().strip() if version_path.exists() else ""
-    if helper_path.exists() and os.access(helper_path, os.X_OK) and current_version == source_hash:
-        return helper_path
-
-    try:
-        source_path.write_text(source)
-    except OSError:
-        return None
-
-    build = subprocess.run(
-        [
-            clang,
-            "-fobjc-arc",
-            "-framework",
-            "Foundation",
-            "-framework",
-            "LocalAuthentication",
-            "-o",
-            str(helper_path),
-            str(source_path),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if build.returncode != 0:
-        return None
-
-    try:
-        helper_path.chmod(0o755)
-        version_path.write_text(source_hash + "\n")
-    except OSError:
-        return None
-
-    return helper_path
 
 
 def _sha256_file(path: Path) -> str:
@@ -318,20 +213,39 @@ def _ensure_keychain_item() -> bool:
 
 
 def _macos_local_auth_prompt(action: str, scope: Optional[str]) -> bool:
-    helper = _macos_auth_helper_path()
-    if helper is None:
+    if shutil.which("swift") is None:
         return False
 
-    scope_text = scope or "src"
-    if action == "grant":
-        reason = f"authorize write access to {scope_text} for 30 minutes"
-    elif action == "revoke":
-        reason = f"revoke write access to {scope_text}"
-    else:
-        reason = f"authorize write access to {scope_text} for 30 minutes"
+    scope_text = scope or "none"
+    reason = f"Authorize mbo auth {action} ({scope_text})"
+    script = r'''
+import LocalAuthentication
+import Foundation
+
+let context = LAContext()
+context.localizedCancelTitle = "Cancel"
+var error: NSError?
+if !context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) {
+    fputs("NO_POLICY\n", stderr)
+    exit(2)
+}
+let sem = DispatchSemaphore(value: 0)
+var ok = false
+context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: CommandLine.arguments[1]) { success, _ in
+    ok = success
+    sem.signal()
+}
+_ = sem.wait(timeout: .now() + 30)
+if ok {
+    print("OK")
+    exit(0)
+}
+fputs("DENIED\n", stderr)
+exit(1)
+'''
 
     proc = subprocess.run(
-        [str(helper), reason],
+        ["swift", "-e", script, reason],
         capture_output=True,
         text=True,
     )

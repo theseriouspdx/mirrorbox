@@ -321,7 +321,7 @@
 **Q1: Does Docker-in-Docker work in all three target environments?**
 - Spec reference: Section 16, Appendix B open question
 - What blocks: The entire sandbox architecture (Section 16, Stage 4.5)
-- Resolution: Platform tests on Mac (Docker Desktop), Linux (native Docker), WSL2 (Docker Desktop for Windows). Test both DinD and socket-mount approaches. Test with and without privileged mode.
+- Resolution: Platform tests on Mac (Docker Desktop), Lin(native Docker), WSL2 (Docker Desktop for Windows). Test both DinD and socket-mount approaches. Test with and without privileged mode.
 - Cost if wrong: CATASTROPHIC — sandbox must be redesigned from scratch
 - Resolve before code: YES — before any sandbox code is written
 
@@ -355,7 +355,7 @@
 
 **Q6: How does the human interact with the live sandbox in a CLI context?**
 - Spec reference: Stage 4.5 — "the human can interact with the live result before approving — resize the browser, click the button, double-click the icon"
-- What blocks: Stage 4.5 UX design for CLI
+- What blocks: Stage 4.5 design for CLI
 - Resolution: Design decision — the sandbox exposes a port, the human opens a browser manually, or the CLI opens a browser automatically. This must be specified before Stage 4.5 is built.
 - Cost if wrong: MEDIUM — wrong interaction model makes the interactive sandbox useless in CLI context
 - Resolve before code: YES — before Stage 4.5 implementation

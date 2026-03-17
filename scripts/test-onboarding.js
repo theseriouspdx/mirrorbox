@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
-  runOnboarding,
+  checkOnboarding, runOnboarding,
   validateProfile,
   readLatestDbProfile,
   // UX-022
@@ -424,10 +424,47 @@ function testInferRealConstraints() {
   fs.rmSync(path.join(projectRoot, '.env.example'));
 }
 
+async function testRootMismatch() {
+  const projectA = mktempProject();
+  const projectB = mktempProject();
+  const subjectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mbo-sr-'));
+
+  // Onboard ProjectA
+  await runOnboarding(projectA, null, {
+    nonInteractive: true,
+    answers: { projectType: 'existing', users: 'testers', q3Raw: 'stable', q4Raw: 'none' },
+    followup: { subjectRoot, verificationCommands: 'echo ok', dangerZones: 'none' }
+  });
+
+  const onboardingA = path.join(projectA, '.mbo', 'onboarding.json');
+  const dataA = JSON.parse(fs.readFileSync(onboardingA, 'utf8'));
+  assert(dataA.projectRoot, 'ProjectA profile should have projectRoot');
+
+  // Copy ProjectA profile to ProjectB
+  const mboB = path.join(projectB, '.mbo');
+  fs.mkdirSync(mboB, { recursive: true });
+  fs.copyFileSync(onboardingA, path.join(mboB, 'onboarding.json'));
+
+  // Check ProjectB (should detect mismatch)
+  // Mock isTTY to false to avoid hang
+  const oldIsTTY = process.stdin.isTTY;
+  process.stdin.isTTY = false;
+  try {
+    const needsOnboarding = await checkOnboarding(projectB);
+    assert(needsOnboarding === true, 'ProjectB should require re-onboarding due to root mismatch');
+  } finally {
+    process.stdin.isTTY = oldIsTTY;
+  }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
   console.log('--- test-onboarding.js ---\n');
+
+  // BUG-086
+  await testRootMismatch();
+  console.log('PASS  BUG-086 root-mismatch detection');
 
   // Original tests
   await testFreshOnboarding();

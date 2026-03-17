@@ -10,9 +10,9 @@
 Every development session begins in this order. No exceptions.
 
 1. Read this file (`AGENTS.md`)
-2. Read `.dev/governance/projecttracking.md` — identify current milestone and active task
-3. Read `.dev/governance/BUGS.md` — check for anything P0 blocking current milestone
-4. Read `.dev/sessions/NEXT_SESSION.md` — orientation and handoff
+2. Read `.dev/governance/projecttracking.md` — identify current milestone and active task (single source of truth)
+3. Read `.dev/governance/BUGS.md` — check linked P0/P1 blockers for the active task
+4. Read `.dev/sessions/NEXT_SESSION.md` — generated handoff only (do not hand-edit)
 
 No code is written before this sequence completes.
 
@@ -101,6 +101,23 @@ Implementation task: `1.1-H24` — see `.dev/preflight/did-protocol-implementati
 - Verification gate minimum: `python3 bin/validator.py --all` passes, task-specific tests pass, and no new P0/P1 regressions are introduced.
 - If verification fails, fix-forward on the same working branch; do not apply partial changes.
 
+### Invariant 18 (MCP Endpoint Resolution Order)
+- Endpoint discovery MUST follow this deterministic order before declaring graph unavailable:
+  1. `.dev/run/mcp.json`
+  2. `.mbo/run/mcp.json`
+  3. PID-scoped manifests: `.dev/run/mcp-<project_id>-*.json` then `.mbo/run/mcp-<project_id>-*.json` (newest live PID)
+  4. Client configs: `.mcp.json`, `.gemini/settings.json`
+- A stale or broken symlink in `mcp.json` is recoverable state, not terminal failure.
+
+### Invariant 19 (MCP Success Semantics)
+- For `graph_rescan`, any MCP response containing a valid JSON-RPC `result` with `status: "completed"` or `status: "completed_with_warnings"` MUST be treated as success.
+- Probe-layer warnings (TCP/POST preflight warnings) are advisory and MUST NOT override a successful MCP tool result.
+
+### Invariant 20 (Graph Query Backoff Policy)
+- During orientation, agents may perform at most two query-broadening retries after an empty `graph_search` result.
+- After two empty retries, agent MUST switch to deterministic local discovery (`rg`/file search) and continue without additional repeated graph retries.
+- Literal query seeds longer than 48 characters are prohibited as first-pass orientation queries.
+
 ---
 
 ## Section 6 — Proactive State Sync & Session Protocols
@@ -176,10 +193,11 @@ No fixed port, manifest-based discovery required, no port negotiation, no sessio
 
 If the dev graph server is unavailable:
 - Check: `node scripts/mcp_query.js --diagnose graph_server_info`
-- Start: `mbo setup`
-- State: "Dev graph unavailable. Ran `curl /health` — [result]. Awaiting human instruction."
+- Recover: `mbo mcp`
+- Validate recovery by running either `mcp_mbo-graph_graph_rescan` or `mcp_mbo-graph_graph_server_info` from the active client session.
+- State: "Dev graph unavailable. Ran MCP diagnostics/recovery. Awaiting human instruction."
 
-MCP is available via dynamic manifest-resolved endpoint. Run `node scripts/mcp_query.js --diagnose graph_server_info` to verify before starting.
+MCP is available when `graph_server_info` returns a valid result for the current `project_root`.
 
 ---
 
@@ -197,6 +215,24 @@ Every development session MUST follow this checklist:
 9. **Sync State** (`projecttracking.md`, `CHANGELOG.md`, `BUGS.md`).
 10. **Branch Finalization** (promote approved, verified branch to target, then delete or archive branch).
 11. **Lock & Journal** (`handshake.py --revoke` and `init_state.py`).
+
+---
+
+## Section 16 — Workflow Canonicalization (Single Source of Truth)
+
+To eliminate state drift across governance files, workflow ownership is strict:
+
+1. `projecttracking.md` is the only canonical task ledger.
+2. Every active task row MUST include: `Task ID`, `Type`, `Status`, `Owner`, `Branch`, `Updated`, `Links`, `Acceptance`.
+3. `BUGS.md` is a bug registry only. Every OPEN/PARTIAL bug MUST include a `Task:` link to a task ID in `projecttracking.md`.
+4. `NEXT_SESSION.md` is generated output only. Manual edits are prohibited.
+5. Session-close script regenerates `NEXT_SESSION.md` from `projecttracking.md` + OPEN/PARTIAL P0/P1 bugs.
+6. `python3 bin/validator.py --all` MUST fail when:
+   - any OPEN/PARTIAL P0/P1 bug lacks a linked task ID,
+   - linked task ID does not exist in `projecttracking.md`,
+   - `NEXT_SESSION.md` is stale relative to governance files.
+
+**Authoring rule:** update state only at task status transitions and at session close.
 
 ---
 

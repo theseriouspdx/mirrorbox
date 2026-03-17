@@ -1043,6 +1043,7 @@ function buildProfile({ projectRoot, prior, answers, scan, followup, onboardingV
     testCoverageIntent: followup.testCoverageIntent || prior.testCoverageIntent || null,
     ciIntent: followup.ciIntent || prior.ciIntent || null,
 
+    projectRoot: path.resolve(projectRoot),
     projectNotes: {
       ...(prior.projectNotes || {}),
       scanRoots: scan.scanRoots,
@@ -1219,7 +1220,7 @@ async function runOnboarding(projectRoot, priorData = null, options = {}) {
       console.log('  1. A few questions about your project');
       console.log('  2. A scan of your codebase');
       console.log('  3. A few follow-up questions based on what I find');
-      console.log('  4. Agreeing on the rules I\'ll follow when I work here\n');
+      console.log('  4. The strict directive framework that I will operate under at all times\n');
     }
 
     // ── Phase 1: Opening questions ───────────────────────────────────────────
@@ -1357,6 +1358,20 @@ async function checkOnboarding(projectRoot) {
   }
 
   if (!activeProfile) {
+    if (interactive) await runOnboarding(projectRoot);
+    return true;
+  }
+
+  // BUG-086: Detect project root mismatch (e.g. profile copied from another project via cp -r).
+  // If stored projectRoot doesn't match current cwd, treat as fresh install.
+  // Also treat absent projectRoot (profile predates BUG-086 fix) as a mismatch.
+  const canonicalize = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  const canonicalCwd = canonicalize(projectRoot);
+  const canonicalStored = activeProfile.projectRoot ? canonicalize(activeProfile.projectRoot) : null;
+
+  if (canonicalStored !== canonicalCwd) {
+    const storedLabel = activeProfile.projectRoot || '(unknown — profile predates root-tracking)';
+    console.log(`[SYSTEM] Onboarding profile belongs to a different project (${storedLabel}). Re-onboarding required.`);
     if (interactive) await runOnboarding(projectRoot);
     return true;
   }

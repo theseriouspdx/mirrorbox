@@ -9,13 +9,32 @@
 
 (None. Milestone 0.5 SUCCESS. Pre-0.6 Audit PASS.)
 
-### BUG-101: Error message tells user to run `mbo setup` while they are already running `mbo setup` | Milestone: 1.1 | RESOLVED
-- **Location:** `src/auth/operator.js:118` (`_resolveMCP`)
+### BUG-105: Paraphrase Handshake is redundant/bad UX | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/onboarding.js` (`runPrimeDirectiveHandshake`)
 - **Severity:** P1
-- **Status:** RESOLVED — 2026-03-17
-- **Description:** When `installMCPDaemon` fails during `mbo setup` for a new project, the error message says `Run 'mbo setup' first`. This is emitted while the user is already mid-setup. The message is circular and gives no actionable path forward.
-- **Observed:** `Error: No MCP manifest found in /Users/johnserious/johnseriouscom. Run 'mbo setup' first.`
-- **Fix:** Addressed as part of onboarding v2 merge (2026-03-17). Copy strings in `onboarding.js` follow Section 36 rules — no self-referential `mbo setup` references in setup-time error messages. Error copy now describes the actual condition.
+- **Status:** OPEN
+- **Task:** v0.11.87
+- **Description:** Forcing the user to type back the synthesized paragraph is high-friction and adds no value (BUG-099 regression).
+- **Human-Approved Pattern:** Replace paraphrase with a simple agreement: "Does this sound like what you're looking for? If so, we'll get started right away. (yes/no)"
+
+### BUG-108: Conversational Awareness — Onboarding is a static script, not an LLM-driven dialogue | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/onboarding.js`, `src/auth/operator.js`
+- **Severity:** P0 (Foundational Architectural Goal)
+- **Status:** OPEN
+- **Task:** v0.11.87
+- **Description:** The onboarding process feels like a "canned interview" because it follows a rigid, scripted path. It lacks the awareness of a language model and cannot handle off-script clarifying questions (like "what does that mean?").
+- **Architectural Requirement:** The entire onboarding process must be moved into the **Operator's Dialogue**. Instead of a static `onboarding.js` script, the LLM should use the project scan findings to conduct a natural, human-like conversation that gathers the required profile data without the user feeling like they are "answering a bunch of pre-canned questions."
+
+### BUG-107: Non-Terminal Architecture — Hard crash to shell (onboarding profile incomplete) | Milestone: 1.1 | OPEN
+...
+### BUG-106: Structural Regression — UX-022..028 logic missing from master | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/onboarding.js`
+- **Severity:** P0 (Critical Integrity)
+- **Status:** OPEN
+- **Task:** v0.11.87
+- **Description:** Live audit of `MBO_Alpha` (cloned from `master`) confirms that the features marked "COMPLETED" in Task v0.11.22 (Onboarding v2) are not present or functional.
+- **Missing Features:** No jargon help, no conversation loop for clarifying questions, broken Prime Directive box/wrap, and non-synthesized constraints.
+- **Requirement:** Conduct a full code comparison between `codex/onboarding-v2-ux-elevation` and `master` to identify the loss of state.
 
 ### BUG-100: `installMCPDaemon` fails and hangs for a genuine new project — no manifest bootstrap | Milestone: 1.1 | RESOLVED
 - **Location:** `src/auth/operator.js:118` (`_resolveMCP`), `bin/mbo.js:53` (`runSetupCommand` `.catch`)
@@ -124,16 +143,13 @@
 - **Description:** The standard install path (`cp -r MBO/. MBO_Alpha/`) copies `.mbo/` wholesale, including `onboarding.json`, `mirrorbox.db`, logs, and runtime state. The subject project inherits the controller's identity. `checkOnboarding` validates the schema but does not verify that the profile's `projectRoot` matches the current working directory, so the stale controller profile silently passes validation.
 - **Fix:** Resolved by BUG-086: `checkOnboarding` now reads `profile.projectRoot`, canonicalizes it, and compares against the current `cwd`. If mismatch is detected, the function logs a warning and triggers a full re-onboarding interview. The transplanted controller profile is rejected at runtime without requiring any changes to the copy workflow.
 
-### BUG-086: `mbo setup` accepts copied profile from a different project — no project root validation | Milestone: 1.1 | PARTIAL
+### BUG-086: `mbo setup` accepts copied profile from a different project — no project root validation | Milestone: 1.1 | RESOLVED
 - **Location:** `src/cli/onboarding.js` (`checkOnboarding`)
 - **Severity:** P1
-- **Status:** PARTIAL — fix incomplete (validation 2026-03-16 FAIL)
+- **Status:** RESOLVED — 2026-03-17
 - **Task:** v0.11.86
 - **Description:** When `.mbo/onboarding.json` is copied from another project, `checkOnboarding` validates the schema but never checks whether the profile's origin matches the current project root. A foreign profile passes validation and the onboarding interview is skipped entirely.
-- **Fix shipped:** `buildProfile` now stores `projectRoot: path.resolve(projectRoot)` in the profile at write time. `checkOnboarding` canonicalizes both the stored root and the current cwd via `fs.realpathSync`; if they differ, logs a warning and triggers `runOnboarding`.
-- **Validation result (2026-03-16 FAIL):** Fresh-install test (`rm -rf MBO_Alpha && cp -r MBO/. MBO_Alpha/ && node bin/mbo.js setup`) produced no `[SYSTEM]` warning and no interview — daemon started silently.
-- **Root cause of failure:** The mismatch guard is `if (activeProfile && activeProfile.projectRoot)` — it is skipped when `projectRoot` is absent. The MBO controller's own `onboarding.json` was written before BUG-086 shipped and has no `projectRoot` field. When copied into MBO_Alpha, `activeProfile.projectRoot === undefined` and the entire detection block is bypassed.
-- **Fix (round 2):** Changed guard from `if (activeProfile && activeProfile.projectRoot)` to `if (activeProfile)`. When `projectRoot` is absent, `canonicalStored` is set to `null`, which cannot match `canonicalCwd`, so re-onboarding is always triggered. Label in log message now shows `(unknown — profile predates root-tracking)` when field is missing. Awaiting re-validation.
+- **Fix:** `buildProfile` now stores `projectRoot: path.resolve(projectRoot)` in the profile at write time. `checkOnboarding` canonicalizes both the stored root and the current cwd via `fs.realpathSync`; if they differ (including when the field is missing), it logs a warning and triggers `runOnboarding`. Verified with `scripts/test-onboarding.js`.
 
 ### BUG-085: `mbo setup` skips onboarding interview on fresh project install | Milestone: 1.1 | RESOLVED
 - **Location:** `bin/mbo.js` (`runSetupCommand`), `src/cli/setup.js` (`runSetup`)
@@ -231,7 +247,7 @@
 ### BUG-069: MCP architecture requires OS-level process management (launchd daemon migration) | Milestone: 1.1 | COMPLETED
 - **Location:** `src/graph/mcp-server.js`, `src/auth/operator.js`, `scripts/`, `docs/mcp.md`
 - **Severity:** P0 (blocks all reliable multi-agent MCP usage)
-- **Status:** COMPLETED — 2026-03-13 — Migration to launchd daemon on port 7337 finalized.
+- **Status:** COMPLETED — 2026-03-13 — Migration to launchd daemon finalized (later superseded by dynamic-port model in Task 1.1-H30).
 - **Root cause:** MBO's self-managed MCP lifecycle was brittle. Migration eliminates all self-management failure modes.
 
 ### BUG-053: Runtime MCP initialize loop fails on Streamable HTTP (`Server already initialized`) | Milestone: 1.1 | COMPLETED
@@ -297,7 +313,7 @@
   3. Non-initialize requests continue using session-id routing and stale-session transparent recovery.
 - **Validation:**
   - `node --check src/graph/mcp-server.js`
-  - `curl http://127.0.0.1:7337/health` returned `{"status":"ok",...}`
+  - `curl http://127.0.0.1:<active-port>/health` returned `{"status":"ok",...}`
   - Direct initialize probe returned HTTP 200 with `mcp-session-id` and JSON-RPC initialize result
 
 ### BUG-067: `mbo auth` should remain usable in controller repo while runtime/init stay guarded | Milestone: 1.1 | FIXED
@@ -450,7 +466,7 @@
 ### BUG-059: Port mismatch — `MBO_PORT` env var may diverge between Operator and MCP manifest | Milestone: 1.1 | SUPERSEDED
 - **Location:** `src/auth/operator.js`, `scripts/mbo-start.sh`
 - **Severity:** P2
-- **Status:** SUPERSEDED — 2026-03-13 — eliminated by Task 1.1-H23. No manifest, no dynamic port. Port is fixed at 7337. `MBO_PORT` env var removed.
+- **Status:** SUPERSEDED — 2026-03-13 — eliminated by Task 1.1-H23 and later replaced by dynamic manifest-based ports in Task 1.1-H30. `MBO_PORT` env var removed.
 
 ### BUG-060: SSE `/stream` endpoint lacks keepalive heartbeat — proxy timeouts silently destroy stream | Milestone: 1.1 | SUPERSEDED
 - **Location:** `src/graph/mcp-server.js`
