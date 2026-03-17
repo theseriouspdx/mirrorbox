@@ -327,6 +327,10 @@ function buildDefaultConfig(d) {
   return {
     operator, planner, reviewer, tiebreaker,
     executor:  { cli },
+    streaming: {
+      enabled: true,
+      roles: {}
+    },
     devServer: '',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -481,6 +485,13 @@ async function runSetup() {
       cfg.reviewer   = await pickRole(rl, 'reviewer',   defaults.reviewer,   d);
       cfg.tiebreaker = await pickRole(rl, 'tiebreaker', defaults.tiebreaker, d);
     }
+
+    console.log(cy('\n── Streaming (Section 33) ──────────────────────────────────'));
+    const streamGlobal = await ask(rl, '  Enable real-time output streaming? [Y/n]: ');
+    cfg.streaming = {
+      enabled: streamGlobal.toLowerCase() !== 'n' && streamGlobal.toLowerCase() !== 'no',
+      roles: {}
+    };
 
     const devCmd = await ask(rl, `${m('Dev server command')} ${dim('(e.g. "npm run dev", Enter to skip): ')}`);
     if (devCmd) cfg.devServer = devCmd;

@@ -1,5 +1,5 @@
 {
-  "task_id": "1.1-H27",
+  "task_id": "1.0-09",
   "steps": [
     {
       "file": "CHANGELOG.md",
@@ -164,6 +164,16 @@
     {
       "file": "src/index.js",
       "ts": "2026-03-16T10:24:20Z",
+      "status": "written"
+    },
+    {
+      "file": ".dev/governance/projecttracking.md",
+      "ts": "2026-03-17T00:36:35Z",
+      "status": "written"
+    },
+    {
+      "file": ".dev/governance/CHANGELOG.md",
+      "ts": "2026-03-17T00:36:35Z",
       "status": "written"
     }
   ]

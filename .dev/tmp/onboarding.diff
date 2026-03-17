@@ -1,0 +1,125 @@
+--- src/cli/onboarding.js
++++ src/cli/onboarding.js
+@@ -16,11 +16,13 @@
+ async function checkOnboarding(projectRoot) {
+   const onboardingPath = path.join(projectRoot, '.mbo', 'onboarding.json');
+   
+   if (!fs.existsSync(onboardingPath)) {
+-    if (process.stdout.isTTY) await runOnboarding(projectRoot);
++    if (!process.stdout.isTTY) {
++      throw new Error(`[FATAL] Project not onboarded. Run 'mbo setup' or 'mbo init' in a TTY.`);
++    }
++    await runOnboarding(projectRoot);
+     return true;
+   }
+ 
+   try {
+@@ -43,44 +65,85 @@
+ }
+ 
+ /**
+- * Section 29: Tokenmiser Onboarding
+- * Performs initial repo scan to capture the "Immutable Baseline".
++ * Section 5: MBO Onboarding Interview
++ * Conducts the 4-phase interview and synthesizes the project profile.
+  */
+ async function runOnboarding(projectRoot, priorData = null) {
+   const onboardingPath = path.join(projectRoot, '.mbo', 'onboarding.json');
+-  console.log(`[Tokenmiser] Scanning project baseline: ${projectRoot}...`);
+-
+-  const stats = scanProject(projectRoot);
+-
+-  const onboardingData = {
++  const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout });
++  const ask = (q) => new Promise(res => rl.question(q, res));
++
++  console.log('\n' + '='.repeat(60));
++  console.log(' Mirror Box Orchestrator — Project Onboarding Interview');
++  console.log('='.repeat(60) + '\n');
++
++  // Phase 1: Fixed opening questions (§5.1)
++  const q1 = await ask('Q1: Is this a brand new project or an existing one? ');
++  const q2 = await ask('Q2: Who is this project for — who are the users? ');
++  const q3 = await ask('Q3: What is the single most important thing I should keep in mind? ');
++  const q4 = await ask('Q4: Is there anything else that will help us work together? ');
++
++  // Phase 2: Silent scan (§5.2)
++  console.log(`\n[Tokenmiser] Scanning project baseline: ${projectRoot}...`);
++  
++  let scanRoots = ['src'];
++  try {
++    const localCfgPath = path.join(projectRoot, '.mbo', 'config.json');
++    if (fs.existsSync(localCfgPath)) {
++      const cfg = JSON.parse(fs.readFileSync(localCfgPath, 'utf8'));
++      if (Array.isArray(cfg.scanRoots)) scanRoots = cfg.scanRoots;
++    }
++  } catch (_) {}
++
++  const stats = scanProject(projectRoot, scanRoots);
++
++  // Phase 4: Synthesis and confirmation (§5.4)
++  const onboardingData = {
++    projectType: q1.toLowerCase().includes('new') ? 'greenfield' : 'existing',
++    users: q2,
++    primeDirective: q3, // Synthesis stub: Phase 3 follow-up needed for real refinement
++    q3Raw: q3,
++    q4Raw: q4,
++    languages: [],     // Future: Language detection
++    frameworks: [],    // Future: Framework detection
++    buildSystem: null,
++    testCoverage: 0.0,
++    hasCI: fs.existsSync(path.join(projectRoot, '.github')) || fs.existsSync(path.join(projectRoot, '.gitlab-ci.yml')),
++    verificationCommands: priorData ? priorData.verificationCommands : [],
++    dangerZones: priorData ? priorData.dangerZones : [],
++    canonicalConfigPath: priorData ? priorData.canonicalConfigPath : null,
++    onboardedAt: priorData ? priorData.onboardedAt : Date.now(),
+     onboardingVersion: version,
+-    primeDirective: priorData ? priorData.primeDirective : "Mirror Box Orchestrator — Default Prime Directive",
++    
++    // Variable Fields (§5.5)
+     subjectRoot: priorData ? priorData.subjectRoot : "/Users/johnserious/MBO_Alpha",
+     createdAt: priorData ? priorData.createdAt : new Date().toISOString(),
+     updatedAt: new Date().toISOString(),
+     baseline: {
+       tokenCountRaw: stats.tokenCountRaw,
+       fileCount: stats.fileCount,
+       timestamp: new Date().toISOString()
+-    }
++    },
++    projectNotes: priorData ? priorData.projectNotes : {}
+   };
+ 
++  rl.close();
+   fs.writeFileSync(onboardingPath, JSON.stringify(onboardingData, null, 2), 'utf8');
+-  console.log(`[Tokenmiser] Baseline captured: ${stats.tokenCountRaw} tokens across ${stats.fileCount} files.`);
++  console.log(`\n[Tokenmiser] Onboarding complete. Baseline: ${stats.tokenCountRaw} tokens.`);
+ }
+ 
+ /**
+  * Heuristic scan respecting .gitignore patterns (simplified).
+  */
+-function scanProject(root) {
++function scanProject(root, scanRoots = ['.']) {
+   let tokenCountRaw = 0;
+   let fileCount = 0;
+ 
+-  const ignored = ['.git', 'node_modules', '.mbo', 'data', 'audit', 'dist', 'build'];
++  const ignored = ['.git', 'node_modules', '.mbo', '.dev', 'data', 'audit', 'dist', 'build'];
+ 
+   function walk(dir) {
+     const entries = fs.readdirSync(dir, { withFileTypes: true });
+     for (const entry of entries) {
+       if (ignored.includes(entry.name)) continue;
+@@ -103,9 +166,12 @@
+       }
+ 
+     }
+   }
+ 
+-  walk(root);
++  for (const sr of scanRoots) {
++    const target = path.resolve(root, sr);
++    if (fs.existsSync(target)) walk(target);
++  }
+   return { tokenCountRaw, fileCount };
+ }

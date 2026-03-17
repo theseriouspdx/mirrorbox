@@ -9,8 +9,7 @@
 
 ## Section 1 — Next Action
 
-**1.0-09 (v0.10.09) — Sovereign Loop (Self-Patching Validation)**
-*(New task versioning scheme adopted 2026-03-16 — see AGENTS.md Section 15)*
+**1.0-09 — Sovereign Loop (Self-Patching Validation)**
 
 All prerequisites are now confirmed COMPLETED (1.0-03 through 1.0-09A). The system is ready to run the Sovereign Loop:
 

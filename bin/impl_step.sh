@@ -38,7 +38,7 @@ fi
 
 # 2. Write the file
 mkdir -p "$(dirname "$MBO_ROOT/$FILE_PATH")"
-cp "$CONTENT_FILE" "$MBO_ROOT/$FILE_PATH"
+cp -R "$CONTENT_FILE" "$MBO_ROOT/$FILE_PATH"
 echo "[IMPL] Written: $FILE_PATH"
 
 # 3. Record progress
