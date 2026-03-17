@@ -175,11 +175,11 @@ The graph server is a launchd system daemon at project-scoped dynamic endpoint.
 No fixed port, manifest-based discovery required, no port negotiation, no session ID management.
 
 If the dev graph server is unavailable:
-- Check: `curl http://127.0.0.1:$(node -e 'console.log(require("./.dev/run/mcp.json").port)')/health`
+- Check: `node scripts/mcp_query.js --diagnose graph_server_info`
 - Start: `mbo setup`
 - State: "Dev graph unavailable. Ran `curl /health` — [result]. Awaiting human instruction."
 
-MCP is available via dynamic manifest-resolved endpoint. Run `curl http://127.0.0.1:$(node -e 'console.log(require("./.dev/run/mcp.json").port)')/health` to verify before starting.
+MCP is available via dynamic manifest-resolved endpoint. Run `node scripts/mcp_query.js --diagnose graph_server_info` to verify before starting.
 
 ---
 
@@ -200,4 +200,62 @@ Every development session MUST follow this checklist:
 
 ---
 
-*Last updated: 2026-03-15 — Added Invariant 17, branch-isolated verification gate, and required session-end branch finalization.*
+## Section 13 — Persona Store & Reasoning Constraints
+
+### 13A. Persona Resolution
+Agents derive their reasoning style from Persona Markdown files. The system resolves these in order:
+1. `~/.orchestrator/personas/<id>.md` (User library)
+2. `<project>/.mbo/personalities/<id>.md` (Project overrides)
+3. `<MBO_ROOT>/personalities/<alias>.md` (System defaults)
+
+### 13B. Reasoning Constraints
+Personas are not cosmetic. Each persona defines a **Reasoning Constraint** based on the role's primary failure mode:
+- **Classifier (The Sentry):** Structurally biased toward escalation; "When in doubt, escalate."
+- **Planner (The Minimalist):** Every line must earn its place; anti-over-engineering.
+- **Reviewer (The Skeptic):** Adversarial independence; derive first, then compare.
+- **Tiebreaker (The Arbitrator):** Select, don't synthesize; rule on load-bearing diffs.
+- **Operator (The Anchor):** Clarity under complexity; human-readable status only.
+
+### 13C. Project Assignments (`.mbo/persona.json`)
+Projects define their active personas in `.mbo/persona.json`. Changes to this file travel with the repository.
+
+---
+
+## Section 14 — Entropy Gate & Decomposition
+
+### 14A. Entropy Score Calculation
+Every task in Stage 1.5 generates an **Entropy Score** via the Assumption Ledger:
+- **Critical Assumption:** 3.0 points
+- **High Impact Assumption:** 1.5 points
+- **Low Impact Assumption:** 0.5 points
+
+### 14B. The Hard Stop
+- **Entropy > 10:** The task is **BLOCKED**. The pipeline halts before any planning begins.
+- **Remedy:** The human Architect must decompose the task into smaller, independent subtasks until the entropy of each subtask is ≤ 10.
+
+---
+
+---
+
+## Section 15 — Task Versioning Scheme
+
+Task IDs align to the runtime version format established in Task 1.1-H37 (v0.Milestone.Point-YYYYMMDD.HHMM).
+
+**Legacy format (pre-2026-03-16):** `<Milestone>-[Type]<TaskNum>`
+Examples: `1.0-09`, `1.1-H37`, `1.1-ISS-04`
+
+**New format (from 2026-03-16):** `v<Major>.<MilestoneNN>.<TaskNum>`
+- **Major:** `0` (static, matches package.json major version)
+- **MilestoneNN:** Milestone number with dot removed (1.0 → `10`, 1.1 → `11`, 1.2 → `12`)
+- **TaskNum:** Zero-padded task sequence within the milestone
+
+Examples: `v0.10.09`, `v0.11.37`, `v0.12.01`
+
+**Migration policy:**
+1. Completed tasks retain their legacy IDs unchanged — no retroactive renumbering.
+2. Outstanding tasks at time of adoption carry both IDs (e.g. `1.0-09 (v0.10.09)`).
+3. All new tasks planned from 2026-03-16 onward use only the new format.
+
+*Scheme adopted: 2026-03-16 — aligned to runtime version format (Task 1.1-H37 / v0.11.37)*
+
+*Last updated: 2026-03-16 — Added Section 13 (Persona Store), Section 14 (Entropy Gate), Section 15 (Task Versioning Scheme).*

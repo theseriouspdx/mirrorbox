@@ -2,7 +2,11 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Action:** 1.0-09 — Sovereign Loop validation. BUG-083 resolution required (onboarding subjectRoot) before sovereign loop.
+**Next Action:** 1.0-09 (v0.10.09) — Sovereign Loop validation. BUG-083 RESOLVED; system ready to run.
+
+---
+
+> **Task Versioning Note (2026-03-16):** Task IDs now align to the runtime version format (`v<Major>.<MilestoneNN>.<TaskNum>`). Mapping: Milestone 1.0 → `10`, 1.1 → `11`, 1.2 → `12`. All completed tasks retain their legacy IDs. Outstanding tasks carry both IDs. New tasks use only the new format. See AGENTS.md Section 15 for the full scheme.
 
 ---
 
@@ -16,7 +20,7 @@
 | 1.0-07 | Subject World Graph Routing — Stage 2 routes by world_id to mirrorbox.db | COMPLETED — 2026-03-16 — confirmed: _graphQueryImpact() in operator.js reads subjectRoot from profile |
 | 1.0-08 | External Invariant Test Suite — black-box, standalone, Section 22 coverage | COMPLETED — 2026-03-16 — confirmed: scripts/test-invariants.js exists, docs/invariant-audit.md |
 | 1.0-09A | 1.0-09 Pre-reqs: relay-emitter.js (Subject UDS sender) + seed-subject-profile.js (onboarding profile seed) | COMPLETED — 2026-03-16 — verified relay-emitter and subject seeding |
-| 1.0-09 | Implement Sovereign Loop (Self-Patching Validation) | IN PROGRESS |
+| 1.0-09 (v0.10.09) | Implement Sovereign Loop (Self-Patching Validation) | IN PROGRESS |
 
 | Task ID | Task Description | Status |
 |---------|------------------|--------|

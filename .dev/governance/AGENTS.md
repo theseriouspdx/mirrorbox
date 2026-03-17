@@ -175,11 +175,11 @@ The graph server is a launchd system daemon at project-scoped dynamic endpoint.
 No fixed port, manifest-based discovery required, no port negotiation, no session ID management.
 
 If the dev graph server is unavailable:
-- Check: `curl http://127.0.0.1:$(node -e 'console.log(require("./.dev/run/mcp.json").port)')/health`
+- Check: `node scripts/mcp_query.js --diagnose graph_server_info`
 - Start: `mbo setup`
 - State: "Dev graph unavailable. Ran `curl /health` — [result]. Awaiting human instruction."
 
-MCP is available via dynamic manifest-resolved endpoint. Run `curl http://127.0.0.1:$(node -e 'console.log(require("./.dev/run/mcp.json").port)')/health` to verify before starting.
+MCP is available via dynamic manifest-resolved endpoint. Run `node scripts/mcp_query.js --diagnose graph_server_info` to verify before starting.
 
 ---
 
@@ -235,4 +235,27 @@ Every task in Stage 1.5 generates an **Entropy Score** via the Assumption Ledger
 
 ---
 
-*Last updated: 2026-03-16 — Added Section 13 (Persona Store) and Section 14 (Entropy Gate).*
+---
+
+## Section 15 — Task Versioning Scheme
+
+Task IDs align to the runtime version format established in Task 1.1-H37 (v0.Milestone.Point-YYYYMMDD.HHMM).
+
+**Legacy format (pre-2026-03-16):** `<Milestone>-[Type]<TaskNum>`
+Examples: `1.0-09`, `1.1-H37`, `1.1-ISS-04`
+
+**New format (from 2026-03-16):** `v<Major>.<MilestoneNN>.<TaskNum>`
+- **Major:** `0` (static, matches package.json major version)
+- **MilestoneNN:** Milestone number with dot removed (1.0 → `10`, 1.1 → `11`, 1.2 → `12`)
+- **TaskNum:** Zero-padded task sequence within the milestone
+
+Examples: `v0.10.09`, `v0.11.37`, `v0.12.01`
+
+**Migration policy:**
+1. Completed tasks retain their legacy IDs unchanged — no retroactive renumbering.
+2. Outstanding tasks at time of adoption carry both IDs (e.g. `1.0-09 (v0.10.09)`).
+3. All new tasks planned from 2026-03-16 onward use only the new format.
+
+*Scheme adopted: 2026-03-16 — aligned to runtime version format (Task 1.1-H37 / v0.11.37)*
+
+*Last updated: 2026-03-16 — Added Section 13 (Persona Store), Section 14 (Entropy Gate), Section 15 (Task Versioning Scheme).*

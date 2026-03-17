@@ -44,8 +44,7 @@ Implementation task: `1.1-H24` — see `.dev/preflight/did-protocol-implementati
 ## Section 3 — Authorship & Attribution Policy
 
 1. **Authorship is for the Architect:** No agent shall claim authorship credit on commit pushes, pull requests, or documentation.
-2. **Metadata Only:** Agents may be identified in Git metadata as the `Committer` or within a `Co-authored-by:` trailer, but the `Author` field is reserved exclusively for the human architect.
-3. **No "AI-Generated" Branding:** Agents must not prepend "AI-Generated" or similar self-crediting labels to commit messages unless explicitly configured by the architect for audit purposes.
+2. **No "AI-Generated" Branding:** Agents must not prepend "AI-Generated" or similar self-crediting labels to commit messages unless explicitly configured by the architect for audit purposes.
 
 ---
 
@@ -96,6 +95,12 @@ Implementation task: `1.1-H24` — see `.dev/preflight/did-protocol-implementati
 - On session close, atomically persist event flush, graph delta, handoff record, and integrity hashes.
 - Run `PRAGMA integrity_check`.
 
+### Invariant 17 (Branch-Isolated Verification Gate)
+- All implementation work MUST occur on a dedicated non-main branch (`<agent>/<task-or-scope>`, e.g. `claude/`, `gemini/`, `codex/`).
+- No apply/merge/promotion to the target branch until verification gate passes.
+- Verification gate minimum: `python3 bin/validator.py --all` passes, task-specific tests pass, and no new P0/P1 regressions are introduced.
+- If verification fails, fix-forward on the same working branch; do not apply partial changes.
+
 ---
 
 ## Section 6 — Proactive State Sync & Session Protocols
@@ -110,7 +115,13 @@ The moment a task is implemented and Stage 8 passes, halt and present the audit 
 On `approved`: Update `projecttracking.md`, `CHANGELOG.md`, `BUGS.md`, and commit the changes.
 
 ### 6C. Session End
-If "end session" is requested: Write `NEXT_SESSION.md`, terminate MCP, and output checklist.
+If "end session" is requested: Write `NEXT_SESSION.md`, terminate MCP, run Branch Finalization, and output checklist.
+
+### 6D. Branch Finalization (Required Before Session Close)
+1. If verification gate passed and changes are approved, promote branch changes to `main` (or configured target branch) via approved merge strategy.
+2. Record promotion outcome in session artifacts (audit gate output plus state-sync files).
+3. Remove the working branch after successful promotion (local + remote) unless explicitly marked for retention.
+4. Retained branches MUST be renamed or created under `archive/` with a short reason in session handoff.
 
 ---
 
@@ -160,15 +171,15 @@ Explicitly state your **Hard State Anchor** at the beginning of every internal `
 Run only the queries listed in NEXT_SESSION.md. Load only the files and SPEC sections those queries return.
 
 **MCP connection (as of 2026-03-13):**
-The graph server is a launchd system daemon at fixed endpoint `http://127.0.0.1:7337/mcp`.
-No manifest discovery, no port negotiation, no session ID management.
+The graph server is a launchd system daemon at project-scoped dynamic endpoint.
+No fixed port, manifest-based discovery required, no port negotiation, no session ID management.
 
 If the dev graph server is unavailable:
-- Check: `curl http://127.0.0.1:7337/health`
-- Start: `mbo setup` or `launchctl load -w ~/Library/LaunchAgents/com.mbo.mcp.plist`
+- Check: `node scripts/mcp_query.js --diagnose graph_server_info`
+- Start: `mbo setup`
 - State: "Dev graph unavailable. Ran `curl /health` — [result]. Awaiting human instruction."
 
-MCP is available via `http://127.0.0.1:7337/mcp`. Run `curl http://127.0.0.1:7337/health` to verify before starting.
+MCP is available via dynamic manifest-resolved endpoint. Run `node scripts/mcp_query.js --diagnose graph_server_info` to verify before starting.
 
 ---
 
@@ -177,13 +188,74 @@ MCP is available via `http://127.0.0.1:7337/mcp`. Run `curl http://127.0.0.1:733
 Every development session MUST follow this checklist:
 1. **Identify Task** from `projecttracking.md`.
 2. **Permission Check** via `python3 bin/handshake.py <cell_name>`.
-3. **Derive & Propose** solution from graph context.
-4. **Human Approval** ("go").
-5. **Implement & Validate** (`python3 bin/validator.py --all`).
-6. **Audit Gate** (diff + validator output + summary).
-7. **Sync State** (`projecttracking.md`, `CHANGELOG.md`, `BUGS.md`).
-8. **Lock & Journal** (`handshake.py --revoke` and `init_state.py`).
+3. **Create Working Branch** (`<agent>/<task-or-scope>`) and keep all edits isolated there.
+4. **Derive & Propose** solution from graph context.
+5. **Human Approval** ("go").
+6. **Implement on Branch & Verify** (`python3 bin/validator.py --all` + task-specific tests).
+7. **Verification Gate Decision** — apply/promotion is allowed only after required checks pass.
+8. **Audit Gate** (diff + validator output + summary).
+9. **Sync State** (`projecttracking.md`, `CHANGELOG.md`, `BUGS.md`).
+10. **Branch Finalization** (promote approved, verified branch to target, then delete or archive branch).
+11. **Lock & Journal** (`handshake.py --revoke` and `init_state.py`).
 
 ---
 
-*Last updated: 2026-03-13 — Section 11 updated for launchd daemon architecture (Task 1.1-H23)*
+## Section 13 — Persona Store & Reasoning Constraints
+
+### 13A. Persona Resolution
+Agents derive their reasoning style from Persona Markdown files. The system resolves these in order:
+1. `~/.orchestrator/personas/<id>.md` (User library)
+2. `<project>/.mbo/personalities/<id>.md` (Project overrides)
+3. `<MBO_ROOT>/personalities/<alias>.md` (System defaults)
+
+### 13B. Reasoning Constraints
+Personas are not cosmetic. Each persona defines a **Reasoning Constraint** based on the role's primary failure mode:
+- **Classifier (The Sentry):** Structurally biased toward escalation; "When in doubt, escalate."
+- **Planner (The Minimalist):** Every line must earn its place; anti-over-engineering.
+- **Reviewer (The Skeptic):** Adversarial independence; derive first, then compare.
+- **Tiebreaker (The Arbitrator):** Select, don't synthesize; rule on load-bearing diffs.
+- **Operator (The Anchor):** Clarity under complexity; human-readable status only.
+
+### 13C. Project Assignments (`.mbo/persona.json`)
+Projects define their active personas in `.mbo/persona.json`. Changes to this file travel with the repository.
+
+---
+
+## Section 14 — Entropy Gate & Decomposition
+
+### 14A. Entropy Score Calculation
+Every task in Stage 1.5 generates an **Entropy Score** via the Assumption Ledger:
+- **Critical Assumption:** 3.0 points
+- **High Impact Assumption:** 1.5 points
+- **Low Impact Assumption:** 0.5 points
+
+### 14B. The Hard Stop
+- **Entropy > 10:** The task is **BLOCKED**. The pipeline halts before any planning begins.
+- **Remedy:** The human Architect must decompose the task into smaller, independent subtasks until the entropy of each subtask is ≤ 10.
+
+---
+
+---
+
+## Section 15 — Task Versioning Scheme
+
+Task IDs align to the runtime version format established in Task 1.1-H37 (v0.Milestone.Point-YYYYMMDD.HHMM).
+
+**Legacy format (pre-2026-03-16):** `<Milestone>-[Type]<TaskNum>`
+Examples: `1.0-09`, `1.1-H37`, `1.1-ISS-04`
+
+**New format (from 2026-03-16):** `v<Major>.<MilestoneNN>.<TaskNum>`
+- **Major:** `0` (static, matches package.json major version)
+- **MilestoneNN:** Milestone number with dot removed (1.0 → `10`, 1.1 → `11`, 1.2 → `12`)
+- **TaskNum:** Zero-padded task sequence within the milestone
+
+Examples: `v0.10.09`, `v0.11.37`, `v0.12.01`
+
+**Migration policy:**
+1. Completed tasks retain their legacy IDs unchanged — no retroactive renumbering.
+2. Outstanding tasks at time of adoption carry both IDs (e.g. `1.0-09 (v0.10.09)`).
+3. All new tasks planned from 2026-03-16 onward use only the new format.
+
+*Scheme adopted: 2026-03-16 — aligned to runtime version format (Task 1.1-H37 / v0.11.37)*
+
+*Last updated: 2026-03-16 — Added Section 13 (Persona Store), Section 14 (Entropy Gate), Section 15 (Task Versioning Scheme).*
