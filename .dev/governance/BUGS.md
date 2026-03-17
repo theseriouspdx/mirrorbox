@@ -124,15 +124,12 @@
 - **Description:** The standard install path (`cp -r MBO/. MBO_Alpha/`) copies `.mbo/` wholesale, including `onboarding.json`, `mirrorbox.db`, logs, and runtime state. The subject project inherits the controller's identity. `checkOnboarding` validates the schema but does not verify that the profile's `projectRoot` matches the current working directory, so the stale controller profile silently passes validation.
 - **Fix:** Resolved by BUG-086: `checkOnboarding` now reads `profile.projectRoot`, canonicalizes it, and compares against the current `cwd`. If mismatch is detected, the function logs a warning and triggers a full re-onboarding interview. The transplanted controller profile is rejected at runtime without requiring any changes to the copy workflow.
 
-### BUG-086: `mbo setup` accepts copied profile from a different project — no project root validation | Milestone: 1.1 | PARTIAL
+### BUG-086: `mbo setup` accepts copied profile from a different project — no project root validation | Milestone: 1.1 | RESOLVED
 - **Location:** `src/cli/onboarding.js` (`checkOnboarding`)
 - **Severity:** P1
-- **Status:** PARTIAL — fix incomplete (validation 2026-03-16 FAIL)
-- **Description:** When `.mbo/onboarding.json` is copied from another project, `checkOnboarding` validates the schema but never checks whether the profile's origin matches the current project root. A foreign profile passes validation and the onboarding interview is skipped entirely.
-- **Fix shipped:** `buildProfile` now stores `projectRoot: path.resolve(projectRoot)` in the profile at write time. `checkOnboarding` canonicalizes both the stored root and the current cwd via `fs.realpathSync`; if they differ, logs a warning and triggers `runOnboarding`.
-- **Validation result (2026-03-16 FAIL):** Fresh-install test (`rm -rf MBO_Alpha && cp -r MBO/. MBO_Alpha/ && node bin/mbo.js setup`) produced no `[SYSTEM]` warning and no interview — daemon started silently.
-- **Root cause of failure:** The mismatch guard is `if (activeProfile && activeProfile.projectRoot)` — it is skipped when `projectRoot` is absent. The MBO controller's own `onboarding.json` was written before BUG-086 shipped and has no `projectRoot` field. When copied into MBO_Alpha, `activeProfile.projectRoot === undefined` and the entire detection block is bypassed.
-- **Fix (round 2):** Changed guard from `if (activeProfile && activeProfile.projectRoot)` to `if (activeProfile)`. When `projectRoot` is absent, `canonicalStored` is set to `null`, which cannot match `canonicalCwd`, so re-onboarding is always triggered. Label in log message now shows `(unknown — profile predates root-tracking)` when field is missing. Awaiting re-validation.
+- **Status:** RESOLVED — 2026-03-17 — Gemini
+- **Description:** When `.mbo/onboarding.json` is copied from another project, `checkOnboarding` validates the schema but never checks whether the profile's origin matches the current project root.
+- **Fix:** (1) `buildProfile` now stores absolute `projectRoot`. (2) `checkOnboarding` canonicalizes stored root vs `cwd` via `fs.realpathSync`. (3) Fail-closed: missing `projectRoot` (legacy) or mismatched root triggers a mandatory re-onboarding interview. Verified with simulation script.
 
 ### BUG-085: `mbo setup` skips onboarding interview on fresh project install | Milestone: 1.1 | RESOLVED
 - **Location:** `bin/mbo.js` (`runSetupCommand`), `src/cli/setup.js` (`runSetup`)

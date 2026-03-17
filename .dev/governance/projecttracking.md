@@ -2,7 +2,16 @@
 ## Mirror Box Orchestrator — Build Tracking
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Action:** 1.0-09 (v0.10.09) — Sovereign Loop validation. BUG-083 RESOLVED; system ready to run.
+**Next Action:** 1.0-09 (v0.10.09) — Sovereign Loop validation.
+
+---
+
+## MILESTONE 1.1 — Portability & Hardening [IN PROGRESS]
+| Task ID | Task Description | Status |
+|---------|------------------|--------|
+| 1.1-UX-36 | Section 36 (UX-001..UX-021) — UX copy-pack string replacements | COMPLETED — 2026-03-17 — Gemini |
+| 1.1-BUG-086 | Finalize project-root mismatch guard in checkOnboarding | COMPLETED — 2026-03-17 — Gemini |
+| 1.1-INV-01 | Invariant 1 & 2 hardening for worktree environments | COMPLETED — 2026-03-17 — Gemini |
 
 ---
 
