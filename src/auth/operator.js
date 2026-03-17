@@ -960,7 +960,8 @@ The output will be used as the new system context.`;
     } catch (e) {
       console.error(`[Operator] Pipeline failure: ${e.message}\n[RECOMMENDED ACTION]: Review the error above. You can type 'go' to retry or provide a hint with 'pin: <info>'.`);
 
-      this.abortController = null;      this._pipelineRunning = false;
+      this.abortController = null;
+      this._pipelineRunning = false;
       const isAbort = e.message && (e.message.includes('abort') || e.message.includes('Abort'));
       if (isAbort) {
         return { status: 'aborted', reason: 'Pipeline aborted by user.' };
