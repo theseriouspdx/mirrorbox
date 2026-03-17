@@ -41,14 +41,14 @@ function formatOperatorResult(result) {
   if (status === 'code_agreed') return 'Code derivation complete. Running dry run and verification.';
   if (status === 'pass') return 'Dry run passed.';
   if (status === 'audit_pending') return result.prompt || 'Audit package ready. Respond "approved" or "reject".';
-  if (status === 'blocked') return result.reason || result.prompt || 'Task is blocked by Stage 1.5 assumptions.';
-  if (status === 'aborted') return result.reason || 'Operation aborted.';
-  if (status === 'error') return result.reason || 'Pipeline failed.';
+  if (status === 'blocked') return result.reason || result.prompt || 'Task is blocked by spec refinement assumptions.\n[RECOMMENDED ACTION]: Decompose the task or resolve the listed blockers.';
+  if (status === 'aborted') return result.reason || 'Operation aborted.\n[RECOMMENDED ACTION]: You can retry with a different task or refine the current one.';
+  if (status === 'error') return result.reason || 'Pipeline failed.\n[RECOMMENDED ACTION]: Check .dev/logs/mcp-stderr.log or retry the task with a hint.';
   if (status === 'shutdown_complete') return 'Session shutdown complete.';
 
   const stage = String(result.stage || '').toLowerCase();
   if (stage === 'classification') return 'Classifying request and determining routing.';
-  if (stage === 'context_pinning') return 'Stage 1.5 complete. Assumptions reviewed.';
+  if (stage === 'context_pinning') return 'Spec refinement complete. Assumptions reviewed.';
   if (stage === 'planning') return 'Planning in progress.';
   if (stage === 'tiebreaker_plan') return 'Resolving planning conflict via tiebreaker.';
   if (stage === 'code_derivation') return 'Code derivation in progress.';
@@ -212,7 +212,7 @@ async function main() {
             operator.stateSummary.pendingAudit = null;
             operator.stateSummary.pendingAuditContext = null;
             _auditRunning = false;
-            write('[AUDIT] Approved. State synced. Stage 11 knowledge update completed.');
+            write('[AUDIT] Approved. State synced. Intelligence graph updated.');
           })
           .catch(err => {
             _auditRunning = false;

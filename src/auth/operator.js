@@ -1123,7 +1123,6 @@ The output will be used as the new system context.`;
       }, 'mirror');
       return {
         status:           'blocked',
-        stage:            '1.5',
         assumptionLedger: ledger,
         signOffBlock:     signOff,
         prompt: `[ENTROPY GATE — HARD STOP] Entropy score ${ledger.entropyScore.toFixed(1)} exceeds limit of 10.\n` +
@@ -1133,7 +1132,6 @@ The output will be used as the new system context.`;
 
     return {
       needsApproval: true,
-      stage: '1.5',
       projectedContext: context,
       assumptionLedger: ledger,
       signOffBlock: signOff,

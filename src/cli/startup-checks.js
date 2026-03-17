@@ -67,7 +67,7 @@ function selfRunGuardMessage(packageRoot) {
   return (
     '[MBO] BLOCKED: Runtime/init cannot execute from the MBO controller/install project.\n' +
     `[MBO] Controller: ${path.resolve(packageRoot)}\n` +
-    '[MBO] Launch from a separate target project directory (e.g. MBO_Alpha).\n'
+    '[MBO] [RECOMMENDED ACTION]: Launch from a separate target project directory (e.g. MBO_Alpha).\n'
   );
 }
 

@@ -5,13 +5,13 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 
 const DB_PATH = path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db');
-const PROJECT_ROOT = path.join(__dirname, '..');
+const PROJECT_ROOT = process.env.MBO_PROJECT_ROOT || path.resolve(__dirname, '..');
 
 function runCommand(command, stdio = 'pipe') {
   try {
     return {
       success: true,
-      stdout: execSync(command, { stdio, cwd: PROJECT_ROOT }).toString()
+      stdout: execSync(command, { stdio, cwd: PROJECT_ROOT, env: { ...process.env, MBO_PROJECT_ROOT: PROJECT_ROOT } }).toString()
     };
   } catch (err) {
     return {
@@ -25,15 +25,19 @@ function runCommand(command, stdio = 'pipe') {
 async function testInvariant1And2() {
   console.log('Testing Invariant 1 & 2: File Protection & Project Root...');
   
+  const srcPath = path.join(PROJECT_ROOT, 'src');
   const sessionLock = path.join(PROJECT_ROOT, '.journal/session.lock');
-  const result = runCommand('ls -ld src');
   
-  if (result.stdout.includes('dr-xr-xr-x')) {
-    console.log('  PASS: src/ directory is read-only (555).');
+  const stats = fs.statSync(srcPath);
+  const mode = stats.mode & 0o777;
+  const isReadOnly = (mode & 0o222) === 0; // No write bit for owner, group, or others
+  
+  if (isReadOnly) {
+    console.log(`  PASS: src/ directory is read-only (mode: ${mode.toString(8)}).`);
   } else if (fs.existsSync(sessionLock)) {
-    console.log('  PASS: src/ is writable (755) but an active session.lock was detected. [AUTHORIZED]');
+    console.log(`  PASS: src/ is writable (mode: ${mode.toString(8)}) but an active session.lock was detected. [AUTHORIZED]`);
   } else {
-    console.error('  FAIL: src/ directory is NOT read-only.');
+    console.error(`  FAIL: src/ directory is NOT read-only (mode: ${mode.toString(8)}).`);
     process.exit(1);
   }
 }

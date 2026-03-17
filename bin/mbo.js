@@ -584,6 +584,11 @@ if (process.argv[2] === 'setup') {
   persistInstallMetadataBestEffort();
   reapStaleHelpers(PACKAGE_ROOT);
   if (isSelfRunDisallowed(INVOCATION_CWD, PACKAGE_ROOT)) {
+    // Invariants 1 & 2: Proactively lock src/ in managed projects (including worktrees)
+    // to prevent unauthorized writes when no session is active.
+    spawnSync('python3', [path.join(PACKAGE_ROOT, 'bin', 'handshake.py'), '--revoke'], {
+      env: { ...process.env, MBO_PROJECT_ROOT: PROJECT_ROOT },
+    });
     process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
     process.exit(2);
   }

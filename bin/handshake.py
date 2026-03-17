@@ -101,14 +101,29 @@ def check_integrity(silent=False):
 
 
 def lock_src():
+    if not SRC_DIR.exists():
+        return
+    # Only lock if src/ is currently writable (avoids expensive redundant chmod).
+    if not os.access(SRC_DIR, os.W_OK):
+        return
+
     for item in SRC_DIR.rglob("*"):
         if item.is_file():
-            item.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+            try:
+                item.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+            except OSError:
+                pass
     # Lock src/ dir itself to prevent new file/dir creation
-    SRC_DIR.chmod(stat.S_IRUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+    try:
+        SRC_DIR.chmod(stat.S_IRUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+    except OSError:
+        pass
     # Write deny sentinel so agents can detect lockout without parsing session.lock
     DENY_SENTINEL.parent.mkdir(parents=True, exist_ok=True)
-    DENY_SENTINEL.write_text(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    try:
+        DENY_SENTINEL.write_text(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    except OSError:
+        pass
 
 
 def _confirm_risky_scope(cell_name: str, force: bool):
@@ -394,7 +409,8 @@ if __name__ == "__main__":
     is_revoke = arg == "--revoke"
     auth_action = "grant" if is_grant else ("revoke" if is_revoke else None)
     auth_scope = arg if is_grant else None
-    if auth_action and not _require_human_presence(auth_action, auth_scope):
+    # Section 36: revoke (lockdown) is always allowed non-interactively.
+    if auth_action and auth_action != "revoke" and not _require_human_presence(auth_action, auth_scope):
         sys.exit(1)
 
     if arg == "--merkle-root":

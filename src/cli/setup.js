@@ -518,11 +518,11 @@ async function runSetup() {
 
     const defaults = buildDefaultConfig(d);
     console.log(cy('\n── Recommended Config ─────────────────────────────────────'));
-    console.log(`  ${m('Stage 1')} Operator:    ${wb(defaults.operator.provider   + ' / ' + defaults.operator.model)}`);
-    console.log(`  ${m('Stage 2')} Planner:     ${wb(defaults.planner.provider    + ' / ' + defaults.planner.model)}`);
-    console.log(`  ${m('Stage 3')} Reviewer:    ${wb(defaults.reviewer.provider   + ' / ' + defaults.reviewer.model)}`);
-    console.log(`  ${m('Stage 4')} Tiebreaker:  ${wb(defaults.tiebreaker.provider + ' / ' + defaults.tiebreaker.model)}`);
-    console.log(`  ${m('Stage 5')} Executor:    ${wb(defaults.executor.cli + ' (local CLI)')}`);
+    console.log(`  Operator:    ${wb(defaults.operator.provider   + ' / ' + defaults.operator.model)}`);
+    console.log(`  Planner:     ${wb(defaults.planner.provider    + ' / ' + defaults.planner.model)}`);
+    console.log(`  Reviewer:    ${wb(defaults.reviewer.provider   + ' / ' + defaults.reviewer.model)}`);
+    console.log(`  Tiebreaker:  ${wb(defaults.tiebreaker.provider + ' / ' + defaults.tiebreaker.model)}`);
+    console.log(`  Executor:    ${wb(defaults.executor.cli + ' (local CLI)')}`);
     console.log('');
 
     const accept = await ask(rl, wb('Use this config? [Y/n]: '));
