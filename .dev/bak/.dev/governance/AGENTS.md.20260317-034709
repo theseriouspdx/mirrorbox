@@ -10,9 +10,9 @@
 Every development session begins in this order. No exceptions.
 
 1. Read this file (`AGENTS.md`)
-2. Read `.dev/governance/projecttracking.md` — identify current milestone and active task (single source of truth)
-3. Read `.dev/governance/BUGS.md` — check linked P0/P1 blockers for the active task
-4. Read `.dev/sessions/NEXT_SESSION.md` — generated handoff only (do not hand-edit)
+2. Read `.dev/governance/projecttracking.md` — identify current milestone and active task
+3. Read `.dev/governance/BUGS.md` — check for anything P0 blocking current milestone
+4. Read `.dev/sessions/NEXT_SESSION.md` — orientation and handoff
 
 No code is written before this sequence completes.
 
@@ -203,24 +203,6 @@ Every development session MUST follow this checklist:
 9. **Sync State** (`projecttracking.md`, `CHANGELOG.md`, `BUGS.md`).
 10. **Branch Finalization** (promote approved, verified branch to target, then delete or archive branch).
 11. **Lock & Journal** (`handshake.py --revoke` and `init_state.py`).
-
----
-
-## Section 16 — Workflow Canonicalization (Single Source of Truth)
-
-To eliminate state drift across governance files, workflow ownership is strict:
-
-1. `projecttracking.md` is the only canonical task ledger.
-2. Every active task row MUST include: `Task ID`, `Type`, `Status`, `Owner`, `Branch`, `Updated`, `Links`, `Acceptance`.
-3. `BUGS.md` is a bug registry only. Every OPEN/PARTIAL bug MUST include a `Task:` link to a task ID in `projecttracking.md`.
-4. `NEXT_SESSION.md` is generated output only. Manual edits are prohibited.
-5. Session-close script regenerates `NEXT_SESSION.md` from `projecttracking.md` + OPEN/PARTIAL P0/P1 bugs.
-6. `python3 bin/validator.py --all` MUST fail when:
-   - any OPEN/PARTIAL P0/P1 bug lacks a linked task ID,
-   - linked task ID does not exist in `projecttracking.md`,
-   - `NEXT_SESSION.md` is stale relative to governance files.
-
-**Authoring rule:** update state only at task status transitions and at session close.
 
 ---
 

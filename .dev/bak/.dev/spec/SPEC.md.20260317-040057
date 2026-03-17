@@ -2,13 +2,14 @@
 ## Complete Architecture Specification v2.0
 
 **Status:** Current — Implementation Contract  
-**Date:** 2026-03-17  
+**Date:** 2026-03-13  
 **Author:** John Serious  
 
 This document specifies the architecture, behavior, and implementation contract for the Mirror Box Orchestrator. It is written in operational order — following a single task from the moment a user describes what they want to the moment working code is deployed.
 
 Companion documents:
 - `SPEC.md` — the implementation contract and source of truth
+- `ONBOARDING_SPEC.md` — interview logic, psychological calibration, question generation strategy
 - `BUGS.md` — known issues and queued fixes
 - `ROADMAP.md` — approved future versions
 - `CHANGELOG.md` — shipped changes
@@ -199,77 +200,82 @@ The actual code repository. Interacted with only through controlled Git operatio
 
 ---
 
-## Section 5 — Onboarding (Adaptive v2)
+## Section 5 — Onboarding
 
 Onboarding establishes the system's understanding of a project before any task begins. It runs on first launch in a new project directory and can be re-run at any time via the `re-onboard` command.
 
-Re-onboarding supports two explicit modes:
-- **Update (default):** preserve existing profile fields and ask only what is unknown or low-confidence.
-- **Full redo:** re-ask the full interview from scratch.
+Re-onboarding is additive by default — it updates the existing profile. Full reset is available via `re-onboard --reset`.
 
-### UX Contract (UX-022..UX-028)
+### The Interview
 
-Onboarding v2 implements this behavior contract:
-- **UX-022 Scan briefing:** after scan, show confirmed / inferred / unknown findings before follow-ups.
-- **UX-023 Adaptive questioning:** skip high-confidence fields and ask only unknown/conflict fields.
-- **UX-024 Re-onboarding mode selection:** choose `update` or `redo` when an existing profile is present.
-- **UX-025 Contextual help:** entering `?` or `help` on prompts prints question-specific guidance and re-asks.
-- **UX-026 `subjectRoot` safety:** expand `~`, require absolute existing path, reject `/` unless explicitly allowed.
-- **UX-027 Prime directive v2 controls:** support Accept / Edit / Regenerate before final confirmation.
-- **UX-028 Semantic validation gate:** reject nonsensical list values before persisting profile.
+Onboarding is a conversation, not a scan. The system asks, listens, scans, then asks again based on what it found. It does not ask questions it could answer itself. It does not ask technical questions to non-technical users. It does not assume infrastructure changes the user cannot make.
 
-Copy output follows Section 36 rules:
-- No stage IDs in primary display.
-- Every status line must carry user-relevant state.
-- Every error must include a recommended action.
+The interview is conducted by the best available frontier model. This is a judgment task — knowing when to stop asking, how to read between the lines of an answer, when a stated constraint is real vs. inherited — and it requires the highest available reasoning capability.
 
-### Flow
+**Phase 1 — Fixed opening questions (before scan)**
 
-**Phase 1 — Opening interview**
-
-The four opening questions are retained as the default intake for full redo:
+These four questions are always asked, in this order, before any scan occurs. They capture what no scan can reveal.
 
 ```
 Q1: Is this a brand new project or an existing one?
+
 Q2: Who is this project for — who are the users?
-Q3: What is the single most important thing I should always keep in mind?
-Q4: Is there anything else that will help us work well together?
+
+Q3: What is the single most important thing I should always 
+    keep in mind when working on this project?
+
+Q4: Is there anything else that will help us work together 
+    as partners on this project?
 ```
 
-Q3 remains a signal, not a final directive.
+Q3 is treated as a signal, not a directive. The answer reveals what the user is worried about, what has been fragile, what has broken before. The system uses it to generate targeted follow-up questions — probing the anxiety behind the answer rather than accepting the surface response at face value.
 
-**Phase 2 — Repository scan + briefing**
+Example: If the user answers "it has to keep running on our legacy server," the system does not record "must run on legacy server" as a hard constraint. It asks: why that server, who made that decision, what would break if it changed, who would need to approve a change. The real constraint might be political, financial, or simply an assumption nobody has questioned in years.
 
-The system scans language/framework/build/CI/tests/config/structure signals, then prints a briefing grouped by:
-- confirmed
-- inferred
-- unknown
+**Phase 2 — Silent scan**
 
-Follow-up prompts are generated from unknown/conflicting fields and prior profile confidence.
+After the four opening questions, the system scans the codebase silently:
 
-**Phase 3 — Adaptive follow-up + help**
+- Language and framework detection
+- Build system and package manager identification
+- Dependency audit
+- Test coverage measurement
+- CI/CD configuration detection
+- Directory structure analysis
+- Code age and activity patterns
+- Existing documentation inventory
+- Intelligence Graph initial construction
 
-Follow-ups are capped (`MAX_FOLLOWUPS = 10`) and seeded with detected defaults where possible.
-At any follow-up prompt, `?` / `help` shows context-specific help text and retries the same question.
+The user sees a progress indicator. No questions during this phase.
 
-**Phase 4 — Prime directive synthesis + handshake v2**
+**Phase 3 — Targeted follow-up (Opus-driven, max 10 questions)**
 
-Prime directive is synthesized from opening answers + scan + follow-ups (not Q3 verbatim). Before persist, the user can:
-- Accept
-- Edit
-- Regenerate
+Based on the delta between what the opening answers stated and what the scan found, the system generates follow-up questions. It asks only what the scan could not answer.
 
-Handshake remains required, but UX is actionable and revision-capable.
+Examples of targeted follow-up:
+- "I found 23% test coverage. Is that intentional or a gap you want addressed?"
+- "I see three different config patterns. Which one is canonical?"
+- "There's a TODO in the auth middleware that's been there since 2021. Should I treat that as a known issue or is it load-bearing?"
+- "Your package.json lists 47 dependencies but I can only find active usage of 31. Should I flag unused dependencies during tasks?"
 
-**Phase 5 — Validation + persist**
+The system stops asking when its confidence across all profile dimensions reaches threshold, or when the user types `done`. Maximum 10 follow-up questions regardless of confidence score.
 
-Before writing profile:
-- validate `subjectRoot`
-- validate verification commands
-- validate danger zones
-- reject semantic nonsense values
+**Phase 4 — Synthesis and confirmation**
 
-On success, profile is persisted and used as immutable context for planning prompts.
+The system generates all outputs from the combined Phase 1 answers, scan data, and Phase 3 answers:
+
+- **Project profile** — stored in `mirrorbox.db`
+- **Prime directive** — the actual load-bearing constraint, which may differ from the Q3 answer. Shown to the user with reasoning: "You told me X was most important. Based on everything I've learned, I think the real constraint is Y. Here's why."
+
+**Verification Handshake:** To prevent systematic bias from a hallucinated or misunderstood directive, the system does not accept a simple "yes." The user must paraphrase the prime directive back in their own words. If the paraphrase diverges conceptually, the system asks for clarification and revises the directive until the handshake is successful.
+- **`AGENTS.md` proposal** — project-specific rules for all agents
+- **Intelligence Graph seed** — initial structural map
+- **Gate 0 config proposal** — dependency checks for this project
+- **Verification baseline** — what "passing" looks like for this codebase
+
+The system displays all generated outputs and asks for confirmation before writing anything. The user can accept, edit, or reject each output individually.
+
+The prime directive is injected into every planning prompt for every task. It is the single sentence that every agent sees before doing any work.
 
 ### Onboarding Profile Schema
 
@@ -393,7 +399,7 @@ This is what the onboarding JSON looks like after a real interview. It is stored
 }
 ```
 
-All onboarding behavior is specified in this section; no external onboarding spec governs runtime behavior.
+**Full interview logic, question generation strategy, tone calibration for non-technical users, and constraint interrogation methodology are specified in `ONBOARDING_SPEC.md`.**
 
 ---
 

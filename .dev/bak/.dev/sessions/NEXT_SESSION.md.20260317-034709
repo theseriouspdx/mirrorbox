@@ -1,0 +1,74 @@
+# NEXT_SESSION.md
+## Mirror Box Orchestrator — Session Handoff
+
+**Session ended:** 2026-03-17
+**Last task:** Onboarding v2 merge to master — UX-022..028, BUG-093..101 resolved, 8/8 tests pass
+**Status:** Master is clean. Gemini starting on Section 36 (UX copy pack application).
+
+---
+
+## Section 1 — Next Action
+
+**Section 36 (UX-001..UX-021) — copy-pack string replacements**
+
+Gemini has the lead. Files to update with Section 36 / `ux-copy-pack-v1.0.md` rules:
+- `src/cli/onboarding.js` — already Section 36 compliant (v2 merge)
+- `src/cli/operator.js` — main pipeline copy; stages, gates, error strings
+- `src/cli/startup-checks.js` — Gate 0 / preflight messages
+- `src/cli/dry-run.js` — approval gate / sandbox UX copy
+
+Rules (from `ux-copy-pack-v1.0.md` Section 36):
+- No stage IDs in primary display
+- Every status line contains user-relevant state
+- Every error contains a recommended action
+- Every approval screen shows scope, risk, reversibility
+
+---
+
+## Section 2 — What Landed This Session
+
+| Item | Status |
+|---|---|
+| Onboarding v2 (`src/cli/onboarding.js`, 1,403 lines) | Merged to master |
+| Test suite (`scripts/test-onboarding.js`, 8 tests) | Merged to master, all pass |
+| BUG-093..099 | RESOLVED via v2 merge |
+| BUG-100 (stdin hang) | RESOLVED — `process.stdin.resume()` in `io.close()` |
+| BUG-101 (circular error) | RESOLVED — Section 36 copy compliance |
+| BUGS.md | Updated — all resolved |
+| projecttracking.md | Updated |
+| Worktrees cleaned | `.dev/worktrees/onboarding-v2`, `.dev/worktree/codex-onboarding-v2`, `.claude/worktrees/ux-elevation` removed |
+
+---
+
+## Section 3 — Open Issues
+
+- BUG-086 (P1, PARTIAL): project root mismatch re-onboarding — re-validation still pending against fresh johnseriouscom install
+- BUG-063 (P2): macOS auth fallback may pass via unlocked keychain without explicit prompt — deferred
+- BUG-061 (P0, PARTIAL): Merkle scope drift — remaining items still needed
+- UX-001..UX-021: copy-pack string replacements in operator.js, startup-checks.js, dry-run.js — Gemini leading
+
+---
+
+
+## Section 4 — MCP & Query Guardrails (New)
+
+1. MCP endpoint resolution order is mandatory before declaring graph unavailable:
+   - `.dev/run/mcp.json`
+   - `.mbo/run/mcp.json`
+   - `.dev/run/mcp-<project_id>-*.json` then `.mbo/run/mcp-<project_id>-*.json` (newest live PID)
+   - `.mcp.json` / `.gemini/settings.json`
+2. `graph_rescan` success criteria:
+   - JSON-RPC result includes `status: "completed"` or `status: "completed_with_warnings"`
+   - Probe-level warnings do not override successful result payloads.
+3. Orientation query backoff:
+   - Max 2 broadened `graph_search` retries after empty result
+   - Then switch to `rg`/file search and continue task
+   - Do not use first-pass literal query seeds longer than 48 chars.
+
+---
+
+## Session End Checklist
+- Status: merge_complete
+- Branch state: master (clean)
+- Tests: 8/8 pass
+- Timestamp: 2026-03-17

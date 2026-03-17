@@ -87,34 +87,6 @@ def _parse_task_ids(projecttracking_text: str):
     return ids
 
 
-def _parse_next_task(projecttracking_text: str):
-    m = re.search(r"^\*\*Next Task:\*\*\s*([^\n]+)$", projecttracking_text, flags=re.MULTILINE)
-    return m.group(1).strip() if m else ""
-
-
-def _parse_active_task_statuses(projecttracking_text: str):
-    statuses = {}
-    in_active = False
-    for line in projecttracking_text.splitlines():
-        if line.strip() == "## Active Tasks":
-            in_active = True
-            continue
-        if in_active and line.startswith("## "):
-            break
-        if not in_active or not line.startswith("|"):
-            continue
-        if line.startswith("|---") or "Task ID" in line:
-            continue
-        cols = [c.strip() for c in line.strip().split("|")[1:-1]]
-        if len(cols) < 4:
-            continue
-        task_id = cols[0]
-        status = cols[3]
-        if task_id:
-            statuses[task_id] = status
-    return statuses
-
-
 def _parse_bug_records(text: str):
     records = []
     current = None
@@ -157,19 +129,6 @@ def validate_workflow_consistency():
     pt_text = PROJECTTRACKING.read_text()
     bug_text = BUGS.read_text()
     task_ids = _parse_task_ids(pt_text)
-    next_task = _parse_next_task(pt_text)
-    active_statuses = _parse_active_task_statuses(pt_text)
-
-    if not next_task:
-        errs.append("projecttracking.md missing '**Next Task:** <task-id>'")
-    elif next_task not in task_ids:
-        errs.append(f"projecttracking.md Next Task '{next_task}' not found in task ledger")
-    else:
-        status = active_statuses.get(next_task)
-        if status not in {"READY", "IN_PROGRESS", "BLOCKED"}:
-            errs.append(
-                f"projecttracking.md Next Task '{next_task}' must be in Active Tasks with status READY/IN_PROGRESS/BLOCKED"
-            )
     bug_records = _parse_bug_records(bug_text)
 
     for rec in bug_records:
@@ -186,14 +145,6 @@ def validate_workflow_consistency():
         next_mtime = NEXT_SESSION.stat().st_mtime
         if PROJECTTRACKING.stat().st_mtime > next_mtime or BUGS.stat().st_mtime > next_mtime:
             errs.append("NEXT_SESSION.md is stale: regenerate via scripts/mbo-session-close.sh")
-
-        if next_task:
-            ns_text = NEXT_SESSION.read_text()
-            expected = f"**Task {next_task} —"
-            if expected not in ns_text:
-                errs.append(
-                    f"NEXT_SESSION.md does not match projecttracking Next Task '{next_task}'"
-                )
     else:
         errs.append(f"Missing generated handoff: {NEXT_SESSION}")
 

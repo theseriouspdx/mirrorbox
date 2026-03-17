@@ -10,9 +10,9 @@
 Every development session begins in this order. No exceptions.
 
 1. Read this file (`AGENTS.md`)
-2. Read `.dev/governance/projecttracking.md` — identify current milestone and active task (single source of truth)
-3. Read `.dev/governance/BUGS.md` — check linked P0/P1 blockers for the active task
-4. Read `.dev/sessions/NEXT_SESSION.md` — generated handoff only (do not hand-edit)
+2. Read `.dev/governance/projecttracking.md` — identify current milestone and active task
+3. Read `.dev/governance/BUGS.md` — check for anything P0 blocking current milestone
+4. Read `.dev/sessions/NEXT_SESSION.md` — orientation and handoff
 
 No code is written before this sequence completes.
 
@@ -95,15 +95,11 @@ Implementation task: `1.1-H24` — see `.dev/preflight/did-protocol-implementati
 - On session close, atomically persist event flush, graph delta, handoff record, and integrity hashes.
 - Run `PRAGMA integrity_check`.
 
-### Invariant 17 (Worktree-Isolated Verification Gate)
-- All implementation work MUST occur in a dedicated git worktree with its own branch (`<agent>/<task-or-scope>`, e.g. `claude/`, `gemini/`, `codex/`).
-- Worktree path convention: `.dev/worktree/<agent>-<task>/` (e.g. `.dev/worktree/claude-task-1/`).
-- Create with: `git worktree add .dev/worktree/<agent>-<task> -b <agent>/<task>`.
-- Each agent session MUST use its own worktree. Sharing a working directory between concurrent agents is prohibited — branch checkouts in a shared directory affect all agents simultaneously.
+### Invariant 17 (Branch-Isolated Verification Gate)
+- All implementation work MUST occur on a dedicated non-main branch (`<agent>/<task-or-scope>`, e.g. `claude/`, `gemini/`, `codex/`).
 - No apply/merge/promotion to the target branch until verification gate passes.
 - Verification gate minimum: `python3 bin/validator.py --all` passes, task-specific tests pass, and no new P0/P1 regressions are introduced.
 - If verification fails, fix-forward on the same working branch; do not apply partial changes.
-- On session close, remove the worktree: `git worktree remove .dev/worktree/<agent>-<task>` (after branch finalization).
 
 ---
 
@@ -168,8 +164,6 @@ Identify the next scheduled task from `projecttracking.md` and ask: "Would you l
 
 Explicitly state your **Hard State Anchor** at the beginning of every internal `<thinking>` block: `<thinking>[Hard State: X] ...`
 
-**No File Modifications Without Explicit Approval:** Agents must NOT edit, create, or modify any file without explicit human authorization ("go"). All file interactions must use MCP tools. Hard state is tracked in agent sessions — if using an MCP server, state must be saved and the server restarted before proceeding.
-
 ---
 
 ## Section 11 — Graph-Assisted Context
@@ -181,11 +175,11 @@ The graph server is a launchd system daemon at project-scoped dynamic endpoint.
 No fixed port, manifest-based discovery required, no port negotiation, no session ID management.
 
 If the dev graph server is unavailable:
-- Check: `curl http://127.0.0.1:$(node -e 'console.log(require("./.dev/run/mcp.json").port)')/health`
+- Check: `node scripts/mcp_query.js --diagnose graph_server_info`
 - Start: `mbo setup`
 - State: "Dev graph unavailable. Ran `curl /health` — [result]. Awaiting human instruction."
 
-MCP is available via dynamic manifest-resolved endpoint. Run `curl http://127.0.0.1:$(node -e 'console.log(require("./.dev/run/mcp.json").port)')/health` to verify before starting.
+MCP is available via dynamic manifest-resolved endpoint. Run `node scripts/mcp_query.js --diagnose graph_server_info` to verify before starting.
 
 ---
 
@@ -194,7 +188,7 @@ MCP is available via dynamic manifest-resolved endpoint. Run `curl http://127.0.
 Every development session MUST follow this checklist:
 1. **Identify Task** from `projecttracking.md`.
 2. **Permission Check** via `python3 bin/handshake.py <cell_name>`.
-3. **Create Working Worktree** — `git worktree add .dev/worktree/<agent>-<task> -b <agent>/<task>` — and work exclusively inside it. Never share a working directory with a concurrent agent session.
+3. **Create Working Branch** (`<agent>/<task-or-scope>`) and keep all edits isolated there.
 4. **Derive & Propose** solution from graph context.
 5. **Human Approval** ("go").
 6. **Implement on Branch & Verify** (`python3 bin/validator.py --all` + task-specific tests).
@@ -203,24 +197,6 @@ Every development session MUST follow this checklist:
 9. **Sync State** (`projecttracking.md`, `CHANGELOG.md`, `BUGS.md`).
 10. **Branch Finalization** (promote approved, verified branch to target, then delete or archive branch).
 11. **Lock & Journal** (`handshake.py --revoke` and `init_state.py`).
-
----
-
-## Section 16 — Workflow Canonicalization (Single Source of Truth)
-
-To eliminate state drift across governance files, workflow ownership is strict:
-
-1. `projecttracking.md` is the only canonical task ledger.
-2. Every active task row MUST include: `Task ID`, `Type`, `Status`, `Owner`, `Branch`, `Updated`, `Links`, `Acceptance`.
-3. `BUGS.md` is a bug registry only. Every OPEN/PARTIAL bug MUST include a `Task:` link to a task ID in `projecttracking.md`.
-4. `NEXT_SESSION.md` is generated output only. Manual edits are prohibited.
-5. Session-close script regenerates `NEXT_SESSION.md` from `projecttracking.md` + OPEN/PARTIAL P0/P1 bugs.
-6. `python3 bin/validator.py --all` MUST fail when:
-   - any OPEN/PARTIAL P0/P1 bug lacks a linked task ID,
-   - linked task ID does not exist in `projecttracking.md`,
-   - `NEXT_SESSION.md` is stale relative to governance files.
-
-**Authoring rule:** update state only at task status transitions and at session close.
 
 ---
 
@@ -259,4 +235,27 @@ Every task in Stage 1.5 generates an **Entropy Score** via the Assumption Ledger
 
 ---
 
-*Last updated: 2026-03-17 — Added Section 13, 14. Invariant 17 + Section 3 Step 3: worktree path convention changed to `.dev/worktree/` (agent-agnostic).*
+---
+
+## Section 15 — Task Versioning Scheme
+
+Task IDs align to the runtime version format established in Task 1.1-H37 (v0.Milestone.Point-YYYYMMDD.HHMM).
+
+**Legacy format (pre-2026-03-16):** `<Milestone>-[Type]<TaskNum>`
+Examples: `1.0-09`, `1.1-H37`, `1.1-ISS-04`
+
+**New format (from 2026-03-16):** `v<Major>.<MilestoneNN>.<TaskNum>`
+- **Major:** `0` (static, matches package.json major version)
+- **MilestoneNN:** Milestone number with dot removed (1.0 → `10`, 1.1 → `11`, 1.2 → `12`)
+- **TaskNum:** Zero-padded task sequence within the milestone
+
+Examples: `v0.10.09`, `v0.11.37`, `v0.12.01`
+
+**Migration policy:**
+1. Completed tasks retain their legacy IDs unchanged — no retroactive renumbering.
+2. Outstanding tasks at time of adoption carry both IDs (e.g. `1.0-09 (v0.10.09)`).
+3. All new tasks planned from 2026-03-16 onward use only the new format.
+
+*Scheme adopted: 2026-03-16 — aligned to runtime version format (Task 1.1-H37 / v0.11.37)*
+
+*Last updated: 2026-03-16 — Added Section 13 (Persona Store), Section 14 (Entropy Gate), Section 15 (Task Versioning Scheme).*

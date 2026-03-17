@@ -289,11 +289,10 @@ async function runMcpRecoveryCommand() {
     timeoutMs: 180000,
     acceptFailure: (res) => {
       const out = `${res.stdout || ''}\n${res.stderr || ''}`;
-      return /completed_with_warnings/.test(out);
+      return /completed_with_warnings/.test(out) || /"status"\s*:\s*"completed"/.test(out) || /"result"\s*:\s*\{/.test(out);
     },
   });
   process.stdout.write(`[MBO MCP] graph_rescan: ${String(rescan.stdout || '').trim()}\n`);
-
   const info = runChecked('graph_server_info', process.execPath, [path.join(PACKAGE_ROOT, 'scripts', 'mcp_query.js'), 'graph_server_info'], {
     capture: true,
     cwd: PROJECT_ROOT,

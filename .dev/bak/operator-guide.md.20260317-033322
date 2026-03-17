@@ -46,12 +46,6 @@ graph_search("open tasks")
 graph_search("P0 bugs")
 ```
 
-Graph guardrails (required):
-- MCP endpoint resolution order: `.dev/run/mcp.json` -> `.mbo/run/mcp.json` -> pid-scoped manifests -> client configs (`.mcp.json`, `.gemini/settings.json`).
-- Treat `graph_rescan` as successful when MCP JSON result reports `status: "completed"` or `status: "completed_with_warnings"`.
-- After 2 empty broadened `graph_search` retries, switch to `rg`/file search. Do not keep retry-looping.
-- Do not start orientation with literal graph query seeds longer than 48 characters.
-
 ---
 
 ## Auth Entry
