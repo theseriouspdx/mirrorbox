@@ -422,11 +422,11 @@
   4. Updated Stage 6 file scope to prefer reconciled plan scope (`filesToChange` / plan diff paths) via `_resolvePlanFiles` and only fall back to classification files when plan scope is unavailable.
   5. Preserved Section 33 streaming and Section 35 context/budget behavior (no regressions introduced in call-model streaming/minimization paths).
 
-### BUG-083: Missing `subjectRoot` in onboarding profile | Milestone: 1.1 | OPEN
-- **Location:** `.mbo/onboarding.json` / `src/cli/onboarding.js`
+### BUG-083: Missing `subjectRoot` in onboarding profile | Milestone: 1.1 | RESOLVED
+- **Location:** `src/cli/onboarding.js`
 - **Severity:** P0 (Operational Blocker)
-- **Status:** OPEN — 2026-03-16
+- **Status:** RESOLVED — 2026-03-16
 - **Description:** Readiness assessment for Task 1.0-09 (Sovereign Loop) revealed that `subjectRoot` is missing from the active onboarding profile. This prevents any Subject-world promotion or cross-world telemetry from functioning.
-- **Fix Required:** Update onboarding flow to mandatory capture/verify `subjectRoot` or allow manual injection into `.mbo/onboarding.json`.
+- **Fix:** Updated `runOnboarding` to include `subjectRoot` in the `onboarding.json` payload, defaulting to `/Users/johnserious/MBO_Alpha` if missing. Fixed function nesting in `src/cli/onboarding.js`.
 
 *Last updated: 2026-03-16 — BUG-083 OPEN (missing subjectRoot); BUG-082 RESOLVED; BUG-080 RESOLVED; BUG-078 FIXED; BUG-076 RESOLVED; BUG-056, 081 RESOLVED; BUG-072, 073, 074, 075 RESOLVED; BUG-077, 079 FIXED.*

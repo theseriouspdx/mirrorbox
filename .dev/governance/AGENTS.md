@@ -95,11 +95,15 @@ Implementation task: `1.1-H24` — see `.dev/preflight/did-protocol-implementati
 - On session close, atomically persist event flush, graph delta, handoff record, and integrity hashes.
 - Run `PRAGMA integrity_check`.
 
-### Invariant 17 (Branch-Isolated Verification Gate)
-- All implementation work MUST occur on a dedicated non-main branch (`<agent>/<task-or-scope>`, e.g. `claude/`, `gemini/`, `codex/`).
+### Invariant 17 (Worktree-Isolated Verification Gate)
+- All implementation work MUST occur in a dedicated git worktree with its own branch (`<agent>/<task-or-scope>`, e.g. `claude/`, `gemini/`, `codex/`).
+- Worktree path convention: `.claude/worktrees/<agent>-<task>/` (e.g. `.claude/worktrees/claude-task-1/`).
+- Create with: `git worktree add .claude/worktrees/<agent>-<task> -b <agent>/<task>`.
+- Each agent session MUST use its own worktree. Sharing a working directory between concurrent agents is prohibited — branch checkouts in a shared directory affect all agents simultaneously.
 - No apply/merge/promotion to the target branch until verification gate passes.
 - Verification gate minimum: `python3 bin/validator.py --all` passes, task-specific tests pass, and no new P0/P1 regressions are introduced.
 - If verification fails, fix-forward on the same working branch; do not apply partial changes.
+- On session close, remove the worktree: `git worktree remove .claude/worktrees/<agent>-<task>` (after branch finalization).
 
 ---
 
@@ -188,7 +192,7 @@ MCP is available via dynamic manifest-resolved endpoint. Run `curl http://127.0.
 Every development session MUST follow this checklist:
 1. **Identify Task** from `projecttracking.md`.
 2. **Permission Check** via `python3 bin/handshake.py <cell_name>`.
-3. **Create Working Branch** (`<agent>/<task-or-scope>`) and keep all edits isolated there.
+3. **Create Working Worktree** — `git worktree add .claude/worktrees/<agent>-<task> -b <agent>/<task>` — and work exclusively inside it. Never share a working directory with a concurrent agent session.
 4. **Derive & Propose** solution from graph context.
 5. **Human Approval** ("go").
 6. **Implement on Branch & Verify** (`python3 bin/validator.py --all` + task-specific tests).
@@ -235,4 +239,4 @@ Every task in Stage 1.5 generates an **Entropy Score** via the Assumption Ledger
 
 ---
 
-*Last updated: 2026-03-16 — Added Section 13 (Persona Store) and Section 14 (Entropy Gate).*
+*Last updated: 2026-03-16 — Added Section 13 (Persona Store) and Section 14 (Entropy Gate). Invariant 17 + Section 12 Step 3 updated to mandate git worktrees for concurrent agent isolation.*
