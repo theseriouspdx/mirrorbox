@@ -12,35 +12,129 @@ const readline = require('readline');
 const { version } = require('../../package.json');
 const { DBManager } = require('../state/db-manager');
 
-const DEFAULT_SUBJECT_ROOT = '/Users/johnserious/MBO_Alpha';
-const MAX_FOLLOWUPS = 10;
+const DEFAULT_SUBJECT_ROOT = path.join(os.homedir(), 'MBO_Alpha');
+const MAX_FOLLOWUPS = 15;
 
-const OPENING_QUESTIONS = [
-  {
-    key: 'projectType',
-    prompt: 'Q1: Is this a brand new project or an existing one?',
-    normalize: (value) => {
-      const v = String(value || '').toLowerCase();
-      if (v.includes('new') || v.includes('green')) return 'greenfield';
-      return 'existing';
+const QUESTIONS = {
+  projectType: {
+    prompt: 'Is this a brand new project or an existing one?',
+    help: 'Knowing if a project is "greenfield" helps me understand if I should be strictly preserving existing patterns or helping you establish new ones.',
+    normalize: (v) => (String(v || '').toLowerCase().includes('new') ? 'greenfield' : 'existing'),
+    validate: (v) => (v ? true : 'Please specify if this is a new or existing project.'),
+  },
+  users: {
+    prompt: 'Who is this project for — who are the users?',
+    help: 'This helps me prioritize different aspects of the codebase (e.g. accessibility for end-users, developer experience for libraries).',
+    validate: (v) => (String(v || '').trim().length >= 2 ? true : 'Please provide a more descriptive answer for the project users.'),
+  },
+  q3Raw: {
+    prompt: 'What is the single most important thing I should always keep in mind?',
+    help: 'This is the core rule that governs all my actions. For example: "Performance is a feature" or "Security over speed".',
+    validate: (v) => (String(v || '').trim().length >= 5 ? true : 'This is a critical signal. Please provide a more substantial answer.'),
+  },
+  q4Raw: {
+    prompt: 'Is there anything else that will help us work together as partners?',
+    help: 'Mention your communication style, preferred tools, or specific workflows you want me to follow.',
+  },
+  subjectRoot: {
+    prompt: 'Provide the Subject-world root path for promotion/telemetry',
+    help: 'This is the main directory where changes are applied and validated. It must be an absolute path to an existing directory. Root "/" is disallowed.',
+    validate: (v) => {
+      if (!v) return 'Subject root is required.';
+      const expanded = v.replace(/^~/, os.homedir());
+      const p = path.resolve(expanded);
+      if (p === '/') return 'The root directory "/" is prohibited as a subject root for safety.';
+      if (!path.isAbsolute(p)) return 'Path must be absolute.';
+      if (!fs.existsSync(p)) return `Directory does not exist: ${p}`;
+      if (!fs.statSync(p).isDirectory()) return 'Path is not a directory.';
+      return true;
     },
+    normalize: (v) => path.resolve(v.replace(/^~/, os.homedir())),
   },
-  {
-    key: 'users',
-    prompt: 'Q2: Who is this project for — who are the users?',
-    normalize: (value) => String(value || '').trim(),
+  dangerZones: {
+    prompt: 'Confirm or modify Danger Zones (high-risk files/dirs)',
+    help: 'Danger zones trigger extra verification and higher-tier review. Avoid accidental edits to critical system or metadata folders.',
+    normalize: (v) => normalizeList(v),
   },
-  {
-    key: 'q3Raw',
-    prompt: 'Q3: What is the single most important thing I should always keep in mind when working on this project?',
-    normalize: (value) => String(value || '').trim(),
+  verificationCommands: {
+    prompt: 'Confirm or modify Verification Commands (checks to run before shipping)',
+    help: 'These commands are executed in the sandbox to verify behavioral correctness. Use "npm test", "npm run lint", etc.',
+    validate: (v) => {
+      const list = normalizeList(v);
+      if (list.length === 0) return 'At least one verification command is required.';
+      if (list.some(c => c === 'yes' || c === 'true')) return 'Invalid command detected ("yes"). Please provide real shell commands.';
+      return true;
+    },
+    normalize: (v) => normalizeList(v),
   },
-  {
-    key: 'q4Raw',
-    prompt: 'Q4: Is there anything else that will help us work together as partners on this project?',
-    normalize: (value) => String(value || '').trim(),
+  realConstraints: {
+    prompt: 'Confirm or modify Real Constraints (immutable project rules)',
+    help: 'Inferred from your project files (e.g. node versions, deploy targets). These are hard rules MBO must not violate.',
+    normalize: (v) => normalizeList(v),
   },
-];
+  assumedConstraints: {
+    prompt: 'List any assumed constraints that still need verification',
+    help: 'Assumptions are tracked in the ledger and verified over time. E.g. "Assuming memory budget < 512MB".',
+    normalize: (v) => normalizeList(v),
+  },
+  ciIntent: {
+    prompt: 'No CI detected. Should I treat this as intentional?',
+    help: 'Continuous Integration (CI) ensures every change is tested automatically. If you plan to add it later, say so.',
+  }
+};
+
+function isBroadRoot(p) {
+  const home = os.homedir();
+  const root = path.resolve(p);
+  if (root === '/' || root === home || root === '/Users' || root === '/home') return true;
+  // Also check if we are scanning a top-level dir like /Users/johnserious
+  if (path.dirname(root) === '/Users' || path.dirname(root) === '/home') {
+    // If it has a huge number of subdirs, it might be broad, but let's stick to these for now.
+    return true;
+  }
+  return false;
+}
+
+function isQuestionNeeded(key, scan, prior, mode = 'update') {
+  const core = ['projectType', 'users', 'q3Raw'];
+  if (core.includes(key) && (!prior[key] || mode === 'redo')) return true;
+
+  if (key === 'q4Raw' && mode === 'redo') return true;
+
+  if (key === 'subjectRoot') {
+    if (!prior.subjectRoot || mode === 'redo') return true;
+    const valid = QUESTIONS.subjectRoot.validate(prior.subjectRoot);
+    if (valid !== true) return true;
+    return false;
+  }
+
+  if (key === 'ciIntent' && !scan.hasCI && !prior.ciIntent) return true;
+
+  if (key === 'dangerZones') {
+    if (mode === 'redo') return true;
+    if (!prior.dangerZones || prior.dangerZones.length === 0) return true;
+    // If we have a prior but it's very different from suggested, maybe ask? 
+    // For now, trust the prior in update mode.
+    return false;
+  }
+
+  if (key === 'verificationCommands') {
+    if (mode === 'redo') return true;
+    if (!prior.verificationCommands || prior.verificationCommands.length === 0) return true;
+    if (scan.confidence.verificationCommands < 0.5) return true;
+    return false;
+  }
+
+  if (key === 'realConstraints') {
+    if (mode === 'redo') return true;
+    if (!prior.realConstraints || prior.realConstraints.length === 0) {
+       return scan.confidence.realConstraints < 0.8;
+    }
+    return false;
+  }
+
+  return false;
+}
 
 function isTTY() {
   return !!(process.stdin.isTTY && process.stdout.isTTY);
@@ -48,15 +142,36 @@ function isTTY() {
 
 function createPromptIO() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const ask = (prompt, defaultValue = '') => new Promise((resolve) => {
+  const ask = async (key, prompt, defaultValue = '', helpText = '') => {
     const suffix = defaultValue ? ` [${defaultValue}]` : '';
-    rl.question(`${prompt}${suffix}\n> `, (answer) => {
+    const fullPrompt = `${prompt}${suffix}\n> `;
+
+    while (true) {
+      const answer = await new Promise((resolve) => rl.question(fullPrompt, resolve));
       const trimmed = String(answer || '').trim();
-      resolve(trimmed || defaultValue || '');
-    });
-  });
-  // BUG-092: After rl.close(), resume stdin so closing the readline interface
-  // does not drain the event loop before the caller's promise chain completes.
+      const input = trimmed || defaultValue || '';
+
+      if (input.toLowerCase() === '?' || input.toLowerCase() === 'help') {
+        console.log(`\n[Help] ${key}:`);
+        console.log(helpText || 'No additional help available for this question.');
+        console.log('');
+        continue;
+      }
+
+      if (input.toLowerCase() === 'done') return 'done';
+
+      const q = QUESTIONS[key];
+      if (q && q.validate) {
+        const valid = q.validate(input);
+        if (valid !== true) {
+          console.log(`[Validation Error] ${valid}`);
+          continue;
+        }
+      }
+
+      return q && q.normalize ? q.normalize(input) : input;
+    }
+  };
   return { ask, close: () => { rl.close(); process.stdin.resume(); } };
 }
 
@@ -261,32 +376,29 @@ function synthesizePrimeDirective(context) {
   const scan = context.scan || {};
   const followup = context.followup || {};
 
-  const userClause = users
-    ? `for ${users}`
-    : 'for the project stakeholders';
-
-  const priority = q3
-    ? q3.replace(/\s+/g, ' ').trim()
-    : 'Preserve project stability and intent.';
-
   const constraints = realConstraints.length > 0
     ? realConstraints
     : normalizeList(scan.realConstraintCandidates || []);
 
-  const constraintClause = constraints.length > 0
-    ? `Respect these confirmed constraints: ${constraints.slice(0, 3).join('; ')}.`
-    : `Respect the established project constraints, including ${scan.canonicalConfigPath || 'canonical config files'}.`;
-
   const verification = normalizeList(followup.verificationCommands || scan.verificationCommands || []);
-  const verificationClause = verification.length > 0
-    ? `Validate changes with: ${verification.slice(0, 2).join(' then ')}.`
-    : 'Validate changes with the project test and lint workflow.';
 
-  const collaborationClause = q4
-    ? `Collaboration preference: ${q4.replace(/\s+/g, ' ').trim()}.`
-    : '';
+  let text = `MBO Mandate: ${q3 || 'Preserve project stability'}`;
+  if (users) text += ` for ${users}`;
+  text += '.';
 
-  return `Primary objective ${userClause}: ${priority}. ${constraintClause} ${verificationClause}${collaborationClause ? ` ${collaborationClause}` : ''}`;
+  if (constraints.length > 0) {
+    text += ` | Constraints: ${constraints.join('; ')}.`;
+  }
+
+  if (verification.length > 0) {
+    text += ` | Verification: ${verification.join(', ')}.`;
+  }
+
+  if (q4) {
+    text += ` | Partner Note: ${q4}.`;
+  }
+
+  return text;
 }
 
 function normalizeList(value) {
@@ -309,51 +421,51 @@ function buildProfile({
   const nowIso = new Date().toISOString();
   const nowMs = Date.now();
 
-  const realConstraints = normalizeList(followup.realConstraints);
-  const assumedConstraints = normalizeList(followup.assumedConstraints);
+  const realConstraints = normalizeList(followup.realConstraints || prior.realConstraints);
+  const assumedConstraints = normalizeList(followup.assumedConstraints || prior.assumedConstraints);
 
   const primeDirective = synthesizePrimeDirective({
-    q3Raw: answers.q3Raw,
-    q4Raw: answers.q4Raw,
-    users: answers.users,
+    q3Raw: answers.q3Raw || prior.q3Raw,
+    q4Raw: answers.q4Raw || prior.q4Raw,
+    users: answers.users || prior.users,
     realConstraints,
     scan,
     followup,
   });
 
   const subjectRootCandidate = String(followup.subjectRoot || prior.subjectRoot || DEFAULT_SUBJECT_ROOT).trim();
-  const subjectRoot = subjectRootCandidate ? path.resolve(subjectRootCandidate) : null;
+  const subjectRoot = subjectRootCandidate ? path.resolve(subjectRootCandidate.replace(/^~/, os.homedir())) : null;
 
   return {
     projectRoot: path.resolve(projectRoot),
-    projectType: answers.projectType,
-    users: answers.users,
+    projectType: answers.projectType || prior.projectType,
+    users: answers.users || prior.users,
     primeDirective,
-    q3Raw: answers.q3Raw,
-    q4Raw: answers.q4Raw,
+    q3Raw: answers.q3Raw || prior.q3Raw,
+    q4Raw: answers.q4Raw || prior.q4Raw,
     languages: scan.languages,
     frameworks: scan.frameworks,
     buildSystem: scan.buildSystem,
     testCoverage: scan.testCoverage,
     hasCI: scan.hasCI,
-    verificationCommands: normalizeList(followup.verificationCommands || scan.verificationCommands),
-    dangerZones: normalizeList(followup.dangerZones),
-    canonicalConfigPath: followup.canonicalConfigPath || scan.canonicalConfigPath || null,
+    verificationCommands: normalizeList(followup.verificationCommands || prior.verificationCommands || scan.verificationCommands),
+    dangerZones: normalizeList(followup.dangerZones || prior.dangerZones),
+    canonicalConfigPath: followup.canonicalConfigPath || prior.canonicalConfigPath || scan.canonicalConfigPath || null,
     onboardedAt: nowMs,
     onboardingVersion,
     binaryVersion: version,
 
-    aestheticRules: followup.aestheticRules || null,
-    firingOrder: followup.firingOrder || null,
+    aestheticRules: followup.aestheticRules || prior.aestheticRules || null,
+    firingOrder: followup.firingOrder || prior.firingOrder || null,
     subjectRoot,
-    coordinateSystem: followup.coordinateSystem || null,
-    logFormat: followup.logFormat || null,
-    failureProtocol: followup.failureProtocol || null,
-    nextSessionTrigger: followup.nextSessionTrigger || null,
-    migrationPolicy: followup.migrationPolicy || null,
-    apiVersioningRules: followup.apiVersioningRules || null,
-    deploymentTarget: followup.deploymentTarget || null,
-    infrastructureConstraints: normalizeList(followup.infrastructureConstraints),
+    coordinateSystem: followup.coordinateSystem || prior.coordinateSystem || null,
+    logFormat: followup.logFormat || prior.logFormat || null,
+    failureProtocol: followup.failureProtocol || prior.failureProtocol || null,
+    nextSessionTrigger: followup.nextSessionTrigger || prior.nextSessionTrigger || null,
+    migrationPolicy: followup.migrationPolicy || prior.migrationPolicy || null,
+    apiVersioningRules: followup.apiVersioningRules || prior.apiVersioningRules || null,
+    deploymentTarget: followup.deploymentTarget || prior.deploymentTarget || null,
+    infrastructureConstraints: normalizeList(followup.infrastructureConstraints || prior.infrastructureConstraints),
     realConstraints,
     assumedConstraints,
 
@@ -414,10 +526,9 @@ function validateProfile(profile) {
 
   if (!profile.subjectRoot) {
     missing.push('subjectRoot');
-  } else if (!path.isAbsolute(profile.subjectRoot)) {
-    missing.push('subjectRoot(abs_path_required)');
-  } else if (!fs.existsSync(profile.subjectRoot)) {
-    missing.push('subjectRoot(path_missing)');
+  } else {
+    const valid = QUESTIONS.subjectRoot.validate(profile.subjectRoot);
+    if (valid !== true) missing.push(`subjectRoot(${valid})`);
   }
 
   return { complete: missing.length === 0, missing };
@@ -507,7 +618,6 @@ function scanProject(projectRoot) {
     }
   }
 
-  // BUG-088/089/090: Build suggested danger zones from detected state dirs, config path, and lock files.
   const suggestedDangerZones = [];
   for (const stateDir of ['.git', '.mbo', '.dev']) {
     if (fs.existsSync(path.join(projectRoot, stateDir))) suggestedDangerZones.push(`${stateDir}/`);
@@ -535,168 +645,17 @@ function scanProject(projectRoot) {
     }),
     canonicalConfigPath,
     suggestedDangerZones,
+    confidence: {
+      buildSystem: !!fw.buildSystem,
+      frameworks: fw.frameworks.length > 0,
+      verificationCommands: fw.buildSystem ? 0.8 : 0.1,
+      realConstraints: inferRealConstraints(projectRoot, {
+        frameworks: fw.frameworks,
+        buildSystem: fw.buildSystem,
+        canonicalConfigPath,
+      }).length > 0 ? 0.7 : 0.1,
+    }
   };
-}
-
-function deriveFollowupQuestions(scan, prior) {
-  const questions = [];
-
-  if (scan.testCoverage < 0.2) {
-    questions.push({ key: 'testCoverageIntent', prompt: `I detected low test signal (${Math.round(scan.testCoverage * 100)}%). Is this intentional or a gap?` });
-  }
-  if (!scan.hasCI) {
-    questions.push({
-      key: 'ciIntent',
-      prompt: `I did not detect CI (automated checks run on each commit/PR). Should I treat that as intentional?
-Example: "Yes, intentional for now" or "No, add GitHub Actions soon."`
-    });
-  }
-  if (!prior.subjectRoot) {
-    questions.push({
-      key: 'subjectRoot',
-      prompt: `What project folder should I treat as your execution target root path?
-This is the main directory where changes are applied and validated.
-Example: /Users/johnserious/MBO_Alpha`
-    });
-  }
-  if (!scan.canonicalConfigPath) {
-    questions.push({
-      key: 'canonicalConfigPath',
-      prompt: `I could not infer the primary config file I should treat as authoritative.
-Which file should be treated as the source of truth? Example: package.json`
-    });
-  }
-
-  // BUG-088/089/090: Seed danger zones and verification commands from scan data.
-  const dangerDefault = scan.suggestedDangerZones && scan.suggestedDangerZones.length > 0
-    ? scan.suggestedDangerZones.join(', ') : '';
-  const dangerPrompt = dangerDefault
-    ? `I found likely danger zones (high-risk files/dirs to avoid accidental edits): ${dangerDefault}\nConfirm or modify (comma-separated).\nExample: .mbo/, .dev/, package-lock.json`
-    : 'List high-risk files/dirs I should treat as danger zones (comma-separated).\nExample: .mbo/, .dev/, package-lock.json';
-  questions.push({ key: 'dangerZones', prompt: dangerPrompt, defaultValue: dangerDefault });
-
-  const verifDefault = scan.verificationCommands && scan.verificationCommands.length > 0
-    ? scan.verificationCommands.join(', ') : '';
-  const verifPrompt = verifDefault
-    ? `I detected these verification commands (checks to run before shipping): ${verifDefault}\nConfirm or modify (comma-separated).\nExample: npm test, npm run lint`
-    : 'List verification commands to run before shipping (comma-separated).\nExample: npm test, npm run lint';
-  questions.push({ key: 'verificationCommands', prompt: verifPrompt, defaultValue: verifDefault });
-  const realConstraintsDefault = Array.isArray(scan.realConstraintCandidates) && scan.realConstraintCandidates.length > 0
-    ? scan.realConstraintCandidates.join(', ')
-    : '';
-  questions.push({
-    key: 'realConstraints',
-    prompt: realConstraintsDefault
-      ? `I inferred these confirmed constraints from repo artifacts: ${realConstraintsDefault}\nConfirm or modify (comma-separated).`
-      : 'List confirmed real constraints from this project (comma-separated).\nExample: deploy target: vercel, node >=20',
-    defaultValue: realConstraintsDefault,
-  });
-  questions.push({
-    key: 'assumedConstraints',
-    prompt: 'List assumed constraints that still need verification (comma-separated).\nExample: memory budget < 512MB',
-  });
-
-  return questions.slice(0, MAX_FOLLOWUPS);
-}
-
-async function runFollowups(io, scan, prior, options = {}) {
-  const answers = {};
-  const nonInteractive = !!options.nonInteractive;
-  const seeded = options.followup || {};
-  const questions = deriveFollowupQuestions(scan, prior);
-
-  for (const q of questions) {
-    if (Object.prototype.hasOwnProperty.call(seeded, q.key)) {
-      answers[q.key] = seeded[q.key];
-      continue;
-    }
-
-    if (nonInteractive) continue;
-
-    const value = await io.ask(`${q.prompt}\n(Type 'done' to stop follow-up questions, or '?' / 'help' for clarification)`, q.defaultValue || '');
-    const normalizedValue = String(value).trim().toLowerCase();
-    if (normalizedValue === '?' || normalizedValue === 'help') {
-      console.log('[Onboarding] Clarification: answer in plain language. If unsure, keep the default and refine later.');
-      const retry = await io.ask(`${q.prompt}\n(Type 'done' to stop follow-up questions)`, q.defaultValue || '');
-      if (String(retry).trim().toLowerCase() === 'done') break;
-      if (retry) answers[q.key] = retry;
-      continue;
-    }
-    if (String(value).trim().toLowerCase() === 'done') break;
-    if (value) answers[q.key] = value;
-  }
-
-  return { ...answers, ...seeded };
-}
-
-async function runPrimeDirectiveHandshake(io, profile, options = {}) {
-  if (options.nonInteractive) return profile;
-
-  console.log('\n[Onboarding] Proposed Prime Directive:');
-  console.log(profile.primeDirective);
-
-  let attempts = 0;
-  while (attempts < 3) {
-    attempts += 1;
-    const paraphrase = await io.ask('Paraphrase this directive in your own words to confirm understanding');
-    const pWords = new Set(String(paraphrase).toLowerCase().split(/\W+/).filter(Boolean));
-    const dWords = new Set(String(profile.primeDirective).toLowerCase().split(/\W+/).filter(Boolean));
-    let overlap = 0;
-    for (const w of pWords) if (dWords.has(w)) overlap += 1;
-    const ratio = dWords.size > 0 ? overlap / dWords.size : 0;
-
-    if (ratio >= 0.15) {
-      console.log('[Onboarding] Prime directive handshake confirmed.');
-      return profile;
-    }
-
-    // BUG-091: Show overlap ratio and threshold so the user knows why they failed
-    // and what a passing answer requires.
-    const pct = Math.round(ratio * 100);
-    console.log(`[Onboarding] Paraphrase diverged (overlap: ${pct}%, threshold: 15%). Tip: reuse key words from the directive text above. (Attempt ${attempts}/3)`);
-  }
-
-  throw new Error('Prime directive handshake failed after 3 attempts.');
-}
-
-function resolveProfileConflict(fileProfile, dbProfile, interactive) {
-  if (!fileProfile && !dbProfile) return { profile: null, needsPrompt: false };
-  if (fileProfile && !dbProfile) return { profile: fileProfile, needsPrompt: false };
-  if (!fileProfile && dbProfile) return { profile: dbProfile.profile, needsPrompt: false };
-
-  if (!profilesDiffer(fileProfile, dbProfile.profile)) {
-    const fileTs = profileTimestamp(fileProfile, 0);
-    const dbTs = profileTimestamp(dbProfile.profile, dbProfile.createdAtMs);
-    return { profile: dbTs >= fileTs ? dbProfile.profile : fileProfile, needsPrompt: false };
-  }
-
-  const fileTs = profileTimestamp(fileProfile, 0);
-  const dbTs = profileTimestamp(dbProfile.profile, dbProfile.createdAtMs);
-
-  if (dbTs <= fileTs) {
-    return { profile: fileProfile, needsPrompt: false };
-  }
-
-  if (!interactive) {
-    return { profile: fileProfile, needsPrompt: true, reason: 'db_newer_conflict' };
-  }
-
-  return { profile: fileProfile, needsPrompt: true, reason: 'db_newer_conflict', dbCandidate: dbProfile.profile };
-}
-
-async function promptConflictResolution(conflict) {
-  if (!isTTY()) return conflict.profile;
-
-  const io = createPromptIO();
-  try {
-    console.log('[Onboarding] Detected onboarding profile drift: DB appears newer than onboarding.json.');
-    const choice = await io.ask('Choose source of truth: type "spec" to keep onboarding.json/spec flow, or "db" to use DB profile', 'spec');
-    const normalized = String(choice || '').trim().toLowerCase();
-    if (normalized === 'db') return conflict.dbCandidate || conflict.profile;
-    return conflict.profile;
-  } finally {
-    io.close();
-  }
 }
 
 function persistProfile(projectRoot, profile) {
@@ -722,48 +681,125 @@ function persistProfile(projectRoot, profile) {
 async function runOnboarding(projectRoot, priorData = null, options = {}) {
   const nonInteractive = !!options.nonInteractive;
   const prior = priorData || readOnboardingFile(projectRoot) || {};
-
   const io = nonInteractive ? { ask: async () => '', close: () => {} } : createPromptIO();
 
   try {
-    console.log(`[Onboarding] Starting onboarding for: ${projectRoot}`);
+    console.log(`\n[Onboarding] Starting Adaptive Onboarding for: ${projectRoot}`);
 
-    // Phase 1: fixed 4 questions.
-    const answers = {};
-    for (const q of OPENING_QUESTIONS) {
-      const defaultValue = prior[q.key] || '';
-      const raw = Object.prototype.hasOwnProperty.call(options.answers || {}, q.key)
-        ? options.answers[q.key]
-        : (nonInteractive ? defaultValue : await io.ask(q.prompt, defaultValue));
-      answers[q.key] = q.normalize(raw);
+    // Phase 0: Pre-Scan Guardrails
+    const scanRoots = getScanRoots(projectRoot);
+    const broadRoots = scanRoots.filter(r => isBroadRoot(r));
+    if (broadRoots.length > 0 && !nonInteractive) {
+      console.log(`\n[MBO] Warning: The following scan roots appear broad: ${broadRoots.map(r => path.relative(projectRoot, r)).join(', ') || '.'}`);
+      console.log('Scanning these directories might take a long time or include unrelated files.');
+      const confirm = await io.ask('confirmBroad', 'Do you want to continue?', 'Y', 'MBO detected that you are scanning a very large or root directory. If this is intentional, type Y. If you want to configure smaller scanRoots, edit .mbo/config.json.');
+      if (String(confirm).toLowerCase() !== 'y') {
+        console.log('[Onboarding] Aborted by user to configure scanRoots.');
+        return null;
+      }
     }
 
-    // Phase 2: scan.
-    console.log('[Onboarding] Running repository scan...');
+    console.log('[Onboarding] Phase 0: Running repository scan...');
     const scan = scanProject(projectRoot);
-    const scanSummary = [
-      `${scan.fileCount} files`,
-      scan.languages.length > 0 ? scan.languages.join('/') : 'unknown language',
-      scan.frameworks.length > 0 ? scan.frameworks.join(', ') : 'no framework detected',
-      scan.buildSystem || 'unknown build system',
-      scan.hasCI ? 'CI detected' : 'no CI detected',
-    ].join(', ');
-    console.log(`[Onboarding] Scan complete: ${scanSummary}.`);
 
-    // Phase 3: targeted follow-up.
-    const followup = await runFollowups(io, scan, prior, options);
+    // Phase 1: Briefing
+    const confirmed = [
+      `Files: ${scan.fileCount}`,
+      `Languages: ${scan.languages.join(', ') || 'unknown'}`,
+      `Build: ${scan.buildSystem || 'unknown'}`,
+      scan.hasCI ? 'CI: Detected' : 'CI: Not detected',
+    ];
+    const inferred = [
+      `Frameworks: ${scan.frameworks.join(', ') || 'none detected'}`,
+      `Test Coverage: ${Math.round(scan.testCoverage * 100)}%`,
+      `Config: ${scan.canonicalConfigPath || 'unknown'}`,
+    ];
+    const unknown = [];
+    if (!scan.buildSystem) unknown.push('Build system (no lockfile or manifest detected)');
+    if (scan.frameworks.length === 0) unknown.push('Application framework');
+    if (!scan.hasCI) unknown.push('CI/CD pipeline');
+    if (scan.testCoverage < 0.1) unknown.push('Test signal (low or missing test files)');
 
-    if (!followup.subjectRoot && prior.subjectRoot) {
-      followup.subjectRoot = prior.subjectRoot;
+    console.log('\n[Onboarding] Phase 1: Scan Briefing');
+    console.log('── Confirmed ──────────────────────────────────────');
+    confirmed.forEach(c => console.log(`  • ${c}`));
+    console.log('── Inferred ───────────────────────────────────────');
+    inferred.forEach(i => console.log(`  • ${i}`));
+    if (unknown.length > 0) {
+      console.log('── Unknown/Low Confidence ─────────────────────────');
+      unknown.forEach(u => console.log(`  • ${u}`));
     }
-    if (!followup.subjectRoot && !nonInteractive) {
-      followup.subjectRoot = await io.ask('Subject root path', DEFAULT_SUBJECT_ROOT);
+    console.log('───────────────────────────────────────────────────');
+
+    // Phase 2: Mode Selection
+    let mode = 'update';
+    if (!nonInteractive && Object.keys(prior).length > 0) {
+      console.log('\nAn existing onboarding profile was found.');
+      const choice = await io.ask('', 'Update missing/changed fields (recommended) or Full redo?', 'Update');
+      if (String(choice).toLowerCase().includes('redo')) mode = 'redo';
+    }
+
+    // Phase 3: Adaptive Interview
+    console.log(`\n[Onboarding] Phase 3: ${mode === 'redo' ? 'Full Interview' : 'Adaptive Interview'}`);
+    const answers = {};
+    const followup = {};
+
+    const allKeys = Object.keys(QUESTIONS);
+    for (const key of allKeys) {
+      const q = QUESTIONS[key];
+      let defaultValue = prior[key] || '';
+      if (Array.isArray(defaultValue)) defaultValue = defaultValue.join(', ');
+
+      // Dynamic defaults from scan
+      if (!defaultValue) {
+        if (key === 'dangerZones') defaultValue = scan.suggestedDangerZones.join(', ');
+        if (key === 'verificationCommands') defaultValue = scan.verificationCommands.join(', ');
+        if (key === 'realConstraints') defaultValue = scan.realConstraintCandidates.join(', ');
+        if (key === 'subjectRoot') defaultValue = DEFAULT_SUBJECT_ROOT;
+      }
+
+      let result;
+      const providedAnswers = options.answers || {};
+      const providedFollowup = options.followup || {};
+
+      if (Object.prototype.hasOwnProperty.call(providedAnswers, key)) {
+        result = providedAnswers[key];
+      } else if (Object.prototype.hasOwnProperty.call(providedFollowup, key)) {
+        result = providedFollowup[key];
+      } else {
+        if (!isQuestionNeeded(key, scan, prior, mode)) continue;
+        if (nonInteractive) {
+          result = defaultValue;
+        } else {
+          result = await io.ask(key, q.prompt, defaultValue, q.help);
+        }
+      }
+
+      if (result === 'done') break;
+
+      // Normalization and validation if provided via options
+      if (q.validate && result) {
+        const v = q.validate(result);
+        if (v !== true) {
+          if (nonInteractive) throw new Error(`Invalid value for ${key}: ${v}`);
+          console.log(`[Validation Error] ${v}`);
+          // If interactive, we should have already re-asked in io.ask. 
+          // But if it came from options, we might need to handle it.
+        }
+      }
+      const normalized = q.normalize && result ? q.normalize(result) : result;
+
+      if (['projectType', 'users', 'q3Raw', 'q4Raw'].includes(key)) {
+        answers[key] = normalized;
+      } else {
+        followup[key] = normalized;
+      }
     }
 
     const versionNum = Number(prior.onboardingVersion);
     const onboardingVersion = Number.isFinite(versionNum) && versionNum > 0 ? versionNum + 1 : 1;
 
-    // Phase 4: synthesis + confirmation.
+    // Phase 4: Synthesis + Confirmation
     const profile = buildProfile({
       projectRoot,
       prior,
@@ -773,7 +809,37 @@ async function runOnboarding(projectRoot, priorData = null, options = {}) {
       onboardingVersion,
     });
 
-    await runPrimeDirectiveHandshake(io, profile, options);
+    console.log('\n[Onboarding] Phase 4: Prime Directive Synthesis');
+    console.log('───────────────────────────────────────────────────');
+    console.log(profile.primeDirective);
+    console.log('───────────────────────────────────────────────────');
+
+    if (!nonInteractive) {
+      while (true) {
+        const action = await io.ask('', 'Accept, Edit, or Regenerate?', 'Accept');
+        const choice = String(action).toLowerCase();
+        if (choice === 'accept') break;
+        if (choice === 'edit') {
+          profile.primeDirective = await io.ask('primeDirective', 'Edit Prime Directive', profile.primeDirective);
+          break;
+        }
+        if (choice === 'regenerate') {
+          console.log('[Onboarding] Regenerating based on current context...');
+          // In a real impl, this might tweak some weights or ask for more context.
+          // For now, we just re-run the synthesis.
+          profile.primeDirective = synthesizePrimeDirective({
+            q3Raw: answers.q3Raw || prior.q3Raw,
+            q4Raw: answers.q4Raw || prior.q4Raw,
+            users: answers.users || prior.users,
+            realConstraints: normalizeList(followup.realConstraints || prior.realConstraints),
+            scan,
+            followup,
+          });
+          console.log('\n' + profile.primeDirective);
+          continue;
+        }
+      }
+    }
 
     const validation = validateProfile(profile);
     if (!validation.complete) {
@@ -781,12 +847,13 @@ async function runOnboarding(projectRoot, priorData = null, options = {}) {
     }
 
     persistProfile(projectRoot, profile);
-    console.log('[Onboarding] Completed. Profile synced to onboarding.json and onboarding_profiles.');
+    console.log('\n[Onboarding] Completed. Profile synced to onboarding.json and DB.');
     return profile;
   } finally {
     io.close();
   }
 }
+
 
 async function checkOnboarding(projectRoot) {
   const interactive = isTTY();
