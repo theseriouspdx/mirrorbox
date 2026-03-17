@@ -1,0 +1,409 @@
+commit b1adcd3378299f205af3e17bcb783405237a3246
+Author: John Serious <johnserious@SeriousStudio10.ts.net lan>
+Date:   Tue Mar 17 04:20:20 2026 -0700
+
+    feat(ux): Section 36 copy-pack + Invariant 1&2 worktree hardening
+    
+    - Removed Stage IDs from user-facing output in index.js, operator.js, and setup.js.
+    - Added [RECOMMENDED ACTION] tags to critical error and block states.
+    - Implemented proactive src/ lockdown in bin/mbo.js for managed projects/worktrees.
+    - Optimized lock_src in bin/handshake.py and hardened test-invariants.js.
+    - Verified BUG-086 project-root mismatch guard is fail-closed.
+
+diff --git a/.dev/sessions/NEXT_SESSION.md b/.dev/sessions/NEXT_SESSION.md
+index 9eef4e5..58aad69 100644
+--- a/.dev/sessions/NEXT_SESSION.md
++++ b/.dev/sessions/NEXT_SESSION.md
+@@ -1,74 +1,37 @@
+ # NEXT_SESSION.md
+ ## Mirror Box Orchestrator — Session Handoff
+ 
+-**Session ended:** 2026-03-16
+-**Last task:** Live validation of onboarding flow against `/Users/johnserious/johnseriouscom` — bug triage
+-**Status:** VALIDATION COMPLETE — 9 new bugs logged (BUG-093 through BUG-101), fixes needed next session
++**Session ended:** 2026-03-17
++**Last task:** :  ()
++**Status:** Task Pending
+ 
+ ---
+ 
+ ## Section 1 — Next Action
+ 
+-**Fix BUG-093 through BUG-101 — all found during live validation session 2026-03-16 against `/Users/johnserious/johnseriouscom`.**
++**Task TBD — TBD**
+ 
+-Summary of open bugs from this session (in priority order):
+-
+-- **BUG-100 (P0):** `installMCPDaemon` fails and hangs for a new project — no manifest bootstrap, process must be Ctrl+C'd
+-- **BUG-101 (P1):** Error message tells user to run `mbo setup` while they are already running it (circular)
+-- **BUG-098 (P1):** Prime directive echoes Q3 verbatim with typos — not synthesized from full interview
+-- **BUG-097 (P1):** Scan does not infer real constraints from project artifacts (vercel.json, .env.example, etc.)
+-- **BUG-094 (P1):** Scan results never printed — user sees no summary before follow-up questions
+-- **BUG-093 (P2):** Follow-up questions use unexplained jargon — no inline definition, why, or example
+-- **BUG-095 (P2):** "Subject-world root path" prompt is MBO-internal jargon with no context (subset of BUG-093)
+-- **BUG-096 (P2):** No `?`/`help` keyword to ask clarifying questions during follow-up interview
+-- **BUG-099 (P2):** Paraphrase handshake is circular when directive echoes user's own Q3 text
+-
+-Validation results from this session:
+-- **BUG-092 CONFIRMED FIXED** — process continues past `[Onboarding] Completed.`
+-- **BUG-091 CONFIRMED FIXED** — overlap % and threshold shown on failure
+-- **BUG-088/089/090 CONFIRMED FIXED** — danger zones and verificationCommands seeded from scan
+-- **BUG-086 STATUS UNKNOWN** — not tested this session (johnseriouscom had no prior .mbo/)
+-
+----
+-
+-## Section 2 — Validation Plan
+-
+-Run the full fresh-install workflow:
+-
+-1. `rm -rf /Users/johnserious/MBO_Alpha`
+-2. `cp -r /Users/johnserious/MBO/. /Users/johnserious/MBO_Alpha/`
+-3. `cd /Users/johnserious/MBO_Alpha && node bin/mbo.js setup`
+-4. Verify BUG-086: interview triggers despite copied `.mbo/onboarding.json` (root mismatch detected)
+-5. Verify BUG-085: 4-phase interview runs — Q1→Q4, scan, follow-ups, prime directive handshake
+-6. Verify BUG-092: after `[Onboarding] Completed.`, process continues to daemon start (does NOT exit to shell)
+-7. Verify BUG-091: on a bad paraphrase, overlap % and threshold appear in the error message
+-8. Verify BUG-088/089/090: danger zones prompt shows detected `.mbo/`, `.dev/`, `.git/`, `package.json`, `package-lock.json` as defaults; verificationCommands prompt shows `npm test`/`npm run lint` as defaults
+-9. Verify `[MBO] MCP daemon ready. Port written to .dev/run/mcp.json` is the final output
++**Graph queries to run at Gate 0:**
++```
++graph_search("TBD")
++```
+ 
+ ---
+ 
+-## Section 3 — Open Issues
++## Section 2 — Session Summary
+ 
+-- BUG-100 (P0): installMCPDaemon hangs for new project — blocks setup completion
+-- BUG-101 (P1): Circular error message during mbo setup
+-- BUG-098 (P1): Prime directive not synthesized
+-- BUG-097 (P1): Scan does not infer real constraints
+-- BUG-094 (P1): Scan results not shown before follow-ups
+-- BUG-093/095/096/099 (P2): UX/jargon issues in follow-up interview
+-- BUG-086 (P1, PARTIAL): Round-2 fix shipped — re-validation still pending
+-- BUG-063 (P2): macOS auth fallback may pass via unlocked keychain without explicit prompt — deferred
+-- BUG-061 (P0, PARTIAL): Merkle scope drift — remaining items still needed
++- Tasks completed this session: 0
++- Unresolved issues: Check BUGS.md for P0/P1 items.
+ 
+ ---
+ 
+-## Section 2 — Validation Plan (next session)
+-
+-Fix in priority order: BUG-100 → BUG-101 → BUG-098 → BUG-097 → BUG-094 → BUG-093/095/096/099. Then re-run `mbo setup` against `/Users/johnserious/johnseriouscom` end-to-end and verify final output: `[MBO] MCP daemon ready. Port written to .dev/run/mcp.json`.
+-
+----
++## Section 3 — Directory State
++(State snapshot captured in mirrorbox.db)
+ 
+ ## Session End Checklist
+-- Status: validation_complete_fixes_needed
+-- Branch state: master
+-- Tests: not run this session (observation/triage only)
+-- Timestamp: 2026-03-16
++- Status: closed_clean
++- Cold Storage: mirror_snapshot_20260317_040517.zip (SHA-256: fbe2aaa673a90043b7a21633a10469c422db3c748455402676d644622cf530be)
++- Backup file: mirrorbox_20260317_040517.bak
++- SHA-256: 1a76a5f364d3954c9029743e808c25af1e2cd8e7000deca461f3f40b59329b4c
++- PRAGMA integrity_check: ok
++- Timestamp: 2026-03-17T11:05:47Z
+diff --git a/NEXT_SESSION.md b/NEXT_SESSION.md
+index 74ea5fe..58aad69 100644
+--- a/NEXT_SESSION.md
++++ b/NEXT_SESSION.md
+@@ -1,47 +1,27 @@
+ # NEXT_SESSION.md
+ ## Mirror Box Orchestrator — Session Handoff
+ 
+-**Session ended:** 2026-03-16
+-**Last task:** 1.1-H37 — Granular UTC Versioning (Master Push)
+-**Status:** COMPLETED
++**Session ended:** 2026-03-17
++**Last task:** :  ()
++**Status:** Task Pending
+ 
+ ---
+ 
+ ## Section 1 — Next Action
+ 
+-**Onboarding Configuration & Bug Resolution**
++**Task TBD — TBD**
+ 
+-All queued hardening tasks through H37 are COMPLETED. Three bugs remain open:
+-
+-- **BUG-083** — Missing `subjectRoot` in onboarding profile (P0 operational blocker for 1.0-09)
+-- **BUG-078** — No auto-refresh of client configs after daemon respawn
+-- **BUG-080** — 7 pre-existing test suite failures
+-
+-Candidate next tasks:
+-1. Fix BUG-083 — Update onboarding flow to mandatory capture/verify `subjectRoot`.
+-2. Fix BUG-080 — Tag MCP-dependent tests, add skip guards.
+-3. 1.0-09 — Sovereign Loop (self-patching validation), the one remaining IN PROGRESS 1.0 task.
++**Graph queries to run at Gate 0:**
++```
++graph_search("TBD")
++```
+ 
+ ---
+ 
+ ## Section 2 — Session Summary
+ 
+-- Tasks completed this session:
+-  - **1.1-H37** — Implemented Granular UTC Versioning (v0.Milestone.Point-YYYYMMDD.HHMM).
+-  - Fixed BUG-076 — self-contained tamper detection test, audit-approved.
+-  - Merged 1.1-H36 (Codex — operator pipeline SPEC parity / BUG-082) to master.
+-  - Documentation — BUGS.md BUG-083 entry, projecttracking Next Action, all governance current.
+-- Key changes landed on master:
+-  - `package.json` — Version bumped to 0.11.24.
+-  - `src/index.js` — Granular UTC versioning in startup log and REPL prompt.
+-  - `scripts/test-tamper-chain.js` — self-seeding tamper test, no live DB dependency.
+-  - `src/auth/operator.js` — full SPEC-compliant pipeline.
+-  - `src/auth/did-orchestrator.js` — DID blind derivation enforced.
+-  - `src/auth/did-prompts.js` — reviewer round-1 blind.
+-  - `src/index.js` — Stage 11 completion reflected in audit message.
+-  - `scripts/test-h36-operator-did-approval.js` — H36 verification script.
+-- Tests: 17/17 passing
+-- Repo state: master only, local and remote in sync
++- Tasks completed this session: 0
++- Unresolved issues: Check BUGS.md for P0/P1 items.
+ 
+ ---
+ 
+@@ -50,6 +30,8 @@ Candidate next tasks:
+ 
+ ## Session End Checklist
+ - Status: closed_clean
+-- Branch state: master only (local + remote)
+-- Tests: 17/17 PASS
+-- Timestamp: 2026-03-16T23:XX:00Z
++- Cold Storage: mirror_snapshot_20260317_040517.zip (SHA-256: fbe2aaa673a90043b7a21633a10469c422db3c748455402676d644622cf530be)
++- Backup file: mirrorbox_20260317_040517.bak
++- SHA-256: 1a76a5f364d3954c9029743e808c25af1e2cd8e7000deca461f3f40b59329b4c
++- PRAGMA integrity_check: ok
++- Timestamp: 2026-03-17T11:05:47Z
+diff --git a/backups/mirror_snapshot_20260316_142306.zip b/backups/mirror_snapshot_20260317_040251.zip
+similarity index 64%
+rename from backups/mirror_snapshot_20260316_142306.zip
+rename to backups/mirror_snapshot_20260317_040251.zip
+index 9d4b233..7259906 100644
+Binary files a/backups/mirror_snapshot_20260316_142306.zip and b/backups/mirror_snapshot_20260317_040251.zip differ
+diff --git a/backups/mirror_snapshot_20260316_031636.zip b/backups/mirror_snapshot_20260317_040517.zip
+similarity index 63%
+rename from backups/mirror_snapshot_20260316_031636.zip
+rename to backups/mirror_snapshot_20260317_040517.zip
+index 8f8f8c2..994f822 100644
+Binary files a/backups/mirror_snapshot_20260316_031636.zip and b/backups/mirror_snapshot_20260317_040517.zip differ
+diff --git a/bin/handshake.py b/bin/handshake.py
+index 4458deb..538a787 100755
+--- a/bin/handshake.py
++++ b/bin/handshake.py
+@@ -101,14 +101,29 @@ def check_integrity(silent=False):
+ 
+ 
+ def lock_src():
++    if not SRC_DIR.exists():
++        return
++    # Only lock if src/ is currently writable (avoids expensive redundant chmod).
++    if not os.access(SRC_DIR, os.W_OK):
++        return
++
+     for item in SRC_DIR.rglob("*"):
+         if item.is_file():
+-            item.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
++            try:
++                item.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
++            except OSError:
++                pass
+     # Lock src/ dir itself to prevent new file/dir creation
+-    SRC_DIR.chmod(stat.S_IRUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
++    try:
++        SRC_DIR.chmod(stat.S_IRUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
++    except OSError:
++        pass
+     # Write deny sentinel so agents can detect lockout without parsing session.lock
+     DENY_SENTINEL.parent.mkdir(parents=True, exist_ok=True)
+-    DENY_SENTINEL.write_text(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
++    try:
++        DENY_SENTINEL.write_text(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
++    except OSError:
++        pass
+ 
+ 
+ def _confirm_risky_scope(cell_name: str, force: bool):
+@@ -394,7 +409,8 @@ if __name__ == "__main__":
+     is_revoke = arg == "--revoke"
+     auth_action = "grant" if is_grant else ("revoke" if is_revoke else None)
+     auth_scope = arg if is_grant else None
+-    if auth_action and not _require_human_presence(auth_action, auth_scope):
++    # Section 36: revoke (lockdown) is always allowed non-interactively.
++    if auth_action and auth_action != "revoke" and not _require_human_presence(auth_action, auth_scope):
+         sys.exit(1)
+ 
+     if arg == "--merkle-root":
+diff --git a/bin/mbo.js b/bin/mbo.js
+index 8c2425f..d8a1b87 100755
+--- a/bin/mbo.js
++++ b/bin/mbo.js
+@@ -584,6 +584,11 @@ if (process.argv[2] === 'setup') {
+   persistInstallMetadataBestEffort();
+   reapStaleHelpers(PACKAGE_ROOT);
+   if (isSelfRunDisallowed(INVOCATION_CWD, PACKAGE_ROOT)) {
++    // Invariants 1 & 2: Proactively lock src/ in managed projects (including worktrees)
++    // to prevent unauthorized writes when no session is active.
++    spawnSync('python3', [path.join(PACKAGE_ROOT, 'bin', 'handshake.py'), '--revoke'], {
++      env: { ...process.env, MBO_PROJECT_ROOT: PROJECT_ROOT },
++    });
+     process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
+     process.exit(2);
+   }
+diff --git a/package-lock.json b/package-lock.json
+index 06f5a4a..9fc867b 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "mbo",
+-  "version": "0.1.0",
++  "version": "0.11.24",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "mbo",
+-      "version": "0.1.0",
++      "version": "0.11.24",
+       "dependencies": {
+         "@modelcontextprotocol/sdk": "^1.27.1",
+         "better-sqlite3": "^12.6.2",
+diff --git a/scripts/test-invariants.js b/scripts/test-invariants.js
+index e6b7030..0f86d16 100644
+--- a/scripts/test-invariants.js
++++ b/scripts/test-invariants.js
+@@ -5,13 +5,13 @@ const { execSync } = require('child_process');
+ const fs = require('fs');
+ 
+ const DB_PATH = path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db');
+-const PROJECT_ROOT = path.join(__dirname, '..');
++const PROJECT_ROOT = process.env.MBO_PROJECT_ROOT || path.resolve(__dirname, '..');
+ 
+ function runCommand(command, stdio = 'pipe') {
+   try {
+     return {
+       success: true,
+-      stdout: execSync(command, { stdio, cwd: PROJECT_ROOT }).toString()
++      stdout: execSync(command, { stdio, cwd: PROJECT_ROOT, env: { ...process.env, MBO_PROJECT_ROOT: PROJECT_ROOT } }).toString()
+     };
+   } catch (err) {
+     return {
+@@ -25,15 +25,19 @@ function runCommand(command, stdio = 'pipe') {
+ async function testInvariant1And2() {
+   console.log('Testing Invariant 1 & 2: File Protection & Project Root...');
+   
++  const srcPath = path.join(PROJECT_ROOT, 'src');
+   const sessionLock = path.join(PROJECT_ROOT, '.journal/session.lock');
+-  const result = runCommand('ls -ld src');
+   
+-  if (result.stdout.includes('dr-xr-xr-x')) {
+-    console.log('  PASS: src/ directory is read-only (555).');
++  const stats = fs.statSync(srcPath);
++  const mode = stats.mode & 0o777;
++  const isReadOnly = (mode & 0o222) === 0; // No write bit for owner, group, or others
++  
++  if (isReadOnly) {
++    console.log(`  PASS: src/ directory is read-only (mode: ${mode.toString(8)}).`);
+   } else if (fs.existsSync(sessionLock)) {
+-    console.log('  PASS: src/ is writable (755) but an active session.lock was detected. [AUTHORIZED]');
++    console.log(`  PASS: src/ is writable (mode: ${mode.toString(8)}) but an active session.lock was detected. [AUTHORIZED]`);
+   } else {
+-    console.error('  FAIL: src/ directory is NOT read-only.');
++    console.error(`  FAIL: src/ directory is NOT read-only (mode: ${mode.toString(8)}).`);
+     process.exit(1);
+   }
+ }
+diff --git a/src/auth/operator.js b/src/auth/operator.js
+index 4381d0d..ce4c5db 100644
+--- a/src/auth/operator.js
++++ b/src/auth/operator.js
+@@ -1123,7 +1123,6 @@ The output will be used as the new system context.`;
+       }, 'mirror');
+       return {
+         status:           'blocked',
+-        stage:            '1.5',
+         assumptionLedger: ledger,
+         signOffBlock:     signOff,
+         prompt: `[ENTROPY GATE — HARD STOP] Entropy score ${ledger.entropyScore.toFixed(1)} exceeds limit of 10.\n` +
+@@ -1133,7 +1132,6 @@ The output will be used as the new system context.`;
+ 
+     return {
+       needsApproval: true,
+-      stage: '1.5',
+       projectedContext: context,
+       assumptionLedger: ledger,
+       signOffBlock: signOff,
+diff --git a/src/cli/setup.js b/src/cli/setup.js
+index 5b26c8b..fd9d74d 100644
+--- a/src/cli/setup.js
++++ b/src/cli/setup.js
+@@ -518,11 +518,11 @@ async function runSetup() {
+ 
+     const defaults = buildDefaultConfig(d);
+     console.log(cy('\n── Recommended Config ─────────────────────────────────────'));
+-    console.log(`  ${m('Stage 1')} Operator:    ${wb(defaults.operator.provider   + ' / ' + defaults.operator.model)}`);
+-    console.log(`  ${m('Stage 2')} Planner:     ${wb(defaults.planner.provider    + ' / ' + defaults.planner.model)}`);
+-    console.log(`  ${m('Stage 3')} Reviewer:    ${wb(defaults.reviewer.provider   + ' / ' + defaults.reviewer.model)}`);
+-    console.log(`  ${m('Stage 4')} Tiebreaker:  ${wb(defaults.tiebreaker.provider + ' / ' + defaults.tiebreaker.model)}`);
+-    console.log(`  ${m('Stage 5')} Executor:    ${wb(defaults.executor.cli + ' (local CLI)')}`);
++    console.log(`  Operator:    ${wb(defaults.operator.provider   + ' / ' + defaults.operator.model)}`);
++    console.log(`  Planner:     ${wb(defaults.planner.provider    + ' / ' + defaults.planner.model)}`);
++    console.log(`  Reviewer:    ${wb(defaults.reviewer.provider   + ' / ' + defaults.reviewer.model)}`);
++    console.log(`  Tiebreaker:  ${wb(defaults.tiebreaker.provider + ' / ' + defaults.tiebreaker.model)}`);
++    console.log(`  Executor:    ${wb(defaults.executor.cli + ' (local CLI)')}`);
+     console.log('');
+ 
+     const accept = await ask(rl, wb('Use this config? [Y/n]: '));
+diff --git a/src/cli/startup-checks.js b/src/cli/startup-checks.js
+index 3531795..8289117 100644
+--- a/src/cli/startup-checks.js
++++ b/src/cli/startup-checks.js
+@@ -67,7 +67,7 @@ function selfRunGuardMessage(packageRoot) {
+   return (
+     '[MBO] BLOCKED: Runtime/init cannot execute from the MBO controller/install project.\n' +
+     `[MBO] Controller: ${path.resolve(packageRoot)}\n` +
+-    '[MBO] Launch from a separate target project directory (e.g. MBO_Alpha).\n'
++    '[MBO] [RECOMMENDED ACTION]: Launch from a separate target project directory (e.g. MBO_Alpha).\n'
+   );
+ }
+ 
+diff --git a/src/index.js b/src/index.js
+index 7fc653b..93ccdf2 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -41,14 +41,14 @@ function formatOperatorResult(result) {
+   if (status === 'code_agreed') return 'Code derivation complete. Running dry run and verification.';
+   if (status === 'pass') return 'Dry run passed.';
+   if (status === 'audit_pending') return result.prompt || 'Audit package ready. Respond "approved" or "reject".';
+-  if (status === 'blocked') return result.reason || result.prompt || 'Task is blocked by Stage 1.5 assumptions.';
+-  if (status === 'aborted') return result.reason || 'Operation aborted.';
+-  if (status === 'error') return result.reason || 'Pipeline failed.';
++  if (status === 'blocked') return result.reason || result.prompt || 'Task is blocked by spec refinement assumptions.\n[RECOMMENDED ACTION]: Decompose the task or resolve the listed blockers.';
++  if (status === 'aborted') return result.reason || 'Operation aborted.\n[RECOMMENDED ACTION]: You can retry with a different task or refine the current one.';
++  if (status === 'error') return result.reason || 'Pipeline failed.\n[RECOMMENDED ACTION]: Check .dev/logs/mcp-stderr.log or retry the task with a hint.';
+   if (status === 'shutdown_complete') return 'Session shutdown complete.';
+ 
+   const stage = String(result.stage || '').toLowerCase();
+   if (stage === 'classification') return 'Classifying request and determining routing.';
+-  if (stage === 'context_pinning') return 'Stage 1.5 complete. Assumptions reviewed.';
++  if (stage === 'context_pinning') return 'Spec refinement complete. Assumptions reviewed.';
+   if (stage === 'planning') return 'Planning in progress.';
+   if (stage === 'tiebreaker_plan') return 'Resolving planning conflict via tiebreaker.';
+   if (stage === 'code_derivation') return 'Code derivation in progress.';
+@@ -212,7 +212,7 @@ async function main() {
+             operator.stateSummary.pendingAudit = null;
+             operator.stateSummary.pendingAuditContext = null;
+             _auditRunning = false;
+-            write('[AUDIT] Approved. State synced. Stage 11 knowledge update completed.');
++            write('[AUDIT] Approved. State synced. Intelligence graph updated.');
+           })
+           .catch(err => {
+             _auditRunning = false;

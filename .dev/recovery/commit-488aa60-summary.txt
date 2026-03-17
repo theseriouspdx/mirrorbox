@@ -1,0 +1,41 @@
+commit 488aa608c3760d1c077fc01d2e7a46ae934489fd
+Author: John Serious <johnserious@SeriousStudio10.ts.net lan>
+Date:   Tue Mar 17 04:24:07 2026 -0700
+
+    docs: sync master governance and rebaseline state
+
+A	.dev/bak/.dev/governance/AGENTS.md.20260317-034709
+A	.dev/bak/.dev/governance/BUGS.md.20260317-034709
+A	.dev/bak/.dev/governance/projecttracking.md.20260317-034709
+A	.dev/bak/.dev/governance/projecttracking.md.20260317-040057
+A	.dev/bak/.dev/sessions/NEXT_SESSION.md.20260317-034709
+A	.dev/bak/.dev/sessions/NEXT_SESSION.md.20260317-040057
+A	.dev/bak/.dev/spec/SPEC.md.20260317-040057
+A	.dev/bak/AGENTS.md.20260317-001422
+A	.dev/bak/AGENTS.md.20260317-033322
+A	.dev/bak/AGENTS.md.20260317-034709
+A	.dev/bak/NEXT_SESSION.md.20260317-033322
+A	.dev/bak/NEXT_SESSION.md.20260317-040057
+A	.dev/bak/bin/validator.py.20260317-034709
+A	.dev/bak/bin/validator.py.20260317-040057
+A	.dev/bak/operator-guide.md.20260317-033322
+A	.dev/bak/scripts/mbo-session-close.sh.20260317-034709
+A	.dev/bak/scripts/mbo-session-close.sh.20260317-040057
+M	.dev/governance/AGENTS.md
+M	.dev/governance/BUGS.md
+M	.dev/governance/projecttracking.md
+M	.dev/sessions/NEXT_SESSION.md
+M	.dev/spec/SPEC.md
+A	.dev/worktree/gemini-ux-36
+M	AGENTS.md
+M	NEXT_SESSION.md
+R067	backups/mirror_snapshot_20260316_142306.zip	backups/mirror_snapshot_20260317_035246.zip
+R065	backups/mirror_snapshot_20260316_031636.zip	backups/mirror_snapshot_20260317_040159.zip
+R067	backups/mirror_snapshot_20260316_142336.zip	backups/mirror_snapshot_20260317_040257.zip
+M	bin/mbo.js
+M	bin/validator.py
+M	docs/operator-guide.md
+M	scripts/mbo-session-close.sh
+M	scripts/mcp_query.js
+M	scripts/test-onboarding.js
+M	src/cli/onboarding.js
