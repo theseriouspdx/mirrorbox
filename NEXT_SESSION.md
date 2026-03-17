@@ -34,8 +34,8 @@ graph_search("BUG-086 root-mismatch re-onboarding validation round 2")
 
 ## Session End Checklist
 - Status: closed_clean
-- Cold Storage: mirror_snapshot_20260317_040257.zip (SHA-256: 9ebe6f7afb63fdbc72a92a46d39bb1b368665ea7b599f95cabedc1a41d890a20)
-- Backup file: mirrorbox_20260317_040257.bak
-- SHA-256: 62785fdb6f2e95424c68833e7659c70c1d592fb31b3c52c994d1d24e02d1a7fa
+- Cold Storage: mirror_snapshot_20260317_044010.zip (SHA-256: 20a986884f857d24c1b2e64ec72af3f7cd22f90892727e4c5ba2bfef5d5b9f4c)
+- Backup file: mirrorbox_20260317_044010.bak
+- SHA-256: 6b8f641fd276376db8c363e00337148f250193b018921f0d143b007a5337c815
 - PRAGMA integrity_check: ok
-- Timestamp: 2026-03-17T11:03:27Z
+- Timestamp: 2026-03-17T11:40:40Z
