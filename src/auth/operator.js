@@ -13,6 +13,19 @@ const SESSION_HISTORY_PATH = path.join(RUNTIME_ROOT, '.mbo', 'session_history.js
 const MBO_ROOT = path.resolve(__dirname, '../..');
 
 /**
+ * Detect if running in development/worktree context vs. target project context.
+ * Dev context: MBO controller itself, or within .dev/worktree/
+ */
+function isDevContext(projectRoot) {
+  const controllerPath = MBO_ROOT;
+  const normalizedRoot = path.resolve(projectRoot);
+  // Check if this IS the MBO controller, or if it's within the controller's .dev/worktree/
+  return normalizedRoot === controllerPath ||
+         normalizedRoot.startsWith(path.join(controllerPath, '.dev', 'worktree')) ||
+         normalizedRoot.startsWith(path.join(controllerPath, '.dev', 'worktrees'));
+}
+
+/**
  * Section 8: The Operator
  * The persistent session anchor. Classification, routing, and context management.
  */
@@ -160,11 +173,19 @@ class Operator {
     }
 
     if (!manifest || !manifest.port) {
-      throw new Error(`No active MCP manifest found for project ${canonicalRuntimeRoot}. Setup may still be in progress or daemon failed to start. Check .dev/logs/mcp-stderr.log.`);
+      const isDev = isDevContext(canonicalRuntimeRoot);
+      const action = isDev
+        ? `Restart the MCP daemon with 'mbo mcp' or check .dev/logs/mcp-stderr.log for startup failures.`
+        : `Run 'mbo setup' in this project directory or check .dev/logs/mcp-stderr.log for daemon start failures.`;
+      throw new Error(`No active MCP manifest found for project ${canonicalRuntimeRoot}.\n[RECOMMENDED ACTION]: ${action}`);
     }
 
     if (manifest.project_id !== expectedProjectId || fs.realpathSync(manifest.project_root) !== canonicalRuntimeRoot) {
-      throw new Error(`MCP identity mismatch! Expected ${canonicalRuntimeRoot} (${expectedProjectId}), got ${manifest.project_root} (${manifest.project_id})`);
+      const isDev = isDevContext(canonicalRuntimeRoot);
+      const action = isDev
+        ? `Verify the correct worktree is active and restart 'mbo mcp' if needed.`
+        : `Run 'mbo setup' in the correct project directory to re-index.`;
+      throw new Error(`MCP identity mismatch! Expected ${canonicalRuntimeRoot} (${expectedProjectId}), got ${manifest.project_root} (${manifest.project_id})\n[RECOMMENDED ACTION]: ${action}`);
     }
 
     this.stateSummary.mcp.url = `http://127.0.0.1:${manifest.port}`;
@@ -183,7 +204,7 @@ class Operator {
     const healthUrl = `${this.stateSummary.mcp.url}/health`;
     const info = await this._httpGetJson(healthUrl).catch(() => null);
     if (!info || info.status !== 'ok') {
-      throw new Error(`Graph server at ${healthUrl} not healthy. Run 'mbo setup' to restore.`);
+      throw new Error(`Graph server at ${healthUrl} not healthy.\n[RECOMMENDED ACTION]: Run 'mbo setup' to restore the Intelligence Graph daemon.`);
     }
   }
 
@@ -580,7 +601,9 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
 
       // §12 Step 2: Permission check
       const hs = spawnSync('python3', [path.join(MBO_ROOT, 'bin/handshake.py'), cellName], { encoding: 'utf8' });
-      if (hs.status !== 0) throw new Error(`[Stage6] Handshake denied for ${cellName}: ${hs.stderr}`);
+      if (hs.status !== 0) {
+        throw new Error(`[MBO] Handshake denied for ${cellName}: ${hs.stderr}\n[RECOMMENDED ACTION]: Run 'mbo auth ${cellName}' to grant write permission for this file.`);
+      }
 
       // Extract code block for this file (convention: fenced block tagged with filename)
       const blockRe = new RegExp(`\`\`\`[\\w.]*\\s*//\\s*${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?\`\`\``, 'g');
@@ -637,7 +660,7 @@ Return ONLY the JSON object. Do not provide conversational filler.`;
       execSync(`git checkout HEAD -- ${modifiedFiles.map(f => `"${f}"`).join(' ')}`, { cwd: RUNTIME_ROOT });
       eventStore.append('ROLLBACK', 'operator', { files: modifiedFiles, reason: 'audit_rejected' }, 'mirror');
     } catch (e) {
-      console.error(`[Stage7] Rollback failed: ${e.message}`);
+      console.error(`[MBO] Rollback failed: ${e.message}\n[RECOMMENDED ACTION]: Manually run 'git checkout -- <files>' to restore your workspace.`);
     }
   }
 
@@ -834,16 +857,16 @@ The output will be used as the new system context.`;
     const descriptions = {
       idle:             'Idle — ready for input.',
       classification:   'Classifying your request.',
-      context_pinning:  'Stage 1.5: Reviewing assumptions before planning.',
-      planning:         'Stage 3: Deriving independent implementation plans.',
-      tiebreaker_plan:  'Stage 3D: Arbitrating conflicting plans.',
-      code_derivation:  'Stage 4: Deriving implementation code.',
-      tiebreaker_code:  'Stage 4D: Arbitrating conflicting code.',
-      dry_run:          'Stage 4.5: Virtual dry run.',
-      implement:        'Stage 6: Writing files and running validator.',
-      audit_gate:       'Stage 7: Audit gate — type "approved" or "reject".',
-      state_sync:       'Stage 8: Syncing state after approval.',
-      knowledge_update: 'Stage 11: Updating intelligence graph.',
+      context_pinning:  'Reviewing assumptions before planning.',
+      planning:         'Deriving independent implementation plans.',
+      tiebreaker_plan:  'Arbitrating conflicting plans.',
+      code_derivation:  'Deriving implementation code.',
+      tiebreaker_code:  'Arbitrating conflicting code.',
+      dry_run:          'Virtual dry run.',
+      implement:        'Writing files and running validator.',
+      audit_gate:       'Audit gate — type "approved" or "reject".',
+      state_sync:       'Syncing state after approval.',
+      knowledge_update: 'Updating intelligence graph.',
     };
     const description = descriptions[stage] || `Running: ${stage}.`;
     return [
@@ -935,10 +958,9 @@ The output will be used as the new system context.`;
       };
       // NOTE: Stage 11 (graph update) runs after 'approved' in runStage8(), not here.
     } catch (e) {
-      console.error(`[Operator] Pipeline failure: ${e.message}`);
-      
-      this.abortController = null;
-      this._pipelineRunning = false;
+      console.error(`[Operator] Pipeline failure: ${e.message}\n[RECOMMENDED ACTION]: Review the error above. You can type 'go' to retry or provide a hint with 'pin: <info>'.`);
+
+      this.abortController = null;      this._pipelineRunning = false;
       const isAbort = e.message && (e.message.includes('abort') || e.message.includes('Abort'));
       if (isAbort) {
         return { status: 'aborted', reason: 'Pipeline aborted by user.' };
@@ -985,7 +1007,7 @@ The output will be used as the new system context.`;
     
     const response = await callModel('tiebreaker', prompt, { classification, routing }, hardState, [], null, options);
     const plan = this._safeParseJSON(response, null, 'tiebreaker');
-    if (!plan) throw new Error("[Operator] Tiebreaker plan parse failure.");
+    if (!plan) throw new Error("[Operator] Tiebreaker plan parse failure.\n[RECOMMENDED ACTION]: Check model connectivity or retry the task.");
     eventStore.append('TIEBREAKER_PLAN', 'operator', { plan }, 'mirror');
     return plan;
   }
@@ -1093,7 +1115,7 @@ The output will be used as the new system context.`;
       projectedContext: context,
       assumptionLedger: ledger,
       signOffBlock: signOff,
-      prompt: `Stage 1.5: Spec refinement gate. Confirm intent/files/assumptions before autonomous DID.\n${signOff}\nType 'pin: [id]' to emphasize, 'exclude: [id]' to ignore, or 'go' to proceed.`
+      prompt: `Spec refinement gate: Confirm intent, files, and assumptions before autonomous implementation.\n${signOff}\nType 'pin: [id]' to emphasize, 'exclude: [id]' to ignore, or 'go' to proceed.`
     };
   }
   /**
@@ -1254,14 +1276,14 @@ Return ONLY JSON per SPEC Section 13:
    */
   async runStage11() {
     this.stateSummary.currentStage = 'knowledge_update';
-    console.error(`[Operator] Stage 11: Intelligence Graph Update starting...`);
+    console.error(`[Operator] Intelligence Graph Update starting...`);
 
     try {
       // 1. Ingest runtime trace (0.8-07)
       const traceFile = 'data/runtime-trace.json';
       const traceAbsPath = path.resolve(process.cwd(), traceFile);
       if (fs.existsSync(traceAbsPath)) {
-        console.error(`[Operator] Stage 11: Ingesting runtime trace from ${traceFile}...`);
+        console.error(`[Operator] Ingesting runtime trace from ${traceFile}...`);
         await this.callMCPTool('graph_ingest_runtime_trace', { traceFile });
       }
 
@@ -1270,7 +1292,7 @@ Return ONLY JSON per SPEC Section 13:
         (this.stateSummary.pendingAuditContext && this.stateSummary.pendingAuditContext.modifiedFiles) ||
         this.stateSummary.filesInScope || [];
       if (modifiedFiles.length > 0) {
-        console.error(`[Operator] Stage 11: Re-indexing ${modifiedFiles.length} modified file(s)...`);
+        console.error(`[Operator] Re-indexing ${modifiedFiles.length} modified file(s)...`);
         // Capture revision before and after to verify the scan completed successfully.
         const beforeInfo = await this.callMCPTool('graph_server_info', {});
         const revBefore = JSON.parse(beforeInfo.content[0].text).index_revision;
@@ -1280,9 +1302,9 @@ Return ONLY JSON per SPEC Section 13:
         const afterInfo = await this.callMCPTool('graph_server_info', {});
         const revAfter = JSON.parse(afterInfo.content[0].text).index_revision;
         if (revAfter <= revBefore) {
-          console.error(`[Operator] Stage 11: WARN: index_revision did not increment after graph_update_task (was ${revBefore}, still ${revAfter}). Scan may have failed.`);
+          console.error(`[Operator] WARN: index_revision did not increment after graph_update_task (was ${revBefore}, still ${revAfter}). Scan may have failed.`);
         } else {
-          console.error(`[Operator] Stage 11: index_revision: ${revBefore} → ${revAfter}`);
+          console.error(`[Operator] index_revision: ${revBefore} → ${revAfter}`);
         }
       }
 
@@ -1292,10 +1314,10 @@ Return ONLY JSON per SPEC Section 13:
         this.stateSummary.graphSummary = graphSummaryResult.content[0].text;
       }
 
-      console.error(`[Operator] Stage 11: Intelligence Graph Update complete.`);
+      console.error(`[Operator] Intelligence Graph Update complete.`);
     } catch (e) {
       // Stage 11 failures are non-fatal — log and continue
-      console.error(`[Operator] Stage 11: Non-fatal error during graph update: ${e.message}`);
+      console.error(`[Operator] Non-fatal error during graph update: ${e.message}\n[RECOMMENDED ACTION]: You can manually trigger a re-index with 'mbo mcp'.`);
     }
   }
 
