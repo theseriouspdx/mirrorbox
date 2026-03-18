@@ -28,8 +28,9 @@ function buildPayload(port) {
   return JSON.stringify({
     mcpServers: {
       'mbo-graph': {
-        type: 'http',
-        url:  `http://127.0.0.1:${port}/mcp`
+        type:    'http',
+        url:     `http://127.0.0.1:${port}/mcp`,
+        timeout: 30000
       }
     }
   }, null, 2) + '\n';
