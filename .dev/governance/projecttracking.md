@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Canonical Task Ledger
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Task:** v0.11.86
+**Next Task:** v0.11.87
 **Policy:** This file is the single source of truth for work state.
 
 ---
@@ -10,6 +10,9 @@
 ## Active Tasks
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
+| ONBOARD-01 | feature | Section 36 — Conversational Onboarding Implementation | COMPLETED | gemini | gemini/onboarding-v2-chat-native | 2026-03-17 | BUG-119,BUG-121,BUG-122,BUG-123,BUG-124 | Transcript-level AC per Section 36.10: one Q per turn, no numeric labels, auto-create staging dir, Prime Directive confirm gate, zero stack traces, atomic Phase 5 persist |
+| v0.11.87 | feature | Section 36 — Conversational Onboarding Implementation | COMPLETED | gemini | gemini/onboarding-v2-chat-native | 2026-03-17 | BUG-119,BUG-121,BUG-122,BUG-123,BUG-124 | Transcript-level AC per Section 36.10: one Q per turn, no numeric labels, auto-create staging dir, Prime Directive confirm gate, zero stack traces, atomic Phase 5 persist |
+| v0.11.87 | bug | BUG-126 mcp_query.js add graph_rescan_changed support | READY | claude | - | 2026-03-17 | BUG-126 | `node scripts/mcp_query.js graph_rescan_changed` returns valid JSON result |
 | v0.11.86 | bug | BUG-086 root-mismatch re-onboarding validation round 2 | IN_PROGRESS | gemini | gemini/bug-086-revalidate | 2026-03-17 | BUG-086,BUG-119,BUG-120,BUG-121,BUG-122,BUG-123,BUG-124 | Fresh install re-onboards when copied profile has missing/foreign `projectRoot`; evidence logged in BUGS.md |
 | v0.11.61 | bug | BUG-061 Merkle scope + MCP query path drift closure | READY | gemini | gemini/bug-061-closure | 2026-03-17 | BUG-061 | Merkle scope contract implemented + non-src drift tests + standardized `node scripts/mcp_query.js` path |
 | v0.11.52 | bug | BUG-052 global mbo CLI entrypoint packaging | READY | codex | codex/bug-052-cli-entrypoint | 2026-03-17 | BUG-052 | `mbo` installable globally and validated in clean environment |
@@ -29,6 +32,9 @@
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
 | v0.11.63 | bug | Harden macOS auth fallback explicit user-presence prompt | BACKLOG | unassigned | - | 2026-03-17 | BUG-063 | Deterministic user-presence prompt semantics validated |
+| v0.11.88 | bug | BUG-117 MCP timeout 30s cap — add timeout to buildPayload() | READY | gemini | - | 2026-03-17 | BUG-117 | `update-client-configs.js` buildPayload() emits `"timeout": 30000`; verified dead tool calls fail within 30s |
+| v0.11.89 | bug | BUG-128 session-close DB rebuild unconditional — wrap in bloat check | BACKLOG | unassigned | - | 2026-03-17 | BUG-128 | Session close on healthy DB skips rebuild; rebuild only triggers when RATIO > 10 |
+| v0.11.90 | bug | BUG-129 Decouple LSP enrichment from rescan — background-only after onboarding | BACKLOG | unassigned | - | 2026-03-17 | BUG-129 | graph_rescan_changed completes static scan in <5s; enrichment runs in background; agent not blocked |
 
 ---
 

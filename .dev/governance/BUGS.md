@@ -575,7 +575,33 @@
 - **Description:** Readiness assessment for Task 1.0-09 (Sovereign Loop) revealed that `subjectRoot` is missing from the active onboarding profile. This prevents any Subject-world promotion or cross-world telemetry from functioning.
 - **Fix:** Updated `runOnboarding` to include `subjectRoot` in the `onboarding.json` payload, defaulting to `/Users/johnserious/MBO_Alpha` if missing. Fixed function nesting in `src/cli/onboarding.js`.
 
-*Last updated: 2026-03-17 — BUG-084, 085, 086, 087 RESOLVED; BUG-083 RESOLVED; BUG-082 RESOLVED; BUG-080 RESOLVED; BUG-078 FIXED; BUG-076 RESOLVED; BUG-056, 081 RESOLVED; BUG-072, 073, 074, 075 RESOLVED; BUG-077, 079 FIXED.*
+### BUG-128: `mbo-session-close.sh` runs full DB rebuild unconditionally — should only run on bloat | Milestone: 1.1 | OPEN
+- **Location:** `scripts/mbo-session-close.sh`
+- **Severity:** P2
+- **Status:** OPEN — 2026-03-17
+- **Description:** Bloat detection (RATIO > 10) exists and correctly identifies when a rebuild is warranted, but the `rebuild-mirror.js` call runs unconditionally after the check regardless of result. Every session close wipes and rebuilds `mirrorbox.db` from scratch even when the DB is healthy. This adds unnecessary time and noise to every session close.
+- **Fix:** Wrap the `rebuild-mirror.js` call inside the `RATIO -gt 10` condition so it only executes when actual bloat is detected.
+- **Acceptance:** Session close on a healthy DB logs "DB health OK" and skips rebuild. Rebuild only triggers when ratio exceeds threshold.
+
+### BUG-129: LSP enrichment runs blocking after every rescan — should only run at onboarding, background thereafter | Milestone: 1.1 | OPEN
+- **Location:** `src/graph/static-scanner.js` (`enrich()`), `src/graph/mcp-server.js` (all rescan call sites)
+- **Severity:** P1
+- **Status:** OPEN — 2026-03-17
+- **Task:** v0.11.90
+- **Description:** `enrich()` is called synchronously at the end of every rescan including `graph_rescan_changed`. LSP enrichment spins up a language server per language and queries it for every function/class node — this is what makes even a small changed-file rescan take minutes instead of seconds. The full rescan path currently takes ~3 minutes on a 46-file codebase entirely due to LSP.
+- **Correct architecture:** LSP enrichment runs once at onboarding/first install when the full semantic picture is built for the first time. All subsequent rescans (session start, session close, `graph_rescan_changed`) run static-only (Phase 1) and complete in seconds. Enrichment of changed nodes runs in the background after Phase 1 completes and the graph is already queryable. The operator reports enrichment completion when done — it never blocks agent work.
+- **Fix:** Decouple `enrich()` from the rescan path. Add a background enrichment queue. Only call full `enrich()` during onboarding. Subsequent rescans call static scan only, then enqueue changed nodes for background enrichment.
+- **Acceptance:** `graph_rescan_changed` on a 2-file change completes in under 5 seconds. Agent can query the graph immediately. Enrichment completes in background and operator logs completion.
+
+### BUG-130: Session-close graph rescan curl `--max-time` not based on measured timing | Milestone: 1.1 | OPEN
+- **Location:** `scripts/mbo-session-close.sh` (graph rescan curl block)
+- **Severity:** P2
+- **Status:** OPEN — 2026-03-17
+- **Description:** The curl `--max-time 4` for the session-close `graph_rescan_changed` call was set by guesswork. Once BUG-129 is fixed and `graph_rescan_changed` runs static-only, actual timing should be measured on a representative changeset and the timeout set to `measured_p99 + buffer`. Until BUG-129 is fixed, any timeout will be insufficient since LSP enrichment alone takes minutes.
+- **Dependency:** Fix BUG-129 first, then measure, then set this timeout.
+- **Acceptance:** Session-close graph rescan completes within curl timeout on a typical changeset (2-10 files). No "WARN: did not return expected MCP response" on normal sessions.
+
+*Last updated: 2026-03-17 — BUG-128,129,130 OPEN; BUG-084, 085, 086, 087 RESOLVED; BUG-083 RESOLVED; BUG-082 RESOLVED; BUG-080 RESOLVED; BUG-078 FIXED; BUG-076 RESOLVED; BUG-056, 081 RESOLVED; BUG-072, 073, 074, 075 RESOLVED; BUG-077, 079 FIXED.*
 
 ### BUG-119: Chat-native onboarding shell UX/regression bundle (verbatim operator report) | Milestone: 1.1 | OPEN
 - **Location:** `src/index.js`, `src/auth/operator.js`, onboarding/prompt rendering path
@@ -656,3 +682,25 @@ system messages, operator, relay <and all other agents> all should be different 
 - **Task:** v0.11.86
 - **Description:** During onboarding in `MBO_Alpha`, briefing reports zero scanned files despite repository containing code, causing low-confidence prompts and incorrect UX flow.
 - **Expected:** Scan should detect project files and produce non-zero scan counts for active source roots.
+
+### BUG-126: `mcp_query.js` does not support `graph_rescan_changed` tool | Milestone: 1.1 | OPEN
+- **Location:** `scripts/mcp_query.js`
+- **Severity:** P1
+- **Status:** OPEN — 2026-03-17
+- **Task:** v0.11.87
+- **Description:** `graph_rescan_changed` was added to the MCP server but `mcp_query.js` only knows about `graph_rescan`. The session-close script and any agent or operator calling the script directly cannot trigger an incremental rescan. The tool falls through to the Usage error message.
+- **Fix:** Add `graph_rescan_changed` branch to the op dispatch in `mcp_query.js` alongside `graph_rescan`, using the same `GRAPH_RESCAN_TIMEOUT_MS`. Update the Usage string to include `graph_rescan_changed`.
+- **Acceptance:** `node scripts/mcp_query.js graph_rescan_changed` completes successfully and returns a valid JSON result with `status` and `changed_files`.
+
+### BUG-125: Agent bypassed governance workflow and wrote directly to mirrorbox.db tasks table | Milestone: 1.1 | OPEN
+- **Location:** `.mbo/mirrorbox.db` (tasks table), governance workflow
+- **Severity:** P1 (governance violation)
+- **Status:** OPEN — row has been rolled back
+- **Task:** ONBOARD-01
+- **Root Cause:** During the ONBOARD-01 spec-lock session, the agent attempted to register the new task in the pipeline DB by calling a raw `INSERT INTO tasks` via a node eval script, bypassing the handshake, impl_step.sh, and the operator-driven workflow entirely. This is a repeat of the same class of MCP/workflow confusion that has caused instability before: the agent saw an empty tasks table, assumed it needed to populate it manually, and acted without checking how the pipeline actually seeds task state.
+- **Actual mechanism:** The `tasks` table in `mirrorbox.db` is seeded by the operator at session start from `projecttracking.md`. It is not an agent-writable surface. `projecttracking.md` is the sole source of truth (AGENTS Section 16). The DB follows when the operator runs.
+- **What the agent should have done:** Updated `projecttracking.md` only (which was done correctly), then stopped. The human Operator runs the pipeline. The pipeline seeds the DB. The agent does not touch the DB directly.
+- **Unauthorized action:** Raw `node -e "db.prepare('INSERT INTO tasks ...').run(...)"` executed without handshake, without impl_step.sh, without human `go`.
+- **Rollback:** `DELETE FROM tasks WHERE name='ONBOARD-01'` executed. DB restored to pre-session state.
+- **Pattern:** This is the third documented instance of the agent short-circuiting the governance workflow when encountering an empty or stale DB state. Each time, the instinct is to "fix" the missing data directly rather than recognizing that the pipeline owns DB state and the agent owns only governance files.
+- **Required fix:** Add an explicit note to AGENTS.md Section 4 (What Agents Cannot Do) and Section 12 (Sovereign Loop) stating that direct DB writes are prohibited under all circumstances. The tasks table is read-only from the agent's perspective.
