@@ -9,15 +9,15 @@
 
 ## Section 1 — Next Action
 
-**Task v0.11.87 — Section 36 — Conversational Onboarding Implementation**
+**Task v0.11.86 — BUG-086 root-mismatch re-onboarding validation round 2**
 
-- Status: COMPLETED
+- Status: IN_PROGRESS
 - Linked P0/P1 blockers:
-- BUG-126: `mcp_query.js` does not support `graph_rescan_changed` tool
+None
 
 **Graph queries to run at Gate 0:**
 ```
-graph_search("Section 36 — Conversational Onboarding Implementation")
+graph_search("BUG-086 root-mismatch re-onboarding validation round 2")
 ```
 
 ---
@@ -34,8 +34,8 @@ graph_search("Section 36 — Conversational Onboarding Implementation")
 
 ## Session End Checklist
 - Status: closed_clean
-- Cold Storage: mirror_snapshot_20260317_172848.zip (SHA-256: 13351279a24e9a1cb625894a739765fd712b62ff124d3fb608e3e2e3f19366c0)
-- Backup file: mirrorbox_20260317_172848.bak
-- SHA-256: ba45d78d1cfc09ab69adc0d3deaa074e155e47c43251b2d08883655b9151eabd
+- Cold Storage: mirror_snapshot_20260317_182208.zip (SHA-256: 76258efa9ea98aa98bbf69a44278fb2885b065ee2360822641f8fe5ea4d50714)
+- Backup file: mirrorbox_20260317_182208.bak
+- SHA-256: 6180753ff154ec21de618a269338634e97dd61962b3a1875c897bee1b1e5cab7
 - PRAGMA integrity_check: ok
-- Timestamp: 2026-03-18T00:29:27Z
+- Timestamp: 2026-03-18T01:22:47Z

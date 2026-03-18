@@ -282,10 +282,40 @@ else
 fi
 
 # Best-effort dev graph freshness bump (non-fatal): if MCP dev server is running,
-# trigger graph_rescan so next agent session doesn't start stale.
-DEV_PORT="4737"
+# trigger graph_rescan_changed so next agent session doesn't start stale.
+# Port is resolved from the live .gemini/settings.json (written by the server on every start),
+# falling back to the manifest symlink, then the legacy fixed port.
+DEV_PORT=""
+SETTINGS_JSON="$ROOT_DIR/.gemini/settings.json"
+if [[ -f "$SETTINGS_JSON" ]]; then
+  DEV_PORT="$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('$SETTINGS_JSON'))
+    url = d.get('mcpServers',{}).get('mbo-graph',{}).get('url','')
+    if url:
+        print(url.split(':')[2].split('/')[0])
+except: pass
+" 2>/dev/null || true)"
+fi
+if [[ -z "$DEV_PORT" ]]; then
+  MCP_MANIFEST="$ROOT_DIR/.dev/run/mcp.json"
+  if [[ -f "$MCP_MANIFEST" ]] || [[ -L "$MCP_MANIFEST" ]]; then
+    DEV_PORT="$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('$MCP_MANIFEST'))
+    print(d.get('port',''))
+except: pass
+" 2>/dev/null || true)"
+  fi
+fi
+if [[ -z "$DEV_PORT" ]]; then
+  DEV_PORT="4737"
+fi
+
 if lsof -ti:"$DEV_PORT" >/dev/null 2>&1; then
-  echo "[MBO] Triggering dev graph_rescan on :$DEV_PORT (best-effort)..."
+  echo "[MBO] Triggering dev graph_rescan_changed on :$DEV_PORT (best-effort)..."
   CURL_COMMON_ARGS=(
     --silent --show-error
     --connect-timeout 1
@@ -304,19 +334,19 @@ if lsof -ti:"$DEV_PORT" >/dev/null 2>&1; then
   rm -f "$MCP_INIT_HEADERS"
 
   if [[ -n "$MCP_SID" ]]; then
-    RSCAN_BODY='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"graph_rescan","arguments":{}}}'
+    RSCAN_BODY='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"graph_rescan_changed","arguments":{}}}'
     RSCAN_RESP="$(curl "${CURL_COMMON_ARGS[@]}" -X POST "http://127.0.0.1:${DEV_PORT}/mcp" \
       -H 'Content-Type: application/json' \
       -H 'Accept: application/json, text/event-stream' \
       -H "mcp-session-id: $MCP_SID" \
       --data "$RSCAN_BODY" 2>/dev/null || true)"
     if echo "$RSCAN_RESP" | grep -q "event: message"; then
-      echo "[MBO] Dev graph_rescan triggered."
+      echo "[MBO] Dev graph_rescan_changed triggered."
     else
-      echo "[MBO] WARN: dev graph_rescan trigger did not return expected MCP response." >&2
+      echo "[MBO] WARN: dev graph_rescan_changed trigger did not return expected MCP response." >&2
     fi
   else
-    echo "[MBO] WARN: Could not establish MCP session for dev graph_rescan trigger." >&2
+    echo "[MBO] WARN: Could not establish MCP session for dev graph_rescan_changed trigger." >&2
   fi
 fi
 

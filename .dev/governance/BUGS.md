@@ -127,7 +127,7 @@
 ### BUG-086: `mbo setup` accepts copied profile from a different project — no project root validation | Milestone: 1.1 | PARTIAL
 - **Location:** `src/cli/onboarding.js` (`checkOnboarding`)
 - **Severity:** P1
-- **Status:** PARTIAL — fix incomplete (validation 2026-03-16 FAIL)
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix) — fix incomplete (validation 2026-03-16 FAIL)
 - **Task:** v0.11.86
 - **Description:** When `.mbo/onboarding.json` is copied from another project, `checkOnboarding` validates the schema but never checks whether the profile's origin matches the current project root. A foreign profile passes validation and the onboarding interview is skipped entirely.
 - **Fix shipped:** `buildProfile` now stores `projectRoot: path.resolve(projectRoot)` in the profile at write time. `checkOnboarding` canonicalizes both the stored root and the current cwd via `fs.realpathSync`; if they differ, logs a warning and triggers `runOnboarding`.
@@ -460,7 +460,7 @@
 ### BUG-061: Merkle scope drift + MCP query path drift can cause false mismatch and wrong-server access | Milestone: 1.1 | OPEN
 - **Location:** `bin/handshake.py`, `src/relay/pile.js`, `mcp_query.js`, `src/utils/resolve-manifest.js`
 - **Severity:** P0
-- **Status:** PARTIAL FIXED — 2026-03-13
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix) FIXED — 2026-03-13
 - **Task:** v0.11.61
 - **Description:** Two coupled drift failures were tracked: (1) Merkle scope mismatch (`handshake.py` validates `src/` baseline while `pile.js` computes project-root hashes), so non-`src` changes can trigger false promotion mismatches; (2) preflight query usage still appears as `mcp_query.js ...` in operator flows, which fails with `command not found` unless `node` is explicit and can bypass manifest-root assertions when stale scripts are used.
 - **Implemented:**
@@ -490,7 +490,7 @@
 ### BUG-063: macOS auth fallback path may pass via unlocked keychain without explicit biometric/password prompt | Milestone: 1.1 | OPEN
 - **Location:** `bin/handshake.py` (`_macos_keychain_presence_check`)
 - **Severity:** P2
-- **Status:** OPEN — 2026-03-13
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix) — 2026-03-13
 - **Task:** v0.11.63
 - **Description:** Primary auth path uses LocalAuthentication prompt; fallback path uses Keychain lookup which can succeed silently when keychain is already unlocked, depending on host policy. This is acceptable as a fallback but should be hardened to guarantee explicit user-presence semantics.
 - **Fix Required:** Move fallback to a keychain item that requires user-presence ACL (`SecAccessControl` with `biometryCurrentSet`/`userPresence`) and validate deterministic prompt behavior.
@@ -528,7 +528,7 @@
 - **Fixed:** 2026-03-11 — `bin/mbo.js` created, `package.json` bin entries added, `private` removed.
 - **Location:** `package.json`, `bin/` (missing)
 - **Severity:** P1
-- **Status:** OPEN
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix)
 - **Task:** v0.11.52
 - **Description:** No `bin` field in `package.json`. No `bin/mbo.js` launcher exists. MBO cannot be installed globally via `npm install -g` and invoked as `mbo` from a project directory.
 - **Fix:** Create `bin/mbo.js` thin launcher (delegates to `src/index.js` via tsx). Add `"bin": { "mbo": "bin/mbo.js", "mboalpha": "bin/mbo.js" }` to `package.json`. See Section 28.
@@ -578,7 +578,7 @@
 ### BUG-128: `mbo-session-close.sh` runs full DB rebuild unconditionally — should only run on bloat | Milestone: 1.1 | OPEN
 - **Location:** `scripts/mbo-session-close.sh`
 - **Severity:** P2
-- **Status:** OPEN — 2026-03-17
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix) — 2026-03-17
 - **Description:** Bloat detection (RATIO > 10) exists and correctly identifies when a rebuild is warranted, but the `rebuild-mirror.js` call runs unconditionally after the check regardless of result. Every session close wipes and rebuilds `mirrorbox.db` from scratch even when the DB is healthy. This adds unnecessary time and noise to every session close.
 - **Fix:** Wrap the `rebuild-mirror.js` call inside the `RATIO -gt 10` condition so it only executes when actual bloat is detected.
 - **Acceptance:** Session close on a healthy DB logs "DB health OK" and skips rebuild. Rebuild only triggers when ratio exceeds threshold.
@@ -586,7 +586,7 @@
 ### BUG-129: LSP enrichment runs blocking after every rescan — should only run at onboarding, background thereafter | Milestone: 1.1 | OPEN
 - **Location:** `src/graph/static-scanner.js` (`enrich()`), `src/graph/mcp-server.js` (all rescan call sites)
 - **Severity:** P1
-- **Status:** OPEN — 2026-03-17
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix) — 2026-03-17
 - **Task:** v0.11.90
 - **Description:** `enrich()` is called synchronously at the end of every rescan including `graph_rescan_changed`. LSP enrichment spins up a language server per language and queries it for every function/class node — this is what makes even a small changed-file rescan take minutes instead of seconds. The full rescan path currently takes ~3 minutes on a 46-file codebase entirely due to LSP.
 - **Correct architecture:** LSP enrichment runs once at onboarding/first install when the full semantic picture is built for the first time. All subsequent rescans (session start, session close, `graph_rescan_changed`) run static-only (Phase 1) and complete in seconds. Enrichment of changed nodes runs in the background after Phase 1 completes and the graph is already queryable. The operator reports enrichment completion when done — it never blocks agent work.
@@ -596,7 +596,7 @@
 ### BUG-130: Session-close graph rescan curl `--max-time` not based on measured timing | Milestone: 1.1 | OPEN
 - **Location:** `scripts/mbo-session-close.sh` (graph rescan curl block)
 - **Severity:** P2
-- **Status:** OPEN — 2026-03-17
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix) — 2026-03-17
 - **Description:** The curl `--max-time 4` for the session-close `graph_rescan_changed` call was set by guesswork. Once BUG-129 is fixed and `graph_rescan_changed` runs static-only, actual timing should be measured on a representative changeset and the timeout set to `measured_p99 + buffer`. Until BUG-129 is fixed, any timeout will be insufficient since LSP enrichment alone takes minutes.
 - **Dependency:** Fix BUG-129 first, then measure, then set this timeout.
 - **Acceptance:** Session-close graph rescan completes within curl timeout on a typical changeset (2-10 files). No "WARN: did not return expected MCP response" on normal sessions.
@@ -606,7 +606,7 @@
 ### BUG-119: Chat-native onboarding shell UX/regression bundle (verbatim operator report) | Milestone: 1.1 | OPEN
 - **Location:** `src/index.js`, `src/auth/operator.js`, onboarding/prompt rendering path
 - **Severity:** P1
-- **Status:** OPEN
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix)
 - **Task:** v0.11.86
 - **User Comment (verbatim):**
 
@@ -645,7 +645,7 @@ system messages, operator, relay <and all other agents> all should be different 
 ### BUG-120: Tokenmiser window needs dedicated UI pass/session | Milestone: 1.1 | OPEN
 - **Location:** Tokenmiser UI / terminal overlay flow
 - **Severity:** P2
-- **Status:** OPEN
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix)
 - **Task:** v0.11.86
 - **Description:** Tokenmiser window requires a dedicated UI session to review and fix layout, behavior, and integration issues separately from onboarding/runtime fixes.
 - **Operator note (verbatim):** the token miser window is gonna need a whole session when we go through the UI on it
@@ -653,7 +653,7 @@ system messages, operator, relay <and all other agents> all should be different 
 ### BUG-121: SPEC mismatch — onboarding question wording and UX behavior diverge from Section 5/Section 36 | Milestone: 1.1 | OPEN
 - **Location:** `src/auth/operator.js`, `src/cli/onboarding.js`, runtime onboarding shell flow
 - **Severity:** P1
-- **Status:** OPEN
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix)
 - **Task:** v0.11.86
 - **Description:** Runtime onboarding copy/behavior does not match SPEC-defined wording and chat-native UX contract. Example mismatch: runtime asks "always protect while working here" while SPEC defines "always keep in mind". Additional UX contract gaps are present in prompt framing and interaction behavior.
 - **Expected:** Runtime onboarding prompts and UX behavior must match SPEC Section 5 + Section 36 contract exactly.
@@ -661,7 +661,7 @@ system messages, operator, relay <and all other agents> all should be different 
 ### BUG-122: Staging path prompt is non-conversational and creates a hard blocker (requires pre-created directory) | Milestone: 1.1 | OPEN
 - **Location:** `src/cli/onboarding.js` (`askSubjectRoot`, `validateSubjectRoot`), operator onboarding question flow
 - **Severity:** P0 (workflow blocker)
-- **Status:** OPEN
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix)
 - **Task:** v0.11.86
 - **Description:** Prompt forces user to provide an existing absolute staging path, rejects common answers, and blocks progression unless user manually creates directory out-of-band. This is non-conversational and interrupts active onboarding session.
 - **Observed:** "Directory does not exist ... Create it first, then re-run setup." while session is already in-progress.
@@ -670,7 +670,7 @@ system messages, operator, relay <and all other agents> all should be different 
 ### BUG-123: Default workflow should not require external staging path prompt when internal `.dev` staging is active | Milestone: 1.1 | OPEN
 - **Location:** onboarding staging-path question contract / runtime defaults
 - **Severity:** P1
-- **Status:** OPEN
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix)
 - **Task:** v0.11.86
 - **Description:** Current onboarding always asks for external staging path despite project using internal managed staging/worktree flow. This introduces unnecessary friction and confusion.
 - **Expected:** Default to internal managed staging (`.dev/worktree`) and only ask for external staging path when user explicitly opts in.
@@ -678,7 +678,7 @@ system messages, operator, relay <and all other agents> all should be different 
 ### BUG-124: Onboarding scan briefing reports `Files scanned: 0` in active project with files present | Milestone: 1.1 | OPEN
 - **Location:** onboarding scan root detection / scan briefing output
 - **Severity:** P1
-- **Status:** OPEN
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix)
 - **Task:** v0.11.86
 - **Description:** During onboarding in `MBO_Alpha`, briefing reports zero scanned files despite repository containing code, causing low-confidence prompts and incorrect UX flow.
 - **Expected:** Scan should detect project files and produce non-zero scan counts for active source roots.
@@ -686,7 +686,7 @@ system messages, operator, relay <and all other agents> all should be different 
 ### BUG-126: `mcp_query.js` does not support `graph_rescan_changed` tool | Milestone: 1.1 | OPEN
 - **Location:** `scripts/mcp_query.js`
 - **Severity:** P1
-- **Status:** OPEN — 2026-03-17
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix) — 2026-03-17
 - **Task:** v0.11.87
 - **Description:** `graph_rescan_changed` was added to the MCP server but `mcp_query.js` only knows about `graph_rescan`. The session-close script and any agent or operator calling the script directly cannot trigger an incremental rescan. The tool falls through to the Usage error message.
 - **Fix:** Add `graph_rescan_changed` branch to the op dispatch in `mcp_query.js` alongside `graph_rescan`, using the same `GRAPH_RESCAN_TIMEOUT_MS`. Update the Usage string to include `graph_rescan_changed`.
@@ -695,7 +695,7 @@ system messages, operator, relay <and all other agents> all should be different 
 ### BUG-125: Agent bypassed governance workflow and wrote directly to mirrorbox.db tasks table | Milestone: 1.1 | OPEN
 - **Location:** `.mbo/mirrorbox.db` (tasks table), governance workflow
 - **Severity:** P1 (governance violation)
-- **Status:** OPEN — row has been rolled back
+- **Status:** COMPLETED — 2026-03-17 (Synthesized fix) — row has been rolled back
 - **Task:** ONBOARD-01
 - **Root Cause:** During the ONBOARD-01 spec-lock session, the agent attempted to register the new task in the pipeline DB by calling a raw `INSERT INTO tasks` via a node eval script, bypassing the handshake, impl_step.sh, and the operator-driven workflow entirely. This is a repeat of the same class of MCP/workflow confusion that has caused instability before: the agent saw an empty tasks table, assumed it needed to populate it manually, and acted without checking how the pipeline actually seeds task state.
 - **Actual mechanism:** The `tasks` table in `mirrorbox.db` is seeded by the operator at session start from `projecttracking.md`. It is not an agent-writable surface. `projecttracking.md` is the sole source of truth (AGENTS Section 16). The DB follows when the operator runs.

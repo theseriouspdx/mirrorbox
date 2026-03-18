@@ -2415,6 +2415,184 @@ This section defines requirements corresponding to tracking task `1.1-H29`.
 
 ---
 
+## Section 36 — Conversational Onboarding and Operator Dialogue Contract
+
+### 36.0 Status and Precedence
+This section is the **binding implementation contract** for all onboarding and
+operator dialogue UX behavior. It supersedes all prior informal onboarding
+descriptions in comments, docs, or prior implementation attempts.
+It directly resolves BUG-119, BUG-121, BUG-122, BUG-123, and BUG-124.
+No onboarding implementation is spec-compliant unless it satisfies every
+requirement in this section. Section 5 defers copy and UX rules to this section.
+
+### 36.1 Product Contract
+- **Advisor Identity**: The operator acts as a senior software architect who
+  knows the user's project better than they do by reading between the lines of
+  the code. It MUST offer observations and answer unasked questions.
+- **Predictive Seeds**: The operator MUST NOT present blank prompts for critical
+  questions (Prime Directive, Partnership). It MUST proactively suggest 3-4
+  "Smart Defaults" based on scan findings (e.g., `[1] Visual Fidelity` if React
+  is detected). The user may select by number or type a custom answer.
+- **Thin Shell Architecture**: The onboarding logic resides in the LLM prompt,
+  not in the code. The runtime code provides deterministic plumbing (Scan,
+  Prompt IO, Persistence) while the LLM drives the interview loop.
+- Onboarding is an **LLM-native chat experience**, not a CLI wizard or a form.
+- The operator presents **one question at a time** and waits for a full response
+  before advancing. No batching of questions in a single turn.
+- Questions MUST NOT carry numeric labels in user-visible output.
+  Internal identifiers (Q1–Q4) are code references only and MUST NOT appear
+  in the terminal or any operator-facing display.
+- The operator MUST understand and accept natural language answers including:
+  corrections, requests to revisit an earlier question, and clarification
+  requests. The operator routes these without error or workflow interruption.
+- If the user asks why a question is being asked, the operator MUST explain
+  and then re-ask the question. It MUST NOT skip the question or mark it
+  answered because an explanation was given.
+
+### 36.2 Scan Briefing (Pre-Question Phase)
+Before asking any questions, the operator MUST emit a structured scan briefing
+with three explicitly labeled groups:
+
+```
+Confirmed:
+  - <field>: <value>
+  ...
+Inferred (please confirm):
+  - <field>: <value>  [omit group if empty]
+Unknown (I will ask):
+  - <field>           [omit group if empty]
+```
+
+Rules:
+- A field is **Confirmed** when scan evidence is unambiguous (e.g., `package.json`
+  present with `scripts.test` defined → build system confirmed as npm).
+- A field is **Inferred** when scan evidence is partial or probabilistic.
+- A field is **Unknown** when no scan evidence exists for it.
+- `Files scanned: 0` is a scan failure, not a valid briefing state. If scan
+  returns zero files in a non-empty project root, the operator MUST:
+  1. Log a scan root diagnostic entry.
+  2. Report the zero count with a parenthetical explanation: `(scan root may
+     be misconfigured — adjust with 'mbo config scanRoots')`.
+  3. Proceed with onboarding using Unknown fields for all scan-derived values.
+  It MUST NOT block or abort onboarding due to a zero scan result.
+
+### 36.3 Prime Directive Confirmation Pattern
+- The Prime Directive is **synthesized** from all Phase 1–3 inputs. It is never
+  the verbatim Q3 answer.
+- The prompt for the Prime Directive (Q3) and Partnership (Q4) MUST include
+  predictive seeds derived from the scan.
+- Before persisting, the operator MUST present the synthesized Prime Directive
+  and offer three explicit options:
+  ```
+  Here is the Prime Directive I've synthesized for this project:
+  "<synthesized text>"
+
+  Accept / Edit / Regenerate
+  ```
+- The operator MUST wait for an explicit selection. It MUST NOT default to
+  Accept after any timeout or inactivity. It MUST NOT paraphrase and proceed
+  without presenting this confirmation.
+- On **Edit**: accept free-text replacement. Persist the human-authored text
+  verbatim. Do not re-synthesize.
+- On **Regenerate**: produce a new synthesis using the same input data and
+  re-present the three-option prompt. Regeneration cycles are unlimited.
+
+### 36.4 Assumptions and Unknowns Handling
+- The operator MUST NOT invent values for Unknown fields. Unknown fields stay
+  `null` in the persisted profile until the user provides answers or a
+  re-onboard populates them.
+- Inferred fields MUST be surfaced to the user in the scan briefing and
+  confirmed or corrected before being persisted as Confirmed.
+- A persisted Inferred value that was never confirmed is a spec violation.
+
+### 36.5 Helpfulness Responsibility
+- The operator MUST NOT produce dead-ends. If a question cannot be answered
+  without additional context (e.g., a directory that does not yet exist), the
+  operator resolves the blocker itself before asking.
+- **Staging path creation:** If the user provides a staging path that does not
+  exist, the operator MUST offer to create it automatically:
+  ```
+  That directory doesn't exist yet. Create it now? [Y/n]
+  ```
+  On confirmation, the operator creates the directory and continues. It MUST
+  NOT emit "Create it first, then re-run setup." or any instruction that
+  requires the user to exit the active session.
+- **Default staging path:** The default workflow MUST use internal managed
+  staging (`.dev/worktree/`) and MUST NOT ask for an external staging path
+  unless the user explicitly opts in. The staging path question is gated behind
+  an explicit opt-in prompt:
+  ```
+  Use external staging directory? (default: no, uses .dev/worktree/) [y/N]
+  ```
+  If the user answers no or presses Enter, the staging path question is skipped
+  entirely and the internal path is recorded in the profile.
+
+### 36.6 Persistence Model
+- **Ephemeral state:** In-session question/answer state exists only in process
+  memory. It is never written to disk mid-session.
+- **Saved state:** The onboarding profile is written to `.mbo/onboarding.json`
+  atomically at Phase 5 (validation + persist). No partial profile is written.
+- Re-onboarding is additive by default (Section 5). Profile fields are updated
+  on explicit re-answer; they are never silently deleted.
+- In-session state recovery (after crash) is not supported. The operator
+  restarts the interview from Phase 1 if `.mbo/onboarding.json` is absent.
+
+### 36.7 Context Safety Without Shell Dump
+- The operator MUST NOT emit raw file paths, full directory trees, or shell
+  environment variables in any user-facing onboarding output.
+- The scan briefing MUST use human-readable field names, not internal key names:
+  e.g., "Build system: npm" not "buildSystem: npm".
+- Log-level output (paths, debug tokens) MUST be directed to `.mbo/logs/` only,
+  never to the terminal during an active onboarding session.
+
+### 36.8 Error Handling
+- No raw stack traces in terminal output under any error condition during
+  onboarding. On exception, the operator MUST emit:
+  ```
+  Something went wrong: <one-sentence plain-English description>.
+  Run 'mbo setup --verbose' for diagnostic output.
+  ```
+- No shell dump on error (no `process.cwd()`, no full paths, no env vars).
+- Validation failures (e.g., invalid directory, unrecognized input) MUST emit
+  a recommended action inline and re-ask the question. They MUST NOT terminate
+  the session.
+
+### 36.9 Internal Architecture Constraints
+- The onboarding module MUST be a single-concern module. It MUST NOT import
+  from or depend on the relay, pile, graph server, or MCP stack.
+- All readline/prompt I/O MUST route through a single injectable `ask()`
+  function to support test harness substitution without mocking stdin.
+- Phase sequence (1 → 2 → 3 → 4 → 5) is the only valid execution order.
+  No phase may be skipped or reordered except via explicit re-onboard mode
+  selection (Section 5).
+- The `subjectRoot` prompt is only reached if the user opts into external
+  staging (Section 36.5). It MUST expand `~` and validate existence before
+  accepting.
+
+### 36.10 Acceptance Criteria
+Acceptance is at transcript level, not unit-test level. A compliant onboarding
+session produces a transcript that satisfies all of the following:
+
+1. No question carries a visible number label.
+2. Only one question appears per turn.
+3. User can type "go back" or "change my answer" and the operator handles it
+   without error or session restart.
+4. Scan briefing appears before the first question, with groups present or
+   omitted per 36.2 rules.
+5. If scan returns zero files in a non-empty root, briefing notes it with the
+   diagnostic parenthetical and onboarding continues.
+6. Prime Directive and Partnership questions present predictive seeds.
+7. Prime Directive confirmation presents Accept / Edit / Regenerate and does
+   not proceed until one is chosen.
+8. Providing a non-existent staging path triggers an auto-create offer, not
+   a session-terminating error.
+9. Pressing Enter at the staging path opt-in (default) skips external staging
+   entirely.
+10. No stack trace or shell dump appears in terminal output under any condition.
+11. Profile is written atomically at Phase 5 only. No partial write occurs.
+
+---
+
 ## Appendix D — Task-to-Spec Traceability Matrix (Project Tracking Alignment)
 
 This matrix ensures every task listed in `.dev/governance/projecttracking.md` maps to an explicit spec contract section.
@@ -2465,6 +2643,7 @@ This matrix ensures every task listed in `.dev/governance/projecttracking.md` ma
 | 1.1-H27 | Section 33 |
 | 1.1-H28 | Section 34 |
 | 1.1-H29 | Section 35 |
+| ONBOARD-01 | Section 36 |
 
 ### Notes
 - Where a task is explicitly governance-only, source-of-truth may be split between SPEC and AGENTS/governance documents.

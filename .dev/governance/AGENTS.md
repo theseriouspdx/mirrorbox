@@ -65,6 +65,7 @@ Implementation task: `1.1-H24` — see `.dev/preflight/did-protocol-implementati
 7. **Invariant 7:** Context isolation enforced at runtime.
 8. **Invariant 8:** Secrets never enter sandbox execution.
 9. **Invariant 9:** Local models stay local.
+18. **Invariant 18 (DB Write Prohibition):** Agents MUST NOT write directly to any database (mirrorbox.db, dev-graph.db, or any SQLite file) under any circumstances. The `tasks` table and all pipeline state in the DB is seeded exclusively by the Operator running the pipeline from `projecttracking.md`. Agents interact with state only through governance files (`projecttracking.md`, `BUGS.md`). Direct `INSERT`, `UPDATE`, or `DELETE` against the DB — via node eval, sqlite3 CLI, or any MCP tool call that proxies raw SQL — is a governance violation equivalent to bypassing the handshake protocol.
 14. **Invariant 14:** No `write_file` for overwrites. Overwriting or modifying an existing file via `write_file` is prohibited. `replace` MUST be used for all modifications to existing files to ensure surgical precision. `write_file` is reserved for creating new files only.
 
 ---
@@ -195,6 +196,7 @@ Every development session MUST follow this checklist:
 1. **Identify Task** from `projecttracking.md`.
 2. **Permission Check** via `python3 bin/handshake.py <cell_name>`.
 3. **Create Working Worktree** — `git worktree add .dev/worktree/<agent>-<task> -b <agent>/<task>` — and work exclusively inside it. Never share a working directory with a concurrent agent session.
+   > **DB Write Prohibition:** At no point in this loop may an agent write directly to mirrorbox.db or any pipeline database. All task state flows through governance files → Operator → pipeline. (See Invariant 18.)
 4. **Derive & Propose** solution from graph context.
 5. **Human Approval** ("go").
 6. **Implement on Branch & Verify** (`python3 bin/validator.py --all` + task-specific tests).
