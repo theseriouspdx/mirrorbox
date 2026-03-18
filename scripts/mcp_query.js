@@ -427,10 +427,12 @@ const { diagnose, op, arg } = parseInvocation(process.argv.slice(2));
       res = await callMCP(session.endpoint, 'tools/call', { name: 'graph_search', arguments: { pattern: arg } }, sid);
     } else if (op === 'graph_rescan') {
       res = await callMCP(session.endpoint, 'tools/call', { name: 'graph_rescan', arguments: {} }, sid, GRAPH_RESCAN_TIMEOUT_MS);
+    } else if (op === 'graph_rescan_changed') {
+      res = await callMCP(session.endpoint, 'tools/call', { name: 'graph_rescan_changed', arguments: {} }, sid, GRAPH_RESCAN_TIMEOUT_MS);
     } else if (op === 'tools_list') {
       res = await callMCP(session.endpoint, 'tools/list', {}, sid);
     } else {
-      console.log('Usage: node ./mcp_query.js [--diagnose] [graph_server_info | graph_search <pattern> | graph_rescan | tools_list]');
+      console.log('Usage: node ./mcp_query.js [--diagnose] [graph_server_info | graph_search <pattern> | graph_rescan | graph_rescan_changed | tools_list]');
       console.log('Also supports function style: node ./mcp_query.js "graph_search(\'pattern\')"');
       return;
     }

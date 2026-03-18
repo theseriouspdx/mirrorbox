@@ -16,6 +16,7 @@ const {
 } = require('@modelcontextprotocol/sdk/types.js');
 const path = require('path');
 const fs = require('fs');
+const { execSync } = require('child_process');
 
 const eventStore = require('../state/event-store');
 const { DBManager } = require('../state/db-manager.js');
@@ -277,6 +278,11 @@ class GraphService {
           inputSchema: { type: 'object', properties: {} },
         },
         {
+          name: 'graph_rescan_changed',
+          description: 'Incremental rescan: detects files changed since the last git commit (git diff --name-only HEAD) and re-scans only those files. Much faster than a full rescan for small changesets. Falls back to full rescan if git is unavailable.',
+          inputSchema: { type: 'object', properties: {} },
+        },
+        {
           name: 'graph_ingest_runtime_trace',
           description: 'Ingest a runtime-trace.json produced by the sandbox probe into the Intelligence Graph as runtime-source edges (Task 0.8-07).',
           inputSchema: {
@@ -346,16 +352,56 @@ class GraphService {
                 await this.scanner.scanFile(absPath, this.root);
               }
             }
-            try {
-              await this.scanner.enrich(this.root);
-            } catch (e) {
-              // BUG-072: Enrichment failures are best-effort warnings.
-              console.error(`[GraphService] ${new Date().toISOString()} Enrichment warning during task update: ${e.message}`);
-            }
+            // BUG-129: background enrichment
+            this.scanner.enrich(this.root).catch(e => {
+              console.error(`[GraphService] Background enrichment failed: ${e.message}`);
+            });
             // Increment only after successful completion — not if scanDirectory/enrich throws.
             this.indexRevision = this.db.incrementIndexRevision();
             this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
             return { content: [{ type: 'text', text: `Graph updated for ${(args.modifiedFiles || []).length} files.` }] };
+          } finally {
+            this.isScanning = false;
+          }
+        });
+      }
+      case 'graph_rescan_changed': {
+        return this.enqueueWrite(async () => {
+          this.isScanning = true;
+          try {
+            console.error(`[GraphService] ${new Date().toISOString()} Starting incremental rescan (git)...`);
+            let changedFiles = [];
+            try {
+              const diff = execSync('git diff --name-only HEAD', { cwd: this.root, encoding: 'utf8' });
+              changedFiles = diff.split('\n').filter(Boolean);
+            } catch (e) {
+              console.error(`[GraphService] Git diff failed, falling back to full rescan: ${e.message}`);
+              this.isScanning = false; // Release for full rescan call
+              return await this.callTool('graph_rescan', args);
+            }
+
+            const diagnostics = { scannedFiles: 0, failedFiles: [] };
+            for (const file of changedFiles) {
+              const absPath = path.resolve(this.root, file);
+              if (fs.existsSync(absPath)) {
+                try {
+                  await this.scanner.scanFile(absPath, this.root);
+                  diagnostics.scannedFiles++;
+                } catch (e) {
+                  diagnostics.failedFiles.push({ path: file, error: e.message });
+                }
+              }
+            }
+            
+            // BUG-129: background enrichment
+            this.scanner.enrich(this.root).catch(e => {
+              console.error(`[GraphService] Background enrichment failed: ${e.message}`);
+            });
+
+            this.indexRevision = this.db.incrementIndexRevision();
+            this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
+            const summary = this._summarizeAndPersistScan(diagnostics, 'graph_rescan_changed');
+            return { content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }] };
           } finally {
             this.isScanning = false;
           }
@@ -402,14 +448,10 @@ class GraphService {
                 }
               }
             }
-            try {
-              await this.scanner.enrich(this.root);
-            } catch (e) {
-              diagnostics.failedFiles.push({
-                path: '<enrich>',
-                error: e.message,
-              });
-            }
+            // BUG-129: background enrichment
+            this.scanner.enrich(this.root).catch(e => {
+              console.error(`[GraphService] Background enrichment failed: ${e.message}`);
+            });
             // Increment only after successful completion — not if scanDirectory/enrich throws.
             this.indexRevision = this.db.incrementIndexRevision();
             this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
