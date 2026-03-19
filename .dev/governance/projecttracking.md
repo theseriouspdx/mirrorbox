@@ -21,6 +21,7 @@
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
 | v0.11.96 | docs | Deprecate NEXT_SESSION governance path + BUGS split canonicalization | COMPLETED | codex | codex/e2e-20260318-212502 | 2026-03-19 | BUG-141,BUG-142,BUG-143 | NEXT_SESSION removed from required protocol/docs/templates and BUGS.md active-only with BUGS-resolved.md archive policy enforced |
+| v0.11.97 | bug | Codex MCP client config auto-refresh on daemon start | COMPLETED | codex | codex/codex-mcp-client-refresh | 2026-03-19 | - | `updateClientConfigs()` refreshes Codex in `~/.codex/config.toml` using the live daemon port, preserves unrelated Codex settings, and targeted client-config tests pass |
 | v0.11.22 | feature | Adaptive Onboarding v2 Intelligence Layer (UX-022..UX-028) | COMPLETED | codex | codex/onboarding-v2-ux-elevation | 2026-03-17 | BUG-093,BUG-094,BUG-095,BUG-096,BUG-097,BUG-098,BUG-099,BUG-100,BUG-101 | Merged to master and `scripts/test-onboarding.js` 8/8 pass |
 | v0.10.09 | feature | Sovereign Loop (Self-Patching Validation) | COMPLETED | gemini | gemini/onboarding-v2 | 2026-03-16 | 1.0-09 | Verification gate pass recorded |
 

@@ -17,13 +17,14 @@
  *   9. Multiple clients all get written
  *  10. Existing file gets overwritten with new port
  *  11. readRegistry returns [] for malformed JSON
+ *  12. Codex config merge preserves existing global settings and refreshes MCP URL
  */
 
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
 
-const { updateClientConfigs, buildClientRegistry, readRegistry } = require('../src/utils/update-client-configs');
+const { updateClientConfigs, buildClientRegistry, readRegistry, mergeCodexConfig } = require('../src/utils/update-client-configs');
 
 let passed = 0;
 let failed = 0;
@@ -65,14 +66,18 @@ console.log('\nTest 1: writes correct JSON to registered client configs');
   writeMboConfig(root, {
     mcpClients: [
       { name: 'claude', configPath: '.mcp.json' },
-      { name: 'gemini', configPath: '.gemini/settings.json' }
+      { name: 'gemini', configPath: '.gemini/settings.json' },
+      { name: 'codex', configPath: '$CODEX_HOME/config.toml' }
     ]
   });
 
-  const result = updateClientConfigs(root, 55555);
+  const previousCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = path.join(root, '.codex-home');
+  const result = updateClientConfigs(root, 55555, { detectCodex: false });
 
   assert(result.written.includes('.mcp.json'),             'claude .mcp.json written');
   assert(result.written.includes('.gemini/settings.json'), 'gemini .gemini/settings.json written');
+  assert(result.written.includes('$CODEX_HOME/config.toml'), 'codex config.toml written');
   assert(result.errors.length === 0,                       'no errors');
 
   const claude = JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'));
@@ -81,6 +86,12 @@ console.log('\nTest 1: writes correct JSON to registered client configs');
 
   const gemini = JSON.parse(fs.readFileSync(path.join(root, '.gemini/settings.json'), 'utf8'));
   assert(gemini.mcpServers?.['mbo-graph']?.url === 'http://127.0.0.1:55555/mcp', 'gemini URL correct');
+
+  const codex = fs.readFileSync(path.join(root, '.codex-home', 'config.toml'), 'utf8');
+  assert(codex.includes('[mcp_servers.mbo-graph]'), 'codex mcp section present');
+  assert(codex.includes('url = "http://127.0.0.1:55555/mcp"'), 'codex URL correct');
+  if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+  else process.env.CODEX_HOME = previousCodexHome;
 }
 
 // ─── Test 2: missing .mbo/config.json → no crash ─────────────────────────────
@@ -90,7 +101,7 @@ console.log('\nTest 2: missing .mbo/config.json → no crash, empty result');
 
   let threw = false;
   let result;
-  try { result = updateClientConfigs(root, 55555); }
+  try { result = updateClientConfigs(root, 55555, { detectCodex: false }); }
   catch (_) { threw = true; }
 
   assert(!threw,                    'no exception thrown');
@@ -104,7 +115,7 @@ console.log('\nTest 3: empty mcpClients array → no crash, no writes');
   const root = makeProjectRoot('t3'); roots.push(root);
   writeMboConfig(root, { mcpClients: [] });
 
-  const result = updateClientConfigs(root, 55555);
+  const result = updateClientConfigs(root, 55555, { detectCodex: false });
 
   assert(result.written.length === 0, 'nothing written');
   assert(result.errors.length === 0,  'no errors');
@@ -119,7 +130,7 @@ console.log('\nTest 4: missing config directory → created automatically');
   });
 
   assert(!fs.existsSync(path.join(root, '.mcp.json')), 'file does not exist before');
-  updateClientConfigs(root, 55555);
+  updateClientConfigs(root, 55555, { detectCodex: false });
   assert(fs.existsSync(path.join(root, '.mcp.json')), 'file exists after');
 }
 
@@ -132,9 +143,9 @@ console.log('\nTest 5: invalid port → skipped gracefully');
   });
 
   const logs = [];
-  const r0 = updateClientConfigs(root, 0,    { log: (m) => logs.push(m) });
-  const rN = updateClientConfigs(root, null,  { log: (m) => logs.push(m) });
-  const rS = updateClientConfigs(root, 'abc', { log: (m) => logs.push(m) });
+  const r0 = updateClientConfigs(root, 0,    { log: (m) => logs.push(m), detectCodex: false });
+  const rN = updateClientConfigs(root, null,  { log: (m) => logs.push(m), detectCodex: false });
+  const rS = updateClientConfigs(root, 'abc', { log: (m) => logs.push(m), detectCodex: false });
 
   assert(r0.written.length === 0, 'port 0 → nothing written');
   assert(rN.written.length === 0, 'port null → nothing written');
@@ -154,7 +165,7 @@ console.log('\nTest 6: unwritable path → error reported, no crash');
 
   let threw = false;
   let result;
-  try { result = updateClientConfigs(root, 55555, { log: () => {} }); }
+  try { result = updateClientConfigs(root, 55555, { log: () => {}, detectCodex: false }); }
   catch (_) { threw = true; }
 
   assert(!threw,                      'no exception thrown');
@@ -165,21 +176,46 @@ console.log('\nTest 6: unwritable path → error reported, no crash');
 // ─── Test 7: buildClientRegistry — with gemini detected ──────────────────────
 console.log('\nTest 7: buildClientRegistry with gemini CLI detected');
 {
-  const clients = buildClientRegistry({ geminiCLI: true, claudeCLI: true });
+  const clients = buildClientRegistry({ geminiCLI: true, claudeCLI: true, codexCLI: true });
 
   assert(clients.some(c => c.name === 'claude' && c.configPath === '.mcp.json'),
     'claude entry present');
   assert(clients.some(c => c.name === 'gemini' && c.configPath === '.gemini/settings.json'),
     'gemini entry present when geminiCLI=true');
+  assert(clients.some(c => c.name === 'codex' && c.configPath === '$CODEX_HOME/config.toml'),
+    'codex entry present when codexCLI=true');
 }
 
 // ─── Test 8: buildClientRegistry — without gemini ────────────────────────────
 console.log('\nTest 8: buildClientRegistry without gemini CLI');
 {
-  const clients = buildClientRegistry({ geminiCLI: false, claudeCLI: false });
+  const clients = buildClientRegistry({ geminiCLI: false, claudeCLI: false, codexCLI: false });
 
   assert(clients.some(c => c.name === 'claude'), 'claude always registered');
   assert(!clients.some(c => c.name === 'gemini'), 'gemini not registered when absent');
+  assert(!clients.some(c => c.name === 'codex'), 'codex not registered when absent');
+}
+
+// ─── Test 12: codex merge preserves existing config and updates URL ──────────
+console.log('\nTest 12: codex merge preserves existing config and refreshes URL');
+{
+  const existing = [
+    'model_provider = "openrouter"',
+    'model = "gpt-5.4"',
+    '',
+    '[mcp_servers.other]',
+    'url = "http://127.0.0.1:11111/mcp"',
+    '',
+    '[mcp_servers.mbo-graph]',
+    'url = "http://127.0.0.1:22222/mcp"',
+    ''
+  ].join('\n');
+
+  const merged = mergeCodexConfig(existing, 33333);
+  assert(merged.includes('model_provider = "openrouter"'), 'existing codex config preserved');
+  assert(merged.includes('[mcp_servers.other]'), 'other mcp sections preserved');
+  assert(merged.includes('url = "http://127.0.0.1:33333/mcp"'), 'codex MCP URL refreshed');
+  assert(!merged.includes('url = "http://127.0.0.1:22222/mcp"'), 'old codex MCP URL replaced');
 }
 
 // ─── Test 9: overwrite existing file with new port ───────────────────────────
@@ -190,11 +226,11 @@ console.log('\nTest 9: existing file gets overwritten with new port');
     mcpClients: [{ name: 'claude', configPath: '.mcp.json' }]
   });
 
-  updateClientConfigs(root, 11111);
+  updateClientConfigs(root, 11111, { detectCodex: false });
   const before = JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'));
   assert(before.mcpServers['mbo-graph'].url.includes('11111'), 'first port written');
 
-  updateClientConfigs(root, 22222);
+  updateClientConfigs(root, 22222, { detectCodex: false });
   const after = JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'));
   assert(after.mcpServers['mbo-graph'].url.includes('22222'), 'second port overwrites first');
   assert(!after.mcpServers['mbo-graph'].url.includes('11111'), 'old port gone');
@@ -224,7 +260,7 @@ console.log('\nTest 11: written file is valid JSON with trailing newline');
   writeMboConfig(root, {
     mcpClients: [{ name: 'claude', configPath: '.mcp.json' }]
   });
-  updateClientConfigs(root, 33333);
+  updateClientConfigs(root, 33333, { detectCodex: false });
 
   const raw = fs.readFileSync(path.join(root, '.mcp.json'), 'utf8');
   assert(raw.endsWith('\n'), 'file ends with newline');

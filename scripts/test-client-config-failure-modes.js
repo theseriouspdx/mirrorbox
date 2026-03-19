@@ -75,7 +75,7 @@ console.log('\nFM-01: mcpClients entry missing `name` field');
   const root = makeRoot('fm01');
   writeMboConfig(root, { mcpClients: [{ configPath: '.mcp.json' }] });
   let threw = false, result;
-  try { result = updateClientConfigs(root, 9001, silent); } catch(_) { threw = true; }
+  try { result = updateClientConfigs(root, 9001, { ...silent, detectCodex: false }); } catch(_) { threw = true; }
   assert(!threw, 'no exception');
   // Entry filtered out by readRegistry (name not a string) → nothing written
   assert(result.written.length === 0, 'nothing written for invalid entry');
@@ -87,7 +87,7 @@ console.log('\nFM-02: mcpClients entry missing `configPath` field');
   const root = makeRoot('fm02');
   writeMboConfig(root, { mcpClients: [{ name: 'claude' }] });
   let threw = false, result;
-  try { result = updateClientConfigs(root, 9001, silent); } catch(_) { threw = true; }
+  try { result = updateClientConfigs(root, 9001, { ...silent, detectCodex: false }); } catch(_) { threw = true; }
   assert(!threw, 'no exception');
   assert(result.written.length === 0, 'nothing written for invalid entry');
 }
@@ -98,7 +98,7 @@ console.log('\nFM-03: mcpClients entry is null');
   const root = makeRoot('fm03');
   writeMboConfig(root, { mcpClients: [null, { name: 'claude', configPath: '.mcp.json' }] });
   let threw = false, result;
-  try { result = updateClientConfigs(root, 9001, silent); } catch(_) { threw = true; }
+  try { result = updateClientConfigs(root, 9001, { ...silent, detectCodex: false }); } catch(_) { threw = true; }
   assert(!threw, 'no exception');
   assert(result.written.includes('.mcp.json'), 'valid entry still written despite null sibling');
 }
@@ -110,7 +110,7 @@ console.log('\nFM-04: mcpClients is not an array');
     const root = makeRoot(`fm04-${label}`);
     writeMboConfig(root, { mcpClients: val });
     let threw = false, result;
-    try { result = updateClientConfigs(root, 9001, silent); } catch(_) { threw = true; }
+    try { result = updateClientConfigs(root, 9001, { ...silent, detectCodex: false }); } catch(_) { threw = true; }
     assert(!threw, `no exception when mcpClients=${label}`);
     assert(result.written.length === 0, `nothing written when mcpClients=${label}`);
   }
@@ -123,7 +123,7 @@ console.log('\nFM-05: .mbo/config.json is a directory');
   const mboDir = path.join(root, '.mbo');
   fs.mkdirSync(path.join(mboDir, 'config.json'), { recursive: true }); // dir, not file
   let threw = false, result;
-  try { result = updateClientConfigs(root, 9001, silent); } catch(_) { threw = true; }
+  try { result = updateClientConfigs(root, 9001, { ...silent, detectCodex: false }); } catch(_) { threw = true; }
   assert(!threw, 'no exception when config.json is a directory');
   assert(!result || result.written.length === 0, 'nothing written');
 }
@@ -136,7 +136,7 @@ console.log('\nFM-06: .mbo/config.json is zero-byte');
   fs.mkdirSync(mboDir, { recursive: true });
   fs.writeFileSync(path.join(mboDir, 'config.json'), '');
   let threw = false, result;
-  try { result = updateClientConfigs(root, 9001, silent); } catch(_) { threw = true; }
+  try { result = updateClientConfigs(root, 9001, { ...silent, detectCodex: false }); } catch(_) { threw = true; }
   assert(!threw, 'no exception on zero-byte config');
   assert(result.written.length === 0, 'nothing written');
 }
@@ -147,7 +147,7 @@ console.log('\nFM-07: port is negative');
   const root = makeRoot('fm07');
   writeMboConfig(root, { mcpClients: [{ name: 'claude', configPath: '.mcp.json' }] });
   let result;
-  try { result = updateClientConfigs(root, -1, silent); } catch(_) {}
+  try { result = updateClientConfigs(root, -1, { ...silent, detectCodex: false }); } catch(_) {}
   assert(!result || result.written.length === 0, 'nothing written for negative port');
 }
 
@@ -158,7 +158,7 @@ console.log('\nFM-08: port is a float');
   writeMboConfig(root, { mcpClients: [{ name: 'claude', configPath: '.mcp.json' }] });
   // Float is technically a valid number > 0 — it'll write (edge case, not a blocker)
   let threw = false;
-  try { updateClientConfigs(root, 9001.5, silent); } catch(_) { threw = true; }
+  try { updateClientConfigs(root, 9001.5, { ...silent, detectCodex: false }); } catch(_) { threw = true; }
   assert(!threw, 'no exception for float port');
 }
 
@@ -169,8 +169,8 @@ console.log('\nFM-09: port is Infinity / NaN');
   writeMboConfig(root, { mcpClients: [{ name: 'claude', configPath: '.mcp.json' }] });
   let r1, r2, threw = false;
   try {
-    r1 = updateClientConfigs(root, Infinity, silent);
-    r2 = updateClientConfigs(root, NaN,      silent);
+    r1 = updateClientConfigs(root, Infinity, { ...silent, detectCodex: false });
+    r2 = updateClientConfigs(root, NaN,      { ...silent, detectCodex: false });
   } catch(_) { threw = true; }
   assert(!threw, 'no exception for Infinity/NaN port');
   // Infinity is > 0 so may write — but NaN fails the > 0 check
@@ -181,7 +181,7 @@ console.log('\nFM-09: port is Infinity / NaN');
 console.log('\nFM-10: projectRoot is undefined');
 {
   let threw = false;
-  try { updateClientConfigs(undefined, 9001, silent); } catch(_) { threw = true; }
+  try { updateClientConfigs(undefined, 9001, { ...silent, detectCodex: false }); } catch(_) { threw = true; }
   // Should not propagate to caller — internal error, caught
   assert(!threw, 'no unhandled exception for undefined projectRoot');
 }
@@ -191,7 +191,7 @@ console.log('\nFM-11: projectRoot does not exist');
 {
   const root = '/tmp/mbo-fm11-does-not-exist-' + Date.now();
   let threw = false, result;
-  try { result = updateClientConfigs(root, 9001, silent); } catch(_) { threw = true; }
+  try { result = updateClientConfigs(root, 9001, { ...silent, detectCodex: false }); } catch(_) { threw = true; }
   assert(!threw, 'no exception for nonexistent root');
   assert(!result || result.written.length === 0, 'nothing written');
 }
@@ -208,7 +208,7 @@ console.log('\nFM-12: first client fails, second still written');
       { name: 'claude', configPath: '.mcp.json'           }
     ]
   });
-  const result = updateClientConfigs(root, 9001, silent);
+  const result = updateClientConfigs(root, 9001, { ...silent, detectCodex: false });
   assert(result.errors.includes('blocker/nested.json'), 'bad path reported as error');
   assert(result.written.includes('.mcp.json'),           'claude still written despite previous failure');
 }
@@ -221,7 +221,7 @@ console.log('\nFM-13: configPath with ../ traversal stays inside path.join resul
     mcpClients: [{ name: 'escape', configPath: '../../tmp/evil.json' }]
   });
   const logs = [];
-  const result = updateClientConfigs(root, 9001, { log: m => logs.push(m) });
+  const result = updateClientConfigs(root, 9001, { log: m => logs.push(m), detectCodex: false });
   // path.join resolves but stays under OS tmp — this is a security note, not a crash
   // The key is: no exception thrown and result is predictable
   assert(result !== undefined, 'returns a result (no crash)');
@@ -246,6 +246,7 @@ console.log('\nFM-14/15/16: buildClientRegistry with null/undefined/empty provid
   assert(r2.some(c => c.name === 'claude'), 'undefined → claude always present');
   assert(Array.isArray(r3),              'empty {} → returns array');
   assert(!r3.some(c => c.name === 'gemini'), 'empty {} → no gemini without detection');
+  assert(!r3.some(c => c.name === 'codex'), 'empty {} → no codex without detection');
 }
 
 // ─── FM-17: readRegistry filters entries with missing fields ─────────────────
@@ -274,11 +275,11 @@ console.log('\nFM-18: config deleted between readRegistry and write — no crash
   // calls with a config that disappears between them are both safe.
   const root = makeRoot('fm18');
   writeMboConfig(root, { mcpClients: [{ name: 'claude', configPath: '.mcp.json' }] });
-  const r1 = updateClientConfigs(root, 1111, silent);
+  const r1 = updateClientConfigs(root, 1111, { ...silent, detectCodex: false });
   // Delete the config
   fs.unlinkSync(path.join(root, '.mbo', 'config.json'));
   let threw = false, r2;
-  try { r2 = updateClientConfigs(root, 2222, silent); } catch(_) { threw = true; }
+  try { r2 = updateClientConfigs(root, 2222, { ...silent, detectCodex: false }); } catch(_) { threw = true; }
   assert(!threw, 'no crash when config deleted between calls');
   assert(r2.written.length === 0, 'nothing written when config gone');
   // First write should still exist with the original port
@@ -294,8 +295,8 @@ console.log('\nFM-19: concurrent calls — both complete without exception');
   let threw = false;
   try {
     // Fire both synchronously (Node.js is single-threaded so no true race, but tests the path)
-    const r1 = updateClientConfigs(root, 3333, silent);
-    const r2 = updateClientConfigs(root, 4444, silent);
+    const r1 = updateClientConfigs(root, 3333, { ...silent, detectCodex: false });
+    const r2 = updateClientConfigs(root, 4444, { ...silent, detectCodex: false });
     assert(r1.written.length > 0, 'first call wrote');
     assert(r2.written.length > 0, 'second call wrote');
   } catch(_) { threw = true; }
@@ -319,7 +320,7 @@ console.log('\nFM-20: absolute configPath — path.join behavior');
   // Key: doesn't crash
   writeMboConfig(root, { mcpClients: [{ name: 't', configPath: '/tmp/mbo-fm20-test.json' }] });
   let threw = false;
-  try { updateClientConfigs(root, 9001, silent); } catch(_) { threw = true; }
+  try { updateClientConfigs(root, 9001, { ...silent, detectCodex: false }); } catch(_) { threw = true; }
   assert(!threw, 'no crash for absolute-looking configPath');
   // Cleanup temp file if written
   try { fs.unlinkSync(path.join(root, '/tmp/mbo-fm20-test.json')); } catch(_) {}
@@ -345,11 +346,11 @@ console.log('\nFM-22: port 65535 (max valid) and port 1 (min) write correctly');
 {
   const root = makeRoot('fm22');
   writeMboConfig(root, { mcpClients: [{ name: 'claude', configPath: '.mcp.json' }] });
-  updateClientConfigs(root, 65535, silent);
+  updateClientConfigs(root, 65535, { ...silent, detectCodex: false });
   const c1 = JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'));
   assert(c1.mcpServers['mbo-graph'].url.includes('65535'), 'port 65535 written');
 
-  updateClientConfigs(root, 1, silent);
+  updateClientConfigs(root, 1, { ...silent, detectCodex: false });
   const c2 = JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'));
   assert(c2.mcpServers['mbo-graph'].url.includes(':1/'), 'port 1 written');
 }
@@ -394,6 +395,29 @@ console.log('\nFM-26: setup.js no longer contains hardcoded client list');
   assert(!setupSrc.includes("relPath: '.gemini/settings'"),  'no hardcoded gemini relPath');
   assert(setupSrc.includes('update-client-configs'),         'imports shared util');
   assert(setupSrc.includes('buildClientRegistry'),           'uses buildClientRegistry');
+}
+
+// ─── FM-27: codex config merge preserves unrelated settings ─────────────────
+console.log('\nFM-27: codex config merge preserves unrelated settings');
+{
+  const { mergeCodexConfig } = require('../src/utils/update-client-configs');
+  const merged = mergeCodexConfig(
+    [
+      'model_provider = "openrouter"',
+      '',
+      '[mcp_servers.other]',
+      'url = "http://127.0.0.1:1234/mcp"',
+      '',
+      '[mcp_servers.mbo-graph]',
+      'url = "http://127.0.0.1:1111/mcp"',
+      ''
+    ].join('\n'),
+    2222
+  );
+  assert(merged.includes('model_provider = "openrouter"'), 'top-level setting preserved');
+  assert(merged.includes('[mcp_servers.other]'), 'other MCP server section preserved');
+  assert(merged.includes('url = "http://127.0.0.1:2222/mcp"'), 'mbo-graph URL updated');
+  assert(!merged.includes('url = "http://127.0.0.1:1111/mcp"'), 'old mbo-graph URL removed');
 }
 
 // ─── Cleanup ──────────────────────────────────────────────────────────────────

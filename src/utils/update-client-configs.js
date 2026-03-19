@@ -13,13 +13,20 @@
  * Schema (per entry in mcpClients):
  *   { "name": "claude", "configPath": ".mcp.json" }
  *   { "name": "gemini", "configPath": ".gemini/settings.json" }
+ *   { "name": "codex", "configPath": "$CODEX_HOME/config.toml" }  // defaults to ~/.codex/config.toml
  *
- * All configPaths are relative to projectRoot. Never global. Never cross-project.
+ * Non-Codex configPaths are relative to projectRoot. Codex resolves via CODEX_HOME
+ * (or ~/.codex if unset) because the Codex CLI reads a global config file.
  * Server name is always "mbo-graph". Full overwrite — one daemon per project.
  */
 
 const fs   = require('fs');
+const os   = require('os');
 const path = require('path');
+
+function tomlEscape(value) {
+  return String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+}
 
 /**
  * Build the MCP config payload for a given port.
@@ -34,6 +41,59 @@ function buildPayload(port) {
       }
     }
   }, null, 2) + '\n';
+}
+
+function codexConfigPath() {
+  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+  return path.join(codexHome, 'config.toml');
+}
+
+function codexCliExists() {
+  const pathParts = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  for (const base of pathParts) {
+    try {
+      const candidate = path.join(base, 'codex');
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return true;
+    } catch (_) {}
+  }
+  return false;
+}
+
+function buildCodexPayload(port) {
+  const escapedUrl = tomlEscape(`http://127.0.0.1:${port}/mcp`);
+  return `[mcp_servers.mbo-graph]\nurl = "${escapedUrl}"\n`;
+}
+
+function mergeCodexConfig(existingRaw, port) {
+  const payload = buildCodexPayload(port);
+  if (!existingRaw || !existingRaw.trim()) return payload;
+
+  const lines = existingRaw.replace(/\r\n/g, '\n').split('\n');
+  const sectionHeader = '[mcp_servers.mbo-graph]';
+  const sectionUrl = `url = "${tomlEscape(`http://127.0.0.1:${port}/mcp`)}"`;
+  const merged = [];
+  let replaced = false;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line.trim() === sectionHeader) {
+      merged.push(sectionHeader, sectionUrl);
+      replaced = true;
+      i += 1;
+      while (i < lines.length && !/^\[[^\n]+\]$/.test(lines[i].trim())) i += 1;
+      i -= 1;
+      continue;
+    }
+    merged.push(line);
+  }
+
+  if (!replaced) {
+    if (merged.length > 0 && merged[merged.length - 1] !== '') merged.push('');
+    merged.push(sectionHeader, sectionUrl);
+  }
+
+  return `${merged.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\n+$/g, '')}\n`;
 }
 
 /**
@@ -66,6 +126,7 @@ function readRegistry(projectRoot) {
  */
 function updateClientConfigs(projectRoot, port, opts = {}) {
   const log = opts.log || ((msg) => console.error(msg));
+  const detectCodex = opts.detectCodex !== false;
   const result = { written: [], skipped: [], errors: [] };
 
   if (!projectRoot || typeof projectRoot !== 'string') {
@@ -81,6 +142,9 @@ function updateClientConfigs(projectRoot, port, opts = {}) {
   }
 
   const clients = readRegistry(projectRoot);
+  if (detectCodex && !clients.some((client) => client && client.name === 'codex') && codexCliExists()) {
+    clients.push({ name: 'codex', configPath: '$CODEX_HOME/config.toml' });
+  }
 
   if (clients.length === 0) {
     log(`[update-client-configs] No mcpClients registered in .mbo/config.json — skipping`);
@@ -90,12 +154,20 @@ function updateClientConfigs(projectRoot, port, opts = {}) {
   const payload = buildPayload(port);
 
   for (const client of clients) {
-    const fullPath = path.join(projectRoot, client.configPath);
+    const fullPath = client.name === 'codex'
+      ? codexConfigPath()
+      : path.join(projectRoot, client.configPath);
     try {
       const dir = path.dirname(fullPath);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(fullPath, payload);
-      log(`[update-client-configs] ${client.name}: ${client.configPath} → port ${port}`);
+      if (client.name === 'codex') {
+        const existing = fs.existsSync(fullPath) ? fs.readFileSync(fullPath, 'utf8') : '';
+        fs.writeFileSync(fullPath, mergeCodexConfig(existing, port));
+      } else {
+        fs.writeFileSync(fullPath, payload);
+      }
+      const targetPath = client.name === 'codex' ? fullPath : client.configPath;
+      log(`[update-client-configs] ${client.name}: ${targetPath} → port ${port}`);
       result.written.push(client.configPath);
     } catch (err) {
       log(`[update-client-configs] [WARN] ${client.name}: failed to write ${client.configPath}: ${err.message}`);
@@ -120,8 +192,10 @@ function buildClientRegistry(providers) {
   if (providers && providers.geminiCLI) {
     clients.push({ name: 'gemini', configPath: '.gemini/settings.json' });
   }
-  // Codex: TBD — add entry here when configPath is known
+  if (providers && providers.codexCLI) {
+    clients.push({ name: 'codex', configPath: '$CODEX_HOME/config.toml' });
+  }
   return clients;
 }
 
-module.exports = { updateClientConfigs, buildClientRegistry, readRegistry };
+module.exports = { updateClientConfigs, buildClientRegistry, readRegistry, mergeCodexConfig, codexConfigPath };
