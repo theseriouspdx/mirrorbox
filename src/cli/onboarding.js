@@ -345,41 +345,44 @@ ${transcript}`, { priorData });
   }
 }
 
-async function checkOnboarding(projectRoot) {
+async function checkOnboarding(projectRoot, options = {}) {
+  const autoRun = options.autoRun !== false;
+  const returnStatus = !!options.returnStatus;
   const onboardingPath = path.join(projectRoot, '.mbo', 'onboarding.json');
-  
+
+  let needsOnboarding = true;
+  let reason = 'missing_profile';
+  let profile = null;
+
   if (fs.existsSync(onboardingPath)) {
-    // BUG-086: Validate project root match
     try {
-      const profile = JSON.parse(fs.readFileSync(onboardingPath, 'utf8'));
+      profile = JSON.parse(fs.readFileSync(onboardingPath, 'utf8'));
       const canonicalCwd = fs.realpathSync(projectRoot);
       const canonicalStored = profile.projectRoot ? fs.realpathSync(profile.projectRoot) : null;
 
-      if (canonicalCwd !== canonicalStored) {
-        console.warn(`\n[SYSTEM] Project root mismatch detected (stored: ${profile.projectRoot || 'unknown — profile predates root-tracking'}). Triggering re-onboarding.`);
-        if (isTTY()) {
-          await runOnboarding(projectRoot);
-          return true;
-        }
+      if (canonicalCwd === canonicalStored) {
+        needsOnboarding = false;
+        reason = null;
       } else {
-        return false; // Valid match, skip
+        reason = 'profile_drift';
+        console.warn(`\n[SYSTEM] Project root mismatch detected (stored: ${profile.projectRoot || 'unknown — profile predates root-tracking'}). Triggering re-onboarding.`);
       }
-    } catch (e) {
-      // Corrupt or pre-root profile
-      if (isTTY()) {
-        await runOnboarding(projectRoot);
-        return true;
-      }
+    } catch (_e) {
+      reason = 'profile_incomplete_or_stale';
     }
   }
-  
-  if (isTTY()) {
-    await runOnboarding(projectRoot);
-    return true;
-  }
-  return false;
-}
 
+  if (needsOnboarding && autoRun && isTTY()) {
+    await runOnboarding(projectRoot, profile);
+    needsOnboarding = false;
+    reason = null;
+  }
+
+  if (returnStatus) {
+    return { needsOnboarding, reason, profile };
+  }
+  return needsOnboarding;
+}
 module.exports = {
   checkOnboarding,
   runOnboarding,

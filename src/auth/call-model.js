@@ -248,6 +248,10 @@ function getOpenRouterKey() {
 function dispatchCLI(config, systemPrompt, userPrompt, signal = null, options = {}) {
   return new Promise((resolve, reject) => {
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+
+    if (!config.binary) {
+      return reject(new Error(`CLI provider missing binary for model ${config.model || 'unknown'}`));
+    }
     
     const proc = spawn(config.binary, ['-p', fullPrompt], {
       stdio: ['ignore', 'pipe', 'pipe']

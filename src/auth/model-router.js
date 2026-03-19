@@ -5,6 +5,77 @@ const { loadOperatorConfig } = require('./config-loader');
 const fs = require('fs');
 const path = require('path');
 
+function normalizeProvider(rawProvider) {
+  const p = String(rawProvider || '').trim().toLowerCase();
+  if (!p) return null;
+  if (p === 'cli' || p === 'claude-cli' || p === 'gemini-cli' || p === 'codex-cli') return 'cli';
+  if (p === 'google' || p === 'openrouter' || p === 'anthropic') return 'openrouter';
+  if (p === 'ollama' || p === 'local') return 'local';
+  return p;
+}
+
+function normalizeConfiguredEntry(entry = {}) {
+  const normalized = { ...entry };
+  const provider = normalizeProvider(entry.provider);
+  if (provider) normalized.provider = provider;
+
+  // If a CLI-flavored provider was configured, infer the proper binary/model mapping.
+  const sourceProvider = String(entry.provider || '').trim().toLowerCase();
+  if (provider === 'cli' && !normalized.binary) {
+    if (sourceProvider === 'claude-cli') {
+      normalized.binary = 'claude';
+      normalized.model = normalized.model || 'claude';
+    } else if (sourceProvider === 'gemini-cli') {
+      normalized.binary = 'gemini';
+      normalized.model = normalized.model || 'gemini';
+    } else if (sourceProvider === 'codex-cli') {
+      normalized.binary = 'codex';
+      normalized.model = normalized.model || 'codex';
+    }
+  }
+
+  // Legacy setup configs may write provider=google/anthropic with non-OpenRouter model names.
+  // Keep provider as openrouter but coerce model to a valid default route.
+  if (provider === 'openrouter' && typeof normalized.model === 'string') {
+    const m = normalized.model.trim();
+    if (m === 'gemini-2.5-flash') normalized.model = 'google/gemini-2.0-flash-001';
+    if (m === 'gemini-2.5-pro') normalized.model = 'google/gemini-pro-1.5';
+    if (m.startsWith('claude-')) normalized.model = 'anthropic/claude-3.7-sonnet';
+  }
+
+  return normalized;
+}
+
+function harmonizeConfiguredEntry(entry, cli, local, or) {
+  const normalized = { ...entry };
+
+  if (normalized.provider === 'cli' && !normalized.binary) {
+    const model = String(normalized.model || '').toLowerCase();
+    if (model.includes('claude') && cli.claude.authenticated) normalized.binary = cli.claude.binary;
+    else if (model.includes('gemini') && cli.gemini.authenticated) normalized.binary = cli.gemini.binary;
+    else if (model.includes('codex') && cli.openai.authenticated) normalized.binary = cli.openai.binary;
+  }
+
+  if (normalized.provider === 'local' && !normalized.url && local.ollama.detected) {
+    normalized.url = local.ollama.url;
+  }
+
+  if (normalized.provider === 'openrouter' && !or.detected) {
+    const model = String(normalized.model || '').toLowerCase();
+    if (model.includes('claude') && cli.claude.authenticated) {
+      return { provider: 'cli', model: 'claude', binary: cli.claude.binary };
+    }
+    if (model.includes('gemini') && cli.gemini.authenticated) {
+      return { provider: 'cli', model: 'gemini', binary: cli.gemini.binary };
+    }
+    if (local.ollama.detected) {
+      return { provider: 'local', model: 'ollama', url: local.ollama.url };
+    }
+  }
+
+  return normalized;
+}
+
 // Section 33.6: Validate streaming config at startup to catch misconfiguration early.
 function validateStreamingConfig(streaming) {
   if (typeof streaming !== 'object' || streaming === null)
@@ -79,7 +150,7 @@ async function routeModels(classification = {}, blastRadius = []) {
     }
     roles.forEach(role => {
       if (opConfig[role]) {
-        routingMap[role] = { ...opConfig[role] };
+        routingMap[role] = harmonizeConfiguredEntry(normalizeConfiguredEntry(opConfig[role]), cli, local, or);
         // Budget override from config (Section 35.5)
         if (opConfig[role].budget) {
           routingMap[role].budget = opConfig[role].budget;

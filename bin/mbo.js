@@ -455,7 +455,10 @@ function reapStaleHelpers(packageRoot) {
   let table = '';
   let parser = null;
   try {
-    table = execSync('ps -axo pid=,etimes=,command=', { encoding: 'utf8' });
+    table = execSync('ps -axo pid=,etimes=,command=', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    });
     parser = (line) => {
       const m = line.match(/^(\d+)\s+(\d+)\s+(.*)$/);
       if (!m) return null;

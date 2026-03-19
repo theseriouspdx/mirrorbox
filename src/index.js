@@ -171,6 +171,18 @@ async function main() {
     rl.prompt(true);
   };
 
+  // Runtime continuity: emit periodic alive/progress updates during long model work.
+  const aliveFrames = ['|', '/', '-', '\\'];
+  let aliveTick = 0;
+  const aliveTimer = setInterval(() => {
+    if (!operator._pipelineRunning) return;
+    const stage = operator.stateSummary.currentStage || 'working';
+    const task = operator.stateSummary.currentTask || 'processing request';
+    const frame = aliveFrames[aliveTick % aliveFrames.length];
+    aliveTick += 1;
+    process.stdout.write(`\r[ALIVE ${frame}] ${stage}: ${String(task).slice(0, 88)}    `);
+  }, 1200);
+
   let _auditRunning = false;
 
   rl.on('line', (line) => {
@@ -261,6 +273,7 @@ async function main() {
   });
 
   rl.on('close', async () => {
+    clearInterval(aliveTimer);
     await operator.shutdown();
     relay.stop();
     process.exit(0);
