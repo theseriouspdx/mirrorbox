@@ -375,8 +375,11 @@ def handshake(cell_name: str, force: bool = False):
     DENY_SENTINEL.unlink(missing_ok=True)
     # Grant write access to the specific cell/path
     if cell_path.is_dir():
+        cell_path.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
         for item in cell_path.rglob("*"):
-            if item.is_file():
+            if item.is_dir():
+                item.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+            else:
                 item.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
     else:
         cell_path.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
