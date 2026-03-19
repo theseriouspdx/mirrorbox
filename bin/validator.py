@@ -14,6 +14,28 @@ PROJECTTRACKING = MBO_ROOT / ".dev" / "governance" / "projecttracking.md"
 BUGS = MBO_ROOT / ".dev" / "governance" / "BUGS.md"
 
 
+PORT_HARDCODE_CHECKS = [
+    (MBO_ROOT / "bin", ["*.py", "*.js", "*.sh"]),
+    (MBO_ROOT / "src", ["*.py", "*.js", "*.sh"]),
+    (MBO_ROOT / "scripts", ["*.py", "*.js", "*.sh", "*.template", "*.plist"]),
+    (MBO_ROOT / "README.md", None),
+]
+
+PORT_ALLOW_PATTERNS = [
+    re.compile(r"localhost:11434"),
+    re.compile(r"localhost:1234"),
+    re.compile(r"\bport\s*:\s*443\b"),
+    re.compile(r"\bport\s*\|\|\s*11434\b"),
+]
+
+PORT_BAN_PATTERNS = [
+    re.compile(r"127\.0\.0\.1:(\d{2,5})"),
+    re.compile(r"localhost:(\d{2,5})"),
+    re.compile(r"--port=(\d{2,5})"),
+    re.compile(r"\b(?:MBO_PORT|MBO_PORT_ALPHA)\b\s*=\s*\S*?(\d{2,5})\b"),
+]
+
+
 @dataclass
 class BudgetConfig:
     loc: int = 250
@@ -185,6 +207,50 @@ def validate_workflow_consistency():
     return errs
 
 
+def _is_allowed_port_line(line):
+    return any(p.search(line) for p in PORT_ALLOW_PATTERNS)
+
+
+def validate_no_hardcoded_mcp_ports():
+    errs = []
+
+    def check_file(fpath):
+        try:
+            text = fpath.read_text()
+        except Exception:
+            return
+        for idx, line in enumerate(text.splitlines(), start=1):
+            if _is_allowed_port_line(line):
+                continue
+            for pat in PORT_BAN_PATTERNS:
+                m = pat.search(line)
+                if not m:
+                    continue
+                groups = [g for g in m.groups() if g]
+                port = groups[-1] if groups else ""
+                if not port:
+                    continue
+                if port in {"80", "443", "11434", "1234"}:
+                    continue
+                errs.append(f"{fpath}:{idx}: hardcoded port literal '{port}'")
+                break
+
+    for target, globs in PORT_HARDCODE_CHECKS:
+        if not target.exists():
+            continue
+        if target.is_file():
+            check_file(target)
+            continue
+        for pattern in globs:
+            for fpath in target.rglob(pattern):
+                fstr = str(fpath)
+                if '/scripts/test-' in fstr or '/scripts/test_' in fstr or '/backups/' in fstr or '/.dev/bak/' in fstr:
+                    continue
+                check_file(fpath)
+
+    return errs
+
+
 def main():
     cfg = load_config()
     whitelist = None
@@ -205,6 +271,10 @@ def main():
     workflow_errors = validate_workflow_consistency()
     if workflow_errors:
         all_violations["workflow"] = workflow_errors
+
+    port_errors = validate_no_hardcoded_mcp_ports()
+    if port_errors:
+        all_violations["ports"] = port_errors
 
     if all_violations:
         for fpath, violations in all_violations.items():

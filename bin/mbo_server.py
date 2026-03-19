@@ -4,8 +4,20 @@ from pathlib import Path
 
 MIRROR_ROOT = Path(__file__).parent.parent
 ALPHA_ROOT = Path(os.environ.get("MBO_ALPHA_ROOT", str(MIRROR_ROOT.parent / "MBO_Alpha")))
-PORT_MIRROR = int(os.environ.get("MBO_PORT", 3737))
-PORT_SUBJECT = int(os.environ.get("MBO_PORT_ALPHA", 3738))
+def _require_port(env_name):
+    raw = os.environ.get(env_name)
+    if raw is None or str(raw).strip() == "":
+        print(f"[MBO] ERROR: Required env var {env_name} is not set.")
+        print("[MBO] HINT: Do not use hardcoded MCP ports. Set a runtime port explicitly.")
+        sys.exit(1)
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"[MBO] ERROR: Invalid integer for {env_name}: {raw}")
+        sys.exit(1)
+
+PORT_MIRROR = _require_port("MBO_PORT")
+PORT_SUBJECT = _require_port("MBO_PORT_ALPHA")
 
 def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
