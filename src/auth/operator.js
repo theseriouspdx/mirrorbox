@@ -998,10 +998,10 @@ User request: "${userMessage}"`;
       tier = 3;
     } else if (uniqueBlast.length > 5 || classification.complexity === 2) {
       tier = 2;
-    } else if (uniqueBlast.length === 0 && classification.complexity === 1 && classification.route === 'inline') {
+    } else if (uniqueBlast.length === 0 && classification.complexity === 1 && (classification.route === 'inline' || classification.route === 'analysis')) {
       const safelist = this.getSafelist();
-      const allSafelisted = classification.files.every(f => safelist.includes(f));
-      const allExist = classification.files.every(f => this._fileExists(f));
+      const allSafelisted = (classification.files || []).every(f => safelist.includes(f));
+      const allExist = (classification.files || []).every(f => this._fileExists(f));
       if (allSafelisted && allExist) {
         tier = 0;
       } else {
@@ -1305,7 +1305,17 @@ The output will be used as the new system context.`;
 
     const routing = await this.determineRouting(classification);
     this.stateSummary.pendingDecision = { classification, routing };
-    this.stateSummary.worldId = classification.worldId || 'mirror';
+    
+    // BUG-156/158/163: Snapshot and Bypass
+    const lockedWorld = classification.worldId || 'mirror';
+    const lockedFiles = [...(classification.files || [])];
+    this.stateSummary.worldId = lockedWorld;
+
+    if (classification.route === 'analysis' && classification.risk === 'low' && lockedFiles.length === 0) {
+      const answer = await callModel('operator', `User is asking for information. Answer based on current state: ${userMessage}`, { classification }, this.getHardState());
+      return { status: 'ready', prompt: answer };
+    }
+
     this.stateSummary.executorLogs = null;
 
     // Invariant 13: Checkpoint before state snapshot
@@ -1425,11 +1435,22 @@ The output will be used as the new system context.`;
     }
 
     const { classification, routing } = this.stateSummary.pendingDecision;
+    // BUG-158/163: Scope lock.
+    const locks = {
+      lockedWorld: this.stateSummary.worldId || 'mirror',
+      lockedFiles: [...(classification.files || [])]
+    };
     delete this.stateSummary.pendingDecision;
 
     try {
       // Stage 3: Planning
-      const planResult = await this.runStage3(classification, routing, [], this.stateSummary.executorLogs);
+      const planResult = await this.runStage3(classification, routing, [], this.stateSummary.executorLogs, locks);
+
+      // BUG-163: check filesToChange
+      if (locks.lockedFiles.length > 0 && (!planResult.plan || !planResult.plan.filesToChange || planResult.plan.filesToChange.length === 0)) {
+        throw new Error("[Operator] File scope lost during planning. Derivation returned empty FILES.");
+      }
+
       if (planResult.escalatedToHuman) {
         this.abortController = null;
         this._pipelineRunning = false;
@@ -1459,7 +1480,7 @@ The output will be used as the new system context.`;
       }
 
       // Stage 4: Code
-      const codeResult = await this.runStage4(agreedPlan, classification, routing);
+      const codeResult = await this.runStage4(agreedPlan, classification, routing, locks);
       
       // Stage 4.5: Virtual Dry Run (Placeholder for 0.8)
       const dryRun = await this.runStage4_5(codeResult.code);
@@ -1573,7 +1594,24 @@ The output will be used as the new system context.`;
 
     try {
       const response = await callModel('classifier', prompt, { classification, routing, context }, hardState, [], null, { ...options, expectJson: false });
-      const ledger = this._safeParseJSON(response, null, 'classifier');
+      
+      // BUG-159: Parse plain-English sections instead of forcing JSON.
+      const assumptionsRaw = this._extractSection(response, 'ASSUMPTIONS') || '';
+      const assumptions = assumptionsRaw.split('\n').filter(Boolean).map((line, idx) => {
+        const parts = line.split('|').map(p => p.trim());
+        return {
+          id: parts[0] || `A${idx+1}`,
+          category: parts[1] || 'Logic',
+          impact: parts[2] || 'Low',
+          statement: parts[3] || line,
+          autonomousDefault: parts[4] || 'Proceed.'
+        };
+      });
+      const ledger = {
+        assumptions,
+        blockers: (this._extractSection(response, 'BLOCKERS') || '').split('\n').filter(b => b && !/none/i.test(b)),
+        entropyScore: parseFloat(this._extractSection(response, 'ENTROPY SCORE') || '0')
+      };
 
       if (!ledger || !ledger.assumptions) {
         throw new Error("[Operator] Ledger generation failed or malformed.");
@@ -1665,14 +1703,19 @@ The output will be used as the new system context.`;
    * Section 15: Stage 3 — Independent Plan Derivation
    * Qualitative consensus based on Spec Adherence.
    */
-  async runStage3(classification, routing, pinnedContext = [], executorLogs = null) {
+  async runStage3(classification, routing, pinnedContext = [], executorLogs = null, locks = {}) {
+    const effectiveClassification = { 
+      ...classification, 
+      worldId: locks.lockedWorld || classification.worldId, 
+      files: locks.lockedFiles || classification.files 
+    };
     const options = { signal: this.abortController?.signal };
     this.stateSummary.currentStage = 'planning';
     const hardState = this.getHardState();
 
     // Task 1.1-H24: Tier 2/3 must trigger DID automatically.
     if (this.didOrchestrator.shouldRunDID(routing)) {
-      const didPackage = await this.didOrchestrator.run(classification, routing, hardState, options);
+      const didPackage = await this.didOrchestrator.run(effectiveClassification, routing, hardState, options);
 
       if (didPackage.did.verdict === 'needs_human') {
         return {
@@ -1771,13 +1814,19 @@ DIFF:
    * Section 15: Stage 4 — Code Derivation and Consensus
    * Milestone 0.7-03 & 0.7-04.
    */
-  async runStage4(plan, classification, routing) {
+  async runStage4(plan, classification, routing, locks = {}) {
+    const effectiveClassification = { 
+      ...classification, 
+      worldId: locks.lockedWorld || classification.worldId, 
+      files: locks.lockedFiles || classification.files 
+    };
     const options = { signal: this.abortController?.signal };
     this.stateSummary.currentStage = 'code_derivation';
     const hardState = this.getHardState();
+
     this.stateSummary.blockCounter = 0;
 
-    if (this._shouldUseWorkflowFallback(plan, classification)) {
+    if (this._shouldUseWorkflowFallback(plan, effectiveClassification)) {
       console.error('[Operator] Using workflow fallback code path for natural-language readiness cycle.');
       return {
         status: 'code_agreed',
@@ -1788,8 +1837,8 @@ DIFF:
 
     while (this.stateSummary.blockCounter < 3) {
       // Stage 4A: Architecture Planner
-      const plannerPrompt = `Write the implementation code for the agreed plan in plain English.\nPlan:\n${renderPlanAsText(plan)}\nTask: ${classification.rationale}\nFiles: ${classification.files.join(', ')}\n\nRespond in these sections:\nRATIONALE:\n<Why this implementation matches the plan>\n\nFILES:\n<One file path per line, or 'none'>\n\nDIFF:\n<Unified diff or code patch>\n\nINVARIANTS:\n<Constraints preserved>.`;
-      const codeA = await callModel('architecturePlanner', plannerPrompt, { plan, classification }, hardState, [], null, { ...options, expectJson: false });
+      const plannerPrompt = `Write the implementation code for the agreed plan in plain English.\nPlan:\n${renderPlanAsText(plan)}\nTask: ${effectiveClassification.rationale}\nFiles: ${effectiveClassification.files.join(', ')}\n\nRespond in these sections:\nRATIONALE:\n<Why this implementation matches the plan>\n\nFILES:\n<One file path per line, or 'none'>\n\nDIFF:\n<Unified diff or code patch>\n\nINVARIANTS:\n<Constraints preserved>.`;
+      const codeA = await callModel('architecturePlanner', plannerPrompt, { plan, classification: effectiveClassification }, hardState, [], null, { ...options, expectJson: false });
 
       // Invariant 7: Compute Planner hashes for blindness enforcement
       const plannerHashes = computeContentHashes(codeA);
@@ -1797,8 +1846,8 @@ DIFF:
       const allProtectedHashes = [...plannerHashes, ...planHashes];
 
       // Stage 4B: Adversarial Reviewer (blind)
-      const reviewerPrompt = `Independent Code Derivation (Blind). Derive your own plan and code independently in plain English.\nTask: ${classification.rationale}\n\nRespond in these sections:\nVERDICT:\n<GO if acceptable, otherwise NO with specific objections>\n\nINDEPENDENT CODE:\n<Your code or diff>\n\nCONCERNS:\n<Bulleted concerns, if any>.`;
-      const reviewerOutputRaw = await callModel('reviewer', reviewerPrompt, { classification }, hardState, allProtectedHashes, null, { ...options, expectJson: false });
+      const reviewerPrompt = `Independent Code Derivation (Blind). Derive your own plan and code independently in plain English.\nTask: ${effectiveClassification.rationale}\n\nRespond in these sections:\nVERDICT:\n<GO if acceptable, otherwise NO with specific objections>\n\nINDEPENDENT CODE:\n<Your code or diff>\n\nCONCERNS:\n<Bulleted concerns, if any>.`;
+      const reviewerOutputRaw = await callModel('reviewer', reviewerPrompt, { classification: effectiveClassification }, hardState, allProtectedHashes, null, { ...options, expectJson: false });
       const reviewerParsed = this._safeParseJSON(reviewerOutputRaw, null, 'reviewer');
       const reviewerOutput = (reviewerParsed && typeof reviewerParsed === 'object') ? reviewerParsed : {};
 

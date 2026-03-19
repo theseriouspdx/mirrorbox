@@ -181,7 +181,10 @@ async function main() {
     const task = operator.stateSummary.currentTask || 'processing request';
     const frame = aliveFrames[aliveTick % aliveFrames.length];
     aliveTick += 1;
-    process.stdout.write(`\r[ALIVE ${frame}] ${stage}: ${String(task).slice(0, 88)}    `);
+    // BUG-160: Clear line before writing to prevent label/value bleed.
+    readline.cursorTo(process.stdout, 0);
+    readline.clearLine(process.stdout, 0);
+    process.stdout.write(`[ALIVE ${frame}] ${stage}: ${String(task).slice(0, 80)}...`);
   }, 1200);
 
   let _auditRunning = false;

@@ -344,20 +344,22 @@ class DBManager {
     const actualCost = byModel.reduce((s, r) => s + r.actualCost, 0);
     const totalCalls = byModel.reduce((s, r) => s + r.calls, 0);
 
-    // Counterfactual: project the highest per-call rate across all calls.
-    let maxRatePerCall = 0;
+    // BUG-155: Project highest UNIT rate (USD/1k tokens) to avoid task-size bias.
+    let maxRatePer1k = 0;
     let maxRateModel   = 'unknown';
     for (const r of byModel) {
-      if (r.calls > 0) {
-        const rate = r.actualCost / r.calls;
-        if (rate > maxRatePerCall) {
-          maxRatePerCall = rate;
+      const totalTokens = r.totalInput + r.totalOutput;
+      if (totalTokens > 0) {
+        const rate = (r.actualCost / totalTokens) * 1000;
+        if (rate > maxRatePer1k) {
+          maxRatePer1k = rate;
           maxRateModel   = r.model;
         }
       }
     }
 
-    const counterfactualCost = maxRatePerCall * totalCalls;
+    const totalSessionTokens = byModel.reduce((s, r) => s + r.totalInput + r.totalOutput, 0);
+    const counterfactualCost = (maxRatePer1k / 1000) * totalSessionTokens;
     const routingSavings     = Math.max(0, counterfactualCost - actualCost);
 
     return { byModel, actualCost, counterfactualCost, routingSavings, maxRateModel, totalCalls };
