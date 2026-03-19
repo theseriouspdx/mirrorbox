@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Canonical Task Ledger
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Task:** v0.11.86
+**Next Task:** v0.11.162
 **Policy:** This file is the single source of truth for work state.
 
 ---
@@ -10,33 +10,24 @@
 ## Active Tasks
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
-| v0.11.86 | bug | BUG-086 root-mismatch re-onboarding validation round 2 | IN_PROGRESS | gemini | gemini/bug-086-revalidate | 2026-03-17 | BUG-086 | Fresh install re-onboards when copied profile has missing/foreign `projectRoot`; evidence logged in BUGS.md |
-| v0.11.61 | bug | BUG-061 Merkle scope + MCP query path drift closure | READY | gemini | gemini/bug-061-closure | 2026-03-17 | BUG-061 | Merkle scope contract implemented + non-src drift tests + standardized `node scripts/mcp_query.js` path |
-| v0.11.52 | bug | BUG-052 global mbo CLI entrypoint packaging | READY | codex | codex/bug-052-cli-entrypoint | 2026-03-17 | BUG-052 | `mbo` installable globally and validated in clean environment |
-| v0.11.36 | docs | Workflow canonicalization and validator enforcement | IN_PROGRESS | codex | codex/e2e-20260318-212502 | 2026-03-19 | BUG-048,BUG-086,BUG-136,BUG-138,BUG-139,BUG-140,BUG-141,BUG-142,BUG-144,BUG-147,BUG-148 | BUG-147 (onboarding JSON protocol) and BUG-148 (operator JSON prompts) fixed; BUG-144 resolved as downstream of BUG-147; remaining: installer-first Alpha E2E acceptance run with TTY transcript |
+| v0.11.152 | bug | BUG-152 MCP daemon start in setup flow | READY | unassigned | - | 2026-03-19 | BUG-152 | `mbo setup` reliably starts daemon for fresh projects |
+| v0.11.153 | bug | BUG-153 State Manager `data/` directory init | READY | unassigned | - | 2026-03-19 | BUG-153 | Fresh projects create `data/` via `initProject` |
+| v0.11.154 | bug | BUG-154 Controller drift false-positive warning | READY | unassigned | - | 2026-03-19 | BUG-154 | Warning only triggers in source controller repo |
+| v0.11.155 | bug | BUG-155 TM dashboard costing drift | READY | unassigned | - | 2026-03-19 | BUG-155 | TM dashboard reflects accurate savings |
+| v0.11.156 | bug | BUG-156 Spec refinement gate on read-only | READY | unassigned | - | 2026-03-19 | BUG-156 | Read-only queries bypass spec refinement gate |
+| v0.11.157 | bug | BUG-157 Operator empty response failure | READY | unassigned | - | 2026-03-19 | BUG-157 | Operator always returns answer or clarifying question |
+| v0.11.158 | bug | BUG-158 WORLD context drift | READY | unassigned | - | 2026-03-19 | BUG-158 | WORLD value stable across pinning loop |
+| v0.11.159 | bug | BUG-159 Ledger generation failure | READY | unassigned | - | 2026-03-19 | BUG-159 | Ledger generates successfully on all runs |
+| v0.11.160 | bug | BUG-160 Hint injection label mangling | READY | unassigned | - | 2026-03-19 | BUG-160 | Hint labels echo correctly in prompts |
+| v0.11.161 | bug | BUG-161 context_pinning convergence delay | READY | unassigned | - | 2026-03-19 | BUG-161 | Low-complexity loops converge in < 2 passes |
+| v0.11.162 | bug | BUG-162 FILES prompt empty validation | READY | unassigned | - | 2026-03-19 | BUG-162 | FILES prompt validates non-empty where required |
+| v0.11.86 | bug | BUG-086 root-mismatch re-onboarding validation round 2 | COMPLETED | gemini | gemini/bug-086-revalidate | 2026-03-19 | BUG-086 | Fresh install re-onboards when copied profile has missing/foreign `projectRoot` |
+| v0.11.36 | docs | Workflow canonicalization and validator enforcement | IN_PROGRESS | codex | codex/e2e-20260318-212502 | 2026-03-19 | BUG-152..162 | Alpha E2E run in progress; P0 blockers identified |
 
 ---
 
 ## Recently Completed
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
-| v0.11.96 | docs | Deprecate NEXT_SESSION governance path + BUGS split canonicalization | COMPLETED | codex | codex/e2e-20260318-212502 | 2026-03-19 | BUG-141,BUG-142,BUG-143 | NEXT_SESSION removed from required protocol/docs/templates and BUGS.md active-only with BUGS-resolved.md archive policy enforced |
-| v0.11.22 | feature | Adaptive Onboarding v2 Intelligence Layer (UX-022..UX-028) | COMPLETED | codex | codex/onboarding-v2-ux-elevation | 2026-03-17 | BUG-093,BUG-094,BUG-095,BUG-096,BUG-097,BUG-098,BUG-099,BUG-100,BUG-101 | Merged to master and `scripts/test-onboarding.js` 8/8 pass |
-| v0.10.09 | feature | Sovereign Loop (Self-Patching Validation) | COMPLETED | gemini | gemini/onboarding-v2 | 2026-03-16 | 1.0-09 | Verification gate pass recorded |
-
----
-
-## Backlog
-| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
-|---|---|---|---|---|---|---|---|---|
-| v0.11.63 | bug | Harden macOS auth fallback explicit user-presence prompt | BACKLOG | unassigned | - | 2026-03-17 | BUG-063 | Deterministic user-presence prompt semantics validated |
-| v0.12.01 | feature | Cross-agent cost comparison — per-task model-tier cost rollup and value proof | COMPLETED | claude | - | 2026-03-19 | BUG-150 | `getCostRollup()` in db-manager; `getStatus()` emits routing savings block; tokenmiser SHIFT+T overlay includes ROUTING SAVINGS section; live-tested against mirrorbox.db |
-
----
-
-## Status Vocabulary
-- `BACKLOG`: defined but not scheduled
-- `READY`: approved and ready to execute
-- `IN_PROGRESS`: currently being implemented
-- `BLOCKED`: cannot proceed; blocker must be explicit in `Links`
-- `COMPLETED`: accepted with evidence in `Acceptance`
+| v0.11.86 | bug | BUG-086 root-mismatch re-onboarding validation round 2 | COMPLETED | gemini | gemini/bug-086-revalidate | 2026-03-19 | BUG-086 | Fixed legacy profile drift and missing root check |
+| v0.11.96 | docs | Deprecate NEXT_SESSION governance path | COMPLETED | codex | - | 2026-03-19 | BUG-141 | NEXT_SESSION removed from required protocol |
