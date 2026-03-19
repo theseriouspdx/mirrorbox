@@ -199,8 +199,8 @@ function verifyContextIntegrity(fullPrompt, role) {
  * callModel no longer throws for NL responses from structured roles.
  */
 function validateOutputSchema(role, response, options = {}) {
-  if (options.expectJson === false) return;
-  const mustBeJson = new Set(['classifier', 'reviewer', 'architecturePlanner', 'componentPlanner', 'tiebreaker']);
+  if (options.expectJson !== true) return;
+  const mustBeJson = new Set(['classifier', 'operator', 'patchGenerator']);
   if (!mustBeJson.has(role)) return;
   
   const jsonMatch = response && response.match(/\{[\s\S]*\}/);
@@ -248,6 +248,10 @@ function getOpenRouterKey() {
 function dispatchCLI(config, systemPrompt, userPrompt, signal = null, options = {}) {
   return new Promise((resolve, reject) => {
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+
+    if (!config.binary) {
+      return reject(new Error(`CLI provider missing binary for model ${config.model || 'unknown'}`));
+    }
     
     const proc = spawn(config.binary, ['-p', fullPrompt], {
       stdio: ['ignore', 'pipe', 'pipe']

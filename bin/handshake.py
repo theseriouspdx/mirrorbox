@@ -64,11 +64,38 @@ def compute_merkle_root(src_dir: Path, base_root: Optional[Path] = None, file_li
     return layer[0]
 
 
+def _write_canonical_state(root_hash: str):
+    if not JOURNAL_DIR.exists():
+        JOURNAL_DIR.mkdir(parents=True)
+    state = {
+        "merkle_root": root_hash,
+        "merkle_scope": "src",
+        "last_verified": time.time(),
+        "last_verified_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    }
+    STATE_FILE.write_text(json.dumps(state, indent=2))
+
+
+def ensure_canonical_state(auto_init: bool = False) -> Optional[dict]:
+    if STATE_FILE.exists():
+        return json.loads(STATE_FILE.read_text())
+
+    if not auto_init:
+        return None
+
+    root_hash = compute_merkle_root(SRC_DIR)
+    _write_canonical_state(root_hash)
+    log_audit("STATE_AUTO_INITIALIZED")
+    print("[GATE] INFO: state.json missing. Auto-initialized Merkle baseline for this repo root.", file=sys.stderr)
+    return json.loads(STATE_FILE.read_text())
+
+
 def load_canonical_state() -> dict:
-    if not STATE_FILE.exists():
+    state = ensure_canonical_state(auto_init=True)
+    if state is None:
         print("[GATE] DENIED: state.json not found. Run bin/init_state.py", file=sys.stderr)
         sys.exit(1)
-    return json.loads(STATE_FILE.read_text())
+    return state
 
 
 def log_audit(event):
@@ -137,9 +164,15 @@ def _confirm_risky_scope(cell_name: str, force: bool):
         print("[GATE] DENIED: Risk confirmation for '.' requires a TTY.", file=sys.stderr)
         sys.exit(1)
     answer = input("Continue? (yes/no): ").strip().lower()
-    if answer != "yes":
+    if answer not in ("y", "yes"):
         print("[GATE] Cancelled by user.", file=sys.stderr)
         sys.exit(1)
+
+
+def _display_scope(scope: Optional[str]) -> str:
+    if scope in ("src", ".", "/", ""):
+        return "."
+    return scope or "none"
 
 
 def _is_interactive() -> bool:
@@ -305,7 +338,7 @@ def handshake(cell_name: str, force: bool = False):
     if SESSION_LOCK.exists():
         lock_data = json.loads(SESSION_LOCK.read_text())
         if time.time() < lock_data["expires_at"]:
-            print(f"[GATE] DENIED: Session active for {lock_data['cell_scope']}.", file=sys.stderr)
+            print(f"[GATE] DENIED: Session active for {_display_scope(lock_data.get('cell_scope'))}.", file=sys.stderr)
             sys.exit(1)
 
     if not check_integrity():
@@ -321,7 +354,7 @@ def handshake(cell_name: str, force: bool = False):
     # Special case: '.' and 'src' grant entire src/ directory
     if cell_name in (".", "/", "", "src"):
         cell_path = SRC_DIR
-        granted_scope = "src"
+        granted_scope = "."
     elif cell_name in ("scripts", "tests", "bin"):
         cell_path = MBO_ROOT / cell_name
         granted_scope = cell_name
@@ -358,7 +391,7 @@ def handshake(cell_name: str, force: bool = False):
         log_audit(f"HANDSHAKE_GRANTED_FORCED: requested={cell_name}, granted={granted_scope}")
     else:
         log_audit(f"HANDSHAKE_GRANTED: {granted_scope}")
-    print(f"[GATE] Handshake complete. Scope: {granted_scope}")
+    print(f"[GATE] Handshake complete. Scope: {_display_scope(granted_scope)}")
 
 
 DENY_SENTINEL = MBO_ROOT / ".dev" / "run" / "write.deny"
@@ -405,6 +438,12 @@ if __name__ == "__main__":
         sys.argv[1] = f"--{sys.argv[1]}"
 
     arg = sys.argv[1]
+
+    # BUG-142: fresh worktrees should not require a manual init_state.py bootstrap
+    # before auth/status can operate. Auto-create the Merkle baseline on first use.
+    if arg != "--help":
+        ensure_canonical_state(auto_init=True)
+
     is_grant = not arg.startswith("--")
     is_revoke = arg == "--revoke"
     auth_action = "grant" if is_grant else ("revoke" if is_revoke else None)
@@ -422,10 +461,11 @@ if __name__ == "__main__":
             data = json.loads(SESSION_LOCK.read_text())
             expires_at = float(data.get("expires_at", 0))
             remaining = int(expires_at - time.time())
+            display_scope = _display_scope(data.get("cell_scope"))
             if remaining > 0:
-                print(f"[SESSION] Active: {data['cell_scope']} (Expires in {remaining}s)")
+                print(f"[SESSION] Active: {display_scope} (Expires in {remaining}s)")
             else:
-                print(f"[SESSION] Expired: {data['cell_scope']} (Expired {-remaining}s ago)")
+                print(f"[SESSION] Expired: {display_scope} (Expired {-remaining}s ago)")
         else:
             print("[SESSION] None")
     elif arg == "--revoke":

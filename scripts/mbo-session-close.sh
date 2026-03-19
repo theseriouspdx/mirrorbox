@@ -269,16 +269,16 @@ if [[ "$SRC_SIZE_KB" -gt 0 ]]; then
   fi
 fi
 
-# Rebuild DB: drop and regenerate from source scan (keeps DB tiny)
-if [[ -d "$ROOT_DIR/src" && -f "$CONTROLLER_ROOT/scripts/rebuild-mirror.js" ]]; then
-  echo "[MBO] Rebuilding mirrorbox.db from source..."
+# Rebuild DB: opt-in only. Default path is incremental graph_rescan_changed below.
+if [[ "${MBO_FORCE_REBUILD_DB:-0}" == "1" && -d "$ROOT_DIR/src" && -f "$CONTROLLER_ROOT/scripts/rebuild-mirror.js" ]]; then
+  echo "[MBO] Forced DB rebuild requested (MBO_FORCE_REBUILD_DB=1)."
   if MBO_PROJECT_ROOT="$ROOT_DIR" run_with_timeout 30 node "$CONTROLLER_ROOT/scripts/rebuild-mirror.js" 2>&1 | tail -2; then
     echo "[MBO] DB rebuild complete."
   else
     echo "[MBO] WARN: DB rebuild failed or timed out — backup preserved at $BACKUP_FILE" >&2
   fi
 else
-  echo "[MBO] Skipping DB rebuild (no src/ or rebuild script unavailable for this runtime project)."
+  echo "[MBO] Defaulting to incremental graph refresh (no forced DB rebuild)."
 fi
 
 # Best-effort dev graph freshness bump (non-fatal): if MCP dev server is running,

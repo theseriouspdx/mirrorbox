@@ -12,7 +12,7 @@ Every development session begins in this order. No exceptions.
 1. Read this file (`AGENTS.md`)
 2. Read `.dev/governance/projecttracking.md` — identify current milestone and active task (single source of truth)
 3. Read `.dev/governance/BUGS.md` — check linked P0/P1 blockers for the active task
-4. Read `.dev/sessions/NEXT_SESSION.md` — generated handoff only (do not hand-edit)
+4. Optionally read `.dev/sessions/NEXT_SESSION.md` when present — generated legacy handoff only (do not hand-edit)
 
 No code is written before this sequence completes.
 
@@ -120,7 +120,7 @@ The moment a task is implemented and Stage 8 passes, halt and present the audit 
 On `approved`: Update `projecttracking.md`, `CHANGELOG.md`, `BUGS.md`, and commit the changes.
 
 ### 6C. Session End
-If "end session" is requested: Write `NEXT_SESSION.md`, terminate MCP, run Branch Finalization, and output checklist.
+If "end session" is requested: write session handoff artifacts (`NEXT_SESSION.md` only when enabled/needed), terminate MCP, run Branch Finalization, and output checklist.
 
 ### 6D. Branch Finalization (Required Before Session Close)
 1. If verification gate passed and changes are approved, promote branch changes to `main` (or configured target branch) via approved merge strategy.
@@ -143,7 +143,7 @@ If "end session" is requested: Write `NEXT_SESSION.md`, terminate MCP, run Branc
 ## Section 8 — Required Affirmation
 
 Before this session proceeds, you must physically read the governance files and report the base nhash:
-`(AGENTS sections + BUGS sections + NEXT_SESSION sections) × 3 = [Base Result]`
+`(AGENTS sections + projecttracking sections + BUGS sections) × 3 = [Base Result]`
 
 Wait for human salt. Calculate `nhash * salt = Hard State Anchor`. 
 
@@ -175,7 +175,7 @@ Explicitly state your **Hard State Anchor** at the beginning of every internal `
 
 ## Section 11 — Graph-Assisted Context
 
-Run only the queries listed in NEXT_SESSION.md. Load only the files and SPEC sections those queries return.
+Run only the queries listed in the active task record, explicit human runbook, or other current canonical instructions. If `NEXT_SESSION.md` exists, treat it as supplemental legacy handoff only.
 
 **MCP connection (as of 2026-03-13):**
 The graph server is a launchd system daemon at project-scoped dynamic endpoint.
@@ -215,12 +215,11 @@ To eliminate state drift across governance files, workflow ownership is strict:
 1. `projecttracking.md` is the only canonical task ledger.
 2. Every active task row MUST include: `Task ID`, `Type`, `Status`, `Owner`, `Branch`, `Updated`, `Links`, `Acceptance`.
 3. `BUGS.md` is a bug registry only. Every OPEN/PARTIAL bug MUST include a `Task:` link to a task ID in `projecttracking.md`.
-4. `NEXT_SESSION.md` is generated output only. Manual edits are prohibited.
-5. Session-close script regenerates `NEXT_SESSION.md` from `projecttracking.md` + OPEN/PARTIAL P0/P1 bugs.
+4. `NEXT_SESSION.md` is optional generated legacy handoff output. Manual edits are prohibited.
+5. Session-close may regenerate `NEXT_SESSION.md` from `projecttracking.md` + OPEN/PARTIAL P0/P1 bugs, but it is not required for validator pass/fail.
 6. `python3 bin/validator.py --all` MUST fail when:
    - any OPEN/PARTIAL P0/P1 bug lacks a linked task ID,
-   - linked task ID does not exist in `projecttracking.md`,
-   - `NEXT_SESSION.md` is stale relative to governance files.
+   - linked task ID does not exist in `projecttracking.md`.
 
 **Authoring rule:** update state only at task status transitions and at session close.
 

@@ -345,9 +345,11 @@ function runAuthCommand(argv) {
   // Runtime/init remain guarded by isSelfRunDisallowed.
   const args = argv.slice(3);
   const handshakePath = path.join(PACKAGE_ROOT, 'bin', 'handshake.py');
+  const authRoot = path.resolve(PROJECT_ROOT || INVOCATION_CWD);
+  const authEnv = { ...process.env, MBO_PROJECT_ROOT: authRoot };
 
   const normalizeScope = (value) => {
-    if (!value || value === '.' || value === '/' || value === 'src') return 'src';
+    if (!value || value === '.' || value === '/' || value === 'src') return '.';
     return value;
   };
 
@@ -358,7 +360,7 @@ function runAuthCommand(argv) {
 
   const printStatusAndGetScope = () => {
     const status = spawnSync('python3', [handshakePath, '--status'], {
-      env: process.env,
+      env: authEnv,
       encoding: 'utf8',
     });
     if (status.stdout) process.stdout.write(status.stdout);
@@ -402,7 +404,7 @@ function runAuthCommand(argv) {
     process.stderr.write(`[MBO] Active session for '${activeScope}' detected; ending session.\n`);
     const revoke = spawnSync('python3', [handshakePath, '--revoke'], {
       stdio: 'inherit',
-      env: process.env,
+      env: authEnv,
     });
     if ((revoke.status ?? 1) !== 0) {
       process.exit(revoke.status ?? 1);
@@ -413,7 +415,7 @@ function runAuthCommand(argv) {
 
   const auth = spawnSync('python3', [handshakePath, scope, ...passthroughFlags], {
     stdio: 'inherit',
-    env: process.env,
+    env: authEnv,
   });
 
   if ((auth.status ?? 1) !== 0) {
@@ -455,7 +457,10 @@ function reapStaleHelpers(packageRoot) {
   let table = '';
   let parser = null;
   try {
-    table = execSync('ps -axo pid=,etimes=,command=', { encoding: 'utf8' });
+    table = execSync('ps -axo pid=,etimes=,command=', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    });
     parser = (line) => {
       const m = line.match(/^(\d+)\s+(\d+)\s+(.*)$/);
       if (!m) return null;
