@@ -1,0 +1,36 @@
+worktree /Users/johnserious/MBO
+HEAD 1c00b78f02e496f175bd7a706aa6e9f81ddb27d3
+branch refs/heads/master
+
+worktree /Users/johnserious/MBO/.dev/worktree/bug-all.AgentA
+HEAD e274fde98f8b096c3b418f1beece135e15a2808e
+branch refs/heads/bug-all.AgentA
+
+worktree /Users/johnserious/MBO/.dev/worktree/bug-all.AgentB
+HEAD a648d846140d10bf7b4aaaf877e2f7df0d59f9bc
+branch refs/heads/bug-all.AgentB
+
+worktree /Users/johnserious/MBO/.dev/worktree/chat-native-onboarding
+HEAD 2fa3d2de6ec83e16fb71c50ca503788c057cfdf3
+branch refs/heads/chat-native-onboarding
+
+worktree /Users/johnserious/MBO/.dev/worktree/claude-docs
+HEAD 02db880a13b8e5531fcafaf4b56846b00cadc10d
+branch refs/heads/claude/docs-audit
+
+worktree /Users/johnserious/MBO/.dev/worktree/codex-bug-3737
+HEAD c10bb345632fd1a557f17db8569eef555d2e5978
+branch refs/heads/codex/bug-3737-merge
+
+worktree /Users/johnserious/MBO/.dev/worktree/codex-e2e-20260318-212502
+HEAD 138020a32d2c39a50bb9952f67bd4b60065cda35
+branch refs/heads/codex/e2e-20260318-212502
+
+worktree /Users/johnserious/MBO/.dev/worktree/codex-v0.11.88-derive
+HEAD 478fac8fa6a34163273d68e00ae6943aa4bc71d8
+branch refs/heads/codex/v0.11.88-chat-native
+
+worktree /Users/johnserious/MBO/.dev/worktree/gemini-v0.11.88-gov
+HEAD 368cd89c590a9b28bcb6e7e9f2ff3df3733b78a7
+branch refs/heads/gemini/v0.11.88-gov
+
