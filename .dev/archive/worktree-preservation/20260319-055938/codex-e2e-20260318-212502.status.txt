@@ -1,0 +1,21 @@
+## codex/e2e-20260318-212502
+ M bin/__pycache__/handshake.cpython-312.pyc
+?? .dev/bak/.dev/governance/AGENTS.md.20260319-002658.bak
+?? .dev/bak/.dev/governance/BUGS.md.20260319-003130.bak
+?? .dev/bak/.dev/governance/projecttracking.md.20260319-001926.bak
+?? .dev/bak/.dev/sessions.NEXT_SESSION.md.20260319-001926.bak
+?? .dev/bak/.dev/sessions/analysis/
+?? .dev/bak/AGENTS.md.20260319-002658.bak
+?? .dev/bak/CHANGELOG.md.20260319-001926.bak
+?? .dev/bak/bin/handshake.py.20260319-0110-worktree-auth-autoboot.bak
+?? .dev/bak/bin/validator.py.20260319-002658.bak
+?? .dev/bak/scripts/mbo-session-close.sh.20260318-230808.bak
+?? .dev/bak/src/auth/call-model.js.20260318-230808.bak
+?? .dev/bak/src/auth/call-model.js.20260319-0101-pre-nl-reasoning.bak
+?? .dev/bak/src/auth/did-orchestrator.js.20260319-0101-pre-nl-reasoning.bak
+?? .dev/bak/src/auth/model-router.js.20260318-230808.bak
+?? .dev/bak/src/auth/operator.js.20260319-003520-pre-nl-contract.bak
+?? .dev/bak/src/auth/operator.js.20260319-0101-pre-nl-reasoning.bak
+?? .dev/bak/src/auth/operator.js.20260319-0648.bak
+?? .dev/bak/src/auth/operator.js.20260319-0658-pre-handleApproval.bak
+?? .dev/bak/src/index.js.20260318-230808.bak

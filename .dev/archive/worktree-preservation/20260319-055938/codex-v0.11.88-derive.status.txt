@@ -1,0 +1,12 @@
+## codex/v0.11.88-chat-native
+ M bin/mbo.js
+ M scripts/test-onboarding.js
+ M src/auth/operator.js
+ M src/cli/onboarding.js
+ M src/cli/startup-checks.js
+?? .dev/bak/bin/mbo.js.bak_20260317_142537
+?? .dev/bak/bin/mbo.js.bak_20260317_144926
+?? .dev/bak/src/auth/operator.js.bak_20260317_142846
+?? .dev/bak/src/cli/onboarding.js.bak_20260317_142537
+?? .dev/bak/src/cli/startup-checks.js.bak_20260317_144257
+?? scripts/test-startup-checks.js

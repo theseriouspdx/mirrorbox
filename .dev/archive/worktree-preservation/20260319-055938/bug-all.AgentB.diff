@@ -1,0 +1,137 @@
+diff --git a/.dev/governance/AGENTS.md b/.dev/governance/AGENTS.md
+index 2e3499d..7f557cb 100644
+--- a/.dev/governance/AGENTS.md
++++ b/.dev/governance/AGENTS.md
+@@ -65,6 +65,7 @@ Implementation task: `1.1-H24` — see `.dev/preflight/did-protocol-implementati
+ 7. **Invariant 7:** Context isolation enforced at runtime.
+ 8. **Invariant 8:** Secrets never enter sandbox execution.
+ 9. **Invariant 9:** Local models stay local.
++18. **Invariant 18 (DB Write Prohibition):** Agents MUST NOT write directly to any database (mirrorbox.db, dev-graph.db, or any SQLite file) under any circumstances. The `tasks` table and all pipeline state in the DB is seeded exclusively by the Operator running the pipeline from `projecttracking.md`. Agents interact with state only through governance files (`projecttracking.md`, `BUGS.md`). Direct `INSERT`, `UPDATE`, or `DELETE` against the DB — via node eval, sqlite3 CLI, or any MCP tool call that proxies raw SQL — is a governance violation equivalent to bypassing the handshake protocol.
+ 14. **Invariant 14:** No `write_file` for overwrites. Overwriting or modifying an existing file via `write_file` is prohibited. `replace` MUST be used for all modifications to existing files to ensure surgical precision. `write_file` is reserved for creating new files only.
+ 
+ ---
+@@ -195,6 +196,7 @@ Every development session MUST follow this checklist:
+ 1. **Identify Task** from `projecttracking.md`.
+ 2. **Permission Check** via `python3 bin/handshake.py <cell_name>`.
+ 3. **Create Working Worktree** — `git worktree add .dev/worktree/<agent>-<task> -b <agent>/<task>` — and work exclusively inside it. Never share a working directory with a concurrent agent session.
++   > **DB Write Prohibition:** At no point in this loop may an agent write directly to mirrorbox.db or any pipeline database. All task state flows through governance files → Operator → pipeline. (See Invariant 18.)
+ 4. **Derive & Propose** solution from graph context.
+ 5. **Human Approval** ("go").
+ 6. **Implement on Branch & Verify** (`python3 bin/validator.py --all` + task-specific tests).
+diff --git a/scripts/mcp_query.js b/scripts/mcp_query.js
+index c08540d..1383b23 100644
+--- a/scripts/mcp_query.js
++++ b/scripts/mcp_query.js
+@@ -427,10 +427,12 @@ const { diagnose, op, arg } = parseInvocation(process.argv.slice(2));
+       res = await callMCP(session.endpoint, 'tools/call', { name: 'graph_search', arguments: { pattern: arg } }, sid);
+     } else if (op === 'graph_rescan') {
+       res = await callMCP(session.endpoint, 'tools/call', { name: 'graph_rescan', arguments: {} }, sid, GRAPH_RESCAN_TIMEOUT_MS);
++    } else if (op === 'graph_rescan_changed') {
++      res = await callMCP(session.endpoint, 'tools/call', { name: 'graph_rescan_changed', arguments: {} }, sid, GRAPH_RESCAN_TIMEOUT_MS);
+     } else if (op === 'tools_list') {
+       res = await callMCP(session.endpoint, 'tools/list', {}, sid);
+     } else {
+-      console.log('Usage: node ./mcp_query.js [--diagnose] [graph_server_info | graph_search <pattern> | graph_rescan | tools_list]');
++      console.log('Usage: node ./mcp_query.js [--diagnose] [graph_server_info | graph_search <pattern> | graph_rescan | graph_rescan_changed | tools_list]');
+       console.log('Also supports function style: node ./mcp_query.js "graph_search(\'pattern\')"');
+       return;
+     }
+diff --git a/src/cli/onboarding.js b/src/cli/onboarding.js
+index 04db693..6c01ed4 100644
+--- a/src/cli/onboarding.js
++++ b/src/cli/onboarding.js
+@@ -1361,6 +1361,19 @@ async function checkOnboarding(projectRoot) {
+     return true;
+   }
+ 
++  // BUG-086: Validate project root match with safe realpathSync guard.
++  if (activeProfile.projectRoot) {
++    const canonicalCwd = (() => { try { return fs.realpathSync(projectRoot); } catch { return projectRoot; } })();
++    const canonicalStored = activeProfile.projectRoot
++      ? (() => { try { return fs.realpathSync(activeProfile.projectRoot); } catch { return null; } })()
++      : null;
++    if (canonicalCwd !== canonicalStored) {
++      console.warn(`\n[Onboarding] Project root mismatch detected (stored: ${activeProfile.projectRoot || 'unknown'}). Triggering re-onboarding.`);
++      if (interactive) await runOnboarding(projectRoot);
++      return true;
++    }
++  }
++
+   let needsReonboard = false;
+   if (activeProfile.binaryVersion !== version) {
+     console.log(`[Onboarding] Binary version changed (${activeProfile.binaryVersion || 'unknown'} → ${version}). Re-onboarding required.`);
+diff --git a/src/graph/mcp-server.js b/src/graph/mcp-server.js
+index 2a2a43d..5de3d45 100644
+--- a/src/graph/mcp-server.js
++++ b/src/graph/mcp-server.js
+@@ -200,6 +200,20 @@ class GraphService {
+     };
+   }
+ 
++  _enrichInBackground(diagnostics) {
++    // BUG-129: Decoupled background enrichment — does not block the rescan response.
++    setImmediate(() => {
++      this.scanner.enrich(this.root).then(() => {
++        console.error(`[GraphService] ${new Date().toISOString()} Background enrichment complete.`);
++      }).catch((e) => {
++        if (diagnostics && diagnostics.failedFiles) {
++          diagnostics.failedFiles.push({ path: '<enrich>', error: e.message });
++        }
++        console.error(`[GraphService] ${new Date().toISOString()} Background enrichment warning: ${e.message}`);
++      });
++    });
++  }
++
+   enqueueWrite(fn) {
+     this._writeQueue = this._writeQueue.then(fn).catch((err) => {
+       console.error(`[GraphService] ${new Date().toISOString()} Write queue error: ${err.message}`);
+@@ -346,13 +360,9 @@ class GraphService {
+                 await this.scanner.scanFile(absPath, this.root);
+               }
+             }
+-            try {
+-              await this.scanner.enrich(this.root);
+-            } catch (e) {
+-              // BUG-072: Enrichment failures are best-effort warnings.
+-              console.error(`[GraphService] ${new Date().toISOString()} Enrichment warning during task update: ${e.message}`);
+-            }
+-            // Increment only after successful completion — not if scanDirectory/enrich throws.
++            // BUG-129: Fire enrichment in background so task update completes fast.
++            this._enrichInBackground({});
++            // Increment immediately after static scan.
+             this.indexRevision = this.db.incrementIndexRevision();
+             this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
+             return { content: [{ type: 'text', text: `Graph updated for ${(args.modifiedFiles || []).length} files.` }] };
+@@ -402,15 +412,9 @@ class GraphService {
+                 }
+               }
+             }
+-            try {
+-              await this.scanner.enrich(this.root);
+-            } catch (e) {
+-              diagnostics.failedFiles.push({
+-                path: '<enrich>',
+-                error: e.message,
+-              });
+-            }
+-            // Increment only after successful completion — not if scanDirectory/enrich throws.
++            // BUG-129: Do not await enrich() — fire it in background so rescan completes fast.
++            this._enrichInBackground(diagnostics);
++            // Increment immediately after static scan — enrichment updates nodes in background.
+             this.indexRevision = this.db.incrementIndexRevision();
+             this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
+             console.error(`[GraphService] ${new Date().toISOString()} Rescan complete. index_revision=${this.indexRevision}`);
+@@ -562,11 +566,8 @@ class GraphService {
+             }
+           }
+         }
+-        try {
+-          await this.scanner.enrich(this.root);
+-        } catch (e) {
+-          diagnostics.failedFiles.push({ path: '<enrich>', error: e.message });
+-        }
++        // BUG-129: Fire enrichment in background.
++        this._enrichInBackground(diagnostics);
+ 
+         this.indexRevision = this.db.incrementIndexRevision();
+         this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');

@@ -1,0 +1,8 @@
+## claude/docs-audit
+ M README.md
+ M docs/agent-onboarding.md
+ M docs/invariant-audit.md
+ M docs/mcp.md
+ M docs/operator-guide.md
+?? docs/governance-protocol.md
+?? docs/pipeline.md

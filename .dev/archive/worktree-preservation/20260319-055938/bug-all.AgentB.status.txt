@@ -1,0 +1,5 @@
+## bug-all.AgentB
+ M .dev/governance/AGENTS.md
+ M scripts/mcp_query.js
+ M src/cli/onboarding.js
+ M src/graph/mcp-server.js

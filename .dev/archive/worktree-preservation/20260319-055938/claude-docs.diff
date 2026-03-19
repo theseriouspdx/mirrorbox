@@ -1,0 +1,188 @@
+diff --git a/README.md b/README.md
+index e6606b1..75eadf9 100644
+--- a/README.md
++++ b/README.md
+@@ -9,10 +9,10 @@ The Mirror Box Orchestrator is a self-referential development environment. It us
+ - **Phase 1 (Foundations):** Completed
+ - **Phase 2 (Sovereign Factory):** Completed
+ - **Sovereign Loop:** Active
+-- **Milestone 1.1-H23 (MCP daemon migration):** Completed
+-- **Security Hardening (Inv 13 & 14):** Active (No `write_file` overwrites, Topology-preserving backups to `.dev/bak/`).
+-- **MCP endpoint:** Project-scoped dynamic (discoverable via `.dev/run/mcp.json` or `.mbo/run/mcp.json`)
+-- **Onboarding:** Chat-native Operator mode (interactive onboarding handled in the main dialogue loop)
++- **Milestone 1.1 (Portability & Hardening):** In Progress
++- **Security Hardening (Inv 13, 14, 18):** Active — topology-preserving backups to `.dev/bak/`, no `write_file` overwrites, no direct DB writes by agents.
++- **MCP endpoint:** Project-scoped ephemeral port (discoverable via `.dev/run/mcp.json` or `.mbo/run/mcp.json`)
++- **Onboarding:** Chat-native Operator mode (Section 36 — interactive onboarding in the main dialogue loop)
+ 
+ ## Usage
+ 
+@@ -65,6 +65,20 @@ node ./scripts/mcp_query.js graph_search "open tasks"
+ - `.dev/governance/projecttracking.md`: Authoritative task queue
+ - `.dev/governance/CHANGELOG.md`: Historical change log
+ 
++## Documentation
++
++| Doc | Audience | Purpose |
++|-----|----------|---------|
++| `docs/operator-guide.md` | Human Operator | Session workflow, auth, state sync |
++| `docs/agent-onboarding.md` | Agents | Gate 0, rules, routing tiers |
++| `docs/governance-protocol.md` | Both | DID, nhash, Entropy Gate, worktrees |
++| `docs/pipeline.md` | Both | 11-stage pipeline reference |
++| `docs/worktree-workflow.md` | Agents | Step-by-step worktree operations |
++| `docs/auth.md` | Both | Auth model, handshake, scopes |
++| `docs/mcp.md` | Both | MCP daemon, setup, recovery |
++| `docs/MCP_PORT_REFERENCE.md` | Both | Ephemeral port architecture |
++| `docs/invariant-audit.md` | Both | External invariant test suite |
++
+ ---
+ 
+ *Stay Vigilant.*
+diff --git a/docs/agent-onboarding.md b/docs/agent-onboarding.md
+index 6334c8a..ae285a6 100644
+--- a/docs/agent-onboarding.md
++++ b/docs/agent-onboarding.md
+@@ -23,9 +23,8 @@ Before doing anything else, run Gate 0:
+ 1. Read `.dev/governance/AGENTS.md` (all sections)
+ 2. Read `.dev/governance/projecttracking.md` (find OPEN tasks)
+ 3. Read `.dev/governance/BUGS.md` (find P0/P1 items)
+-4. Read `.dev/sessions/NEXT_SESSION.md` (orientation)
+-5. Call `graph_rescan()` then `graph_search("open tasks")`
+-6. Report nhash to human and wait for salt confirmation
++4. Call `graph_rescan()` then `graph_search("open tasks")`
++5. Report nhash to human and wait for salt confirmation
+ 
+ Do not implement anything until Gate 0 + nhash is complete.
+ 
+@@ -51,6 +50,35 @@ Do not implement anything until Gate 0 + nhash is complete.
+ 
+ ---
+ 
++## Task Routing Tiers
++
++Before any implementation, classify the task by tier. Tier determines DID and Stage 1.5 requirements.
++
++| Tier | Criteria | DID Required? | Stage 1.5? |
++|------|----------|---------------|------------|
++| **0** | Docs only, single file, no `src/` changes | No | No |
++| **1** | Single file in `src/`, < 50 LOC, low risk | No | Yes |
++| **2** | Multi-file or architectural change | Yes — spec only, blind derivation | Yes |
++| **3** | Load-bearing, security, or governance change (AGENTS.md, SPEC.md) | Yes — full impl, blind derivation | Yes |
++
++**Tier 2/3 DID flow:** Agent A (Gemini) proposes → Agent B (Claude) derives independently (no peeking) → human reconciles → go.
++
++---
++
++## Entropy Gate
++
++Part of Stage 1.5. Every task gets an entropy score before planning begins.
++
++| Assumption type | Points |
++|----------------|--------|
++| Critical | 3.0 |
++| High Impact | 1.5 |
++| Low Impact | 0.5 |
++
++**Entropy > 10 = BLOCKED.** The task must be decomposed by the human Architect into subtasks each scoring ≤ 10. Do not plan, do not write code. Hard stop.
++
++---
++
+ ## Stage 1.5 — Assumption Ledger
+ 
+ For all Tier 1+ tasks, you must generate a **Section 27 Assumption Ledger** before planning.
+@@ -107,6 +135,7 @@ When Stage 6A returns `audit_pending`:
+ | `.dev/governance/AGENTS.md` | Agent rules, pipeline spec |
+ | `.dev/governance/projecttracking.md` | Milestone task status |
+ | `.dev/governance/BUGS.md` | Active bugs |
++| `.dev/governance/BUGS-resolved.md` | Resolved/completed bug archive (reference only) |
+ | `.journal/state.json` | Canonical Merkle root + metadata |
+ | `.journal/session.lock` | Active handshake token |
+ | `.journal/audit.log` | Handshake grant/revoke history |
+@@ -154,5 +183,5 @@ Before ending a session:
+ 1. Run `mbo --revoke` (locks src/)
+ 2. Run `python3 bin/init_state.py` (recompute baseline)
+ 3. Update `projecttracking.md` task statuses
+-4. Commit with meaningful message
+-5. Write `.dev/sessions/NEXT_SESSION.md` with: next action, pending items, task IDs
++4. Keep `.dev/governance/BUGS.md` active-only; archive resolved/completed entries to `.dev/governance/BUGS-resolved.md`
++5. Commit with meaningful message
+diff --git a/docs/invariant-audit.md b/docs/invariant-audit.md
+index 519bd3d..63e3247 100644
+--- a/docs/invariant-audit.md
++++ b/docs/invariant-audit.md
+@@ -17,6 +17,8 @@ Milestone 1.0 (Production Alpha) requires these tests to pass before the orchest
+ | **Inv 11** | Bootstrapping | Ensures `bin/validator.py` is present and active. |
+ | **Inv 13** | Atomic Backup | Topology-preserving backup to `.dev/bak/` before mutation. |
+ | **Inv 14** | Write-File Lock | Prohibits `write_file` for overwriting existing files. |
++| **Inv 15** | Non-Destructive Recovery | Prohibits `rm -f` and delete/recreate schema recovery patterns. |
++| **Inv 18** | DB Write Prohibition | Agents must never write directly to any SQLite DB (mirrorbox.db, dev-graph.db, etc.). All task state flows through governance files → Operator → pipeline only. |
+ 
+ ## Running the Audit
+ 
+diff --git a/docs/mcp.md b/docs/mcp.md
+index 304a6f3..bcf02c1 100644
+--- a/docs/mcp.md
++++ b/docs/mcp.md
+@@ -176,9 +176,9 @@ The following were removed in Milestone 1.1-H23:
+ - `scripts/mbo-start.sh` — replaced by launchd
+ - `scripts/mbo-watchdog.sh` — replaced by launchd KeepAlive
+ - `src/utils/resolve-manifest.js` — legacy path
+-- `.mbo/run/mcp.json` manifest files — legacy path
+-- `.mbo/run/mcp.ready` sentinel files — no sentinel polling
+-- Dynamic port selection — port is project-scoped dynamic
++- Fixed port 7337 — superseded by ephemeral `--port=0` (see `docs/MCP_PORT_REFERENCE.md`)
+ - Session ID persistence/restore — stateless per-request
++- `.mbo/run/mcp.json` as a *subject* manifest — the canonical subject manifest path is now `.mbo/run/mcp.json`; it is written by the daemon, not legacy tooling. Controller repo uses `.dev/run/mcp.json`. See `docs/MCP_PORT_REFERENCE.md` for the full manifest location table.
++- `.mbo/run/mcp.ready` sentinel files — no sentinel polling
+ 
+ *Last updated: 2026-03-13*
+diff --git a/docs/operator-guide.md b/docs/operator-guide.md
+index d461c18..f8d4e20 100644
+--- a/docs/operator-guide.md
++++ b/docs/operator-guide.md
+@@ -10,15 +10,19 @@ Every working session follows this pattern:
+ 3. Run graph_rescan + graph_search to orient
+ 4. Agent generates Assumption Ledger (Stage 1.5)
+ 5. Review assumptions + blockers. Respond 'go' to approve defaults.
+-6. Grant auth scope: mbo <scope>
++5a. Agent creates worktree: git worktree add .dev/worktree/<agent>-<task> -b <agent>/<task>
++6. Grant auth scope: mbo auth <scope>
+ 7. Agent creates atomic backup in .dev/bak/ (Invariant 13)
+-8. Agent implements via impl_step.sh (one file at a time)
++8. Agent implements via impl_step.sh (one file at a time, inside worktree)
+ 9. Audit gate: review diff + validator output
+ 10. Approve or reject
+ 11. On approve: §6B state sync (revoke → baseline → mark task COMPLETE)
+ 12. Commit + update projecttracking.md
++13. Remove worktree: git worktree remove .dev/worktree/<agent>-<task>
+ ```
+ 
++See `docs/worktree-workflow.md` for full worktree step-by-step.
++
+ ## Chat-Native Onboarding (v0.11.88)
+ 
+ - Onboarding now runs inside the Operator dialogue loop, not a separate blocking questionnaire.
+@@ -37,12 +41,11 @@ At the start of every session, read these files in order:
+ 1. `.dev/governance/AGENTS.md`
+ 2. `.dev/governance/projecttracking.md`
+ 3. `.dev/governance/BUGS.md`
+-4. `.dev/sessions/NEXT_SESSION.md`
+ 
+ **nhash affirmation** — compute the Hard State Anchor:
+ 
+ ```
+-nhash = (sections_in_AGENTS.md + sections_in_BUGS.md + sections_in_NEXT_SESSION.md) × 3 × <salt>
++nhash = (sections_in_AGENTS.md + sections_in_BUGS.md) × 3 × <salt>
+ ```
+ 
+ User supplies the salt (a single integer). You confirm the computed value aloud before proceeding.
+@@ -142,7 +145,8 @@ After approving an implementation:
+ 2. `python3 bin/init_state.py` (recomputes Merkle root, updates state.json)
+ 3. `graph_update_task({ task_id: "X.X-XX", status: "COMPLETE" })`
+ 4. Update `.dev/governance/projecttracking.md` — mark task COMPLETE
+-5. `git add -p && git commit -m "feat(X.X-XX): ..."` (or let session-close handle)
++5. Update `.dev/governance/BUGS.md` — active bugs only; move resolved/completed entries to `.dev/governance/BUGS-resolved.md`
++6. `git add -p && git commit -m "feat(X.X-XX): ..."` (or let session-close handle)
+ 
+ ---
+ 

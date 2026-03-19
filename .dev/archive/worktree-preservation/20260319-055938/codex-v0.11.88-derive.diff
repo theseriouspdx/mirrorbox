@@ -1,0 +1,237 @@
+diff --git a/bin/mbo.js b/bin/mbo.js
+index b5f1af5..10a893c 100755
+--- a/bin/mbo.js
++++ b/bin/mbo.js
+@@ -54,11 +54,11 @@ function runSetupCommand() {
+       // BUG-085 fix (2): Wire onboarding into setup flow.
+       // checkOnboarding triggers the 4-phase interview when no valid project-local
+       // onboarding.json exists, or when the stored projectRoot doesn't match cwd (BUG-086).
+-      await checkOnboarding(PROJECT_ROOT);
++      await checkOnboarding(PROJECT_ROOT, { autoRun: false });
+ 
+       // Keep setup non-blocking in restricted environments where ~/.mbo is not writable.
+       try {
+-        setup.persistInstallMetadata(HOME_CONFIG_PATH, PACKAGE_ROOT, { force: true });
++        setup.persistInstallMetadata(HOME_CONFIG_PATH, PACKAGE_ROOT, { force: false });
+       } catch (err) {
+         process.stderr.write(`[MBO] Warning: unable to write ${HOME_CONFIG_PATH}: ${err.message}\n`);
+       }
+@@ -97,7 +97,7 @@ function persistInstallMetadataBestEffort() {
+     } catch {
+       force = true;
+     }
+-    setup.persistInstallMetadata(setup.CONFIG_PATH, PACKAGE_ROOT, { force });
++    setup.persistInstallMetadata(setup.CONFIG_PATH, PACKAGE_ROOT, { force: false });
+   } catch {}
+ }
+ 
+diff --git a/scripts/test-onboarding.js b/scripts/test-onboarding.js
+index 5462068..f0dad30 100755
+--- a/scripts/test-onboarding.js
++++ b/scripts/test-onboarding.js
+@@ -59,6 +59,37 @@ async function testChatNativeOnboardingModeGate() {
+   eq(status.reason, 'missing_profile', 'Onboarding reason');
+ }
+ 
++async function testCopiedProfileTriggersReonboardStatus() {
++  const sourceRoot = mktempProject();
++  const targetRoot = mktempProject();
++  const subjectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mbo-subject-copy-'));
++
++  await runOnboarding(sourceRoot, null, {
++    nonInteractive: true,
++    answers: {
++      projectType: 'existing',
++      users: 'ops',
++      q3Raw: 'protect auth',
++      q4Raw: 'keep logs clear',
++    },
++    followup: {
++      subjectRoot,
++      verificationCommands: 'npm test',
++      dangerZones: 'lib/index.js',
++      realConstraints: 'auth stability',
++      assumedConstraints: 'legacy infra',
++    },
++  });
++
++  const copied = JSON.parse(fs.readFileSync(path.join(sourceRoot, '.mbo', 'onboarding.json'), 'utf8'));
++  delete copied.projectRoot;
++  fs.writeFileSync(path.join(targetRoot, '.mbo', 'onboarding.json'), JSON.stringify(copied, null, 2));
++
++  const status = await checkOnboarding(targetRoot, { autoRun: false, returnStatus: true });
++  assert(status.needsOnboarding === true, 'Copied profile should require re-onboarding');
++  eq(status.reason, 'profile_incomplete_or_stale', 'Copied profile re-onboard reason');
++}
++
+ // ─── Original tests ───────────────────────────────────────────────────────────
+ 
+ async function testFreshOnboarding() {
+@@ -440,6 +471,9 @@ async function main() {
+   await testChatNativeOnboardingModeGate();
+   console.log('PASS  chat-native onboarding mode gate');
+ 
++  await testCopiedProfileTriggersReonboardStatus();
++  console.log('PASS  copied/legacy profile triggers re-onboarding status');
++
+   // Original tests
+   await testFreshOnboarding();
+   console.log('PASS  fresh onboarding');
+diff --git a/src/auth/operator.js b/src/auth/operator.js
+index 5be32b3..1b133db 100644
+--- a/src/auth/operator.js
++++ b/src/auth/operator.js
+@@ -9,6 +9,9 @@ const db = require('../state/db-manager');
+ const eventStore = require('../state/event-store');
+ const {
+   runOnboarding,
++  scanProject,
++  inferRealConstraints,
++  buildScanBriefing,
+   validateSubjectRoot,
+   validateVerificationCommands,
+   validateDangerZones,
+@@ -77,6 +80,29 @@ const ONBOARDING_QUESTIONS = [
+   },
+ ];
+ 
++function renderBriefingForChat(briefing) {
++  const lines = [];
++
++  lines.push('Before questions, here is what I found from your project scan:');
++
++  if (Array.isArray(briefing.confirmed) && briefing.confirmed.length > 0) {
++    lines.push('Confirmed:');
++    for (const item of briefing.confirmed) lines.push(`- ${item}`);
++  }
++
++  if (Array.isArray(briefing.inferred) && briefing.inferred.length > 0) {
++    lines.push('Inferred (please confirm):');
++    for (const item of briefing.inferred) lines.push(`- ${item}`);
++  }
++
++  if (Array.isArray(briefing.unknown) && briefing.unknown.length > 0) {
++    lines.push('Unknown (I will ask):');
++    for (const item of briefing.unknown) lines.push(`- ${item}`);
++  }
++
++  return lines.join('\n');
++}
++
+ /**
+  * Detect if running in development/worktree context vs. target project context.
+  * Dev context: MBO controller itself, or within .dev/worktree/
+@@ -145,6 +171,8 @@ class Operator {
+     this.onboardingState = {
+       active: false,
+       started: false,
++      scanBriefingShown: false,
++      scanBriefingText: '',
+       reason: null,
+       profile: null,
+       questionIndex: 0,
+@@ -160,6 +188,18 @@ class Operator {
+     this.onboardingState.active = true;
+     this.onboardingState.reason = status.reason || 'missing_profile';
+     this.onboardingState.profile = status.profile || null;
++
++    // BUG-111: run scan-first before onboarding prompts so dialogue is grounded
++    // from the first turn.
++    try {
++      const scan = scanProject(RUNTIME_ROOT);
++      const inferred = inferRealConstraints(RUNTIME_ROOT, scan);
++      const briefing = buildScanBriefing(RUNTIME_ROOT, scan, inferred);
++      this.onboardingState.scanBriefingText = renderBriefingForChat(briefing);
++    } catch {
++      this.onboardingState.scanBriefingText = '';
++    }
++
+     this.stateSummary.currentStage = 'onboarding';
+   }
+ 
+@@ -175,7 +215,7 @@ class Operator {
+     const first = ONBOARDING_QUESTIONS[0];
+     return {
+       status: 'onboarding_active',
+-      prompt: `${reasonText}\n\nI will gather the required profile in this chat.\n${first.prompt}`,
++      prompt: `${reasonText}\n\n${this.onboardingState.scanBriefingText ? `${this.onboardingState.scanBriefingText}\n\n` : ''}I will gather the required profile in this chat.\n${first.prompt}`,
+     };
+   }
+ 
+diff --git a/src/cli/onboarding.js b/src/cli/onboarding.js
+index 65c05bc..5dc4fff 100644
+--- a/src/cli/onboarding.js
++++ b/src/cli/onboarding.js
+@@ -1340,7 +1340,7 @@ async function runOnboarding(projectRoot, priorData = null, options = {}) {
+ // ─── checkOnboarding (gate for session start) ─────────────────────────────────
+ 
+ async function checkOnboarding(projectRoot, options = {}) {
+-  const autoRun = options.autoRun !== false;
++  const autoRun = options.autoRun === true;
+   const returnStatus = !!options.returnStatus;
+   const interactive = isTTY();
+   const fileProfile = readOnboardingFile(projectRoot);
+@@ -1365,6 +1365,20 @@ async function checkOnboarding(projectRoot, options = {}) {
+     return true;
+   }
+ 
++  // BUG-086: Detect project root mismatch (e.g. profile copied from another project).
++  // Missing projectRoot (older profile) is also treated as mismatch.
++  const canonicalize = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
++  const canonicalCwd = canonicalize(projectRoot);
++  const canonicalStored = activeProfile.projectRoot ? canonicalize(activeProfile.projectRoot) : null;
++
++  if (canonicalStored !== canonicalCwd) {
++    const storedLabel = activeProfile.projectRoot || '(unknown - profile predates root-tracking)';
++    console.log(`[SYSTEM] Onboarding profile belongs to a different project (${storedLabel}). Re-onboarding required.`);
++    if (interactive && autoRun) await runOnboarding(projectRoot);
++    if (returnStatus) return { needsOnboarding: true, reason: 'profile_incomplete_or_stale', profile: activeProfile };
++    return true;
++  }
++
+   let needsReonboard = false;
+   if (activeProfile.binaryVersion !== version) {
+     console.log(`[Onboarding] Binary version changed (${activeProfile.binaryVersion || 'unknown'} → ${version}). Re-onboarding required.`);
+diff --git a/src/cli/startup-checks.js b/src/cli/startup-checks.js
+index 8289117..3aabdf2 100644
+--- a/src/cli/startup-checks.js
++++ b/src/cli/startup-checks.js
+@@ -25,32 +25,8 @@ function findNearestPackageDir(startDir) {
+   }
+ }
+ 
+-function readConfig(pathLike) {
+-  try {
+-    if (!pathLike || !fs.existsSync(pathLike)) return null;
+-    const raw = fs.readFileSync(pathLike, 'utf8');
+-    return JSON.parse(raw);
+-  } catch {
+-    return null;
+-  }
+-}
+-
+-function isManagedControllerInstall(invocationCwd) {
+-  const home = process.env.HOME || '';
+-  const cfgPath = path.join(home, '.mbo', 'config.json');
+-  const cfg = readConfig(cfgPath);
+-  if (!cfg || typeof cfg !== 'object') return false;
+-  const managedRoot = cfg.controllerRoot || cfg.installRoot;
+-  if (!managedRoot || typeof managedRoot !== 'string') return false;
+-  const managed = path.resolve(managedRoot);
+-  const cwd = path.resolve(invocationCwd);
+-  return cwd === managed || cwd.startsWith(`${managed}${path.sep}`);
+-}
+-
+ function isSelfRunDisallowed(invocationCwd, packageRoot) {
+   // setup can run anywhere; this check is for runtime/init only.
+-  if (isManagedControllerInstall(invocationCwd)) return true;
+-
+   const nearestPkgDir = findNearestPackageDir(invocationCwd);
+   if (!nearestPkgDir) return false;
+ 
+@@ -74,5 +50,4 @@ function selfRunGuardMessage(packageRoot) {
+ module.exports = {
+   isSelfRunDisallowed,
+   selfRunGuardMessage,
+-  isManagedControllerInstall,
+ };

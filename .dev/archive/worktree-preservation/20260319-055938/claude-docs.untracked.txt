@@ -1,0 +1,2 @@
+docs/governance-protocol.md
+docs/pipeline.md
