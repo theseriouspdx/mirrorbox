@@ -708,3 +708,26 @@ system messages, operator, relay <and all other agents> all should be different 
 - **Location:** `scripts/test-*.js`
 - **Severity:** P1
 - **Status:** RESOLVED — 2026-03-16. DB path now uses `DB_PATH` env or `MBO_PROJECT_ROOT` consistently across all test scripts.
+
+### BUG-141: Classifier BUDGET_EXCEEDED — sessionHistory/stateSummary leaking into classifier context | Milestone: 1.1 | FIXED
+- **Location:** `src/auth/operator.js` → `classifyRequest()`
+- **Severity:** P1
+- **Status:** FIXED — 2026-03-19
+- **Task:** v0.11.36
+- **Fix:** Stripped classifier context to `{ userMessage }` only to stay within classifier input budget and avoid history-driven overflow.
+
+
+### BUG-142: Worktree auth/bootstrap friction — inconsistent root and session display | Milestone: 1.1 | FIXED
+- **Location:** `bin/handshake.py`, `bin/mbo.js`
+- **Severity:** P2
+- **Status:** FIXED — 2026-03-19
+- **Task:** v0.11.36
+- **Fix:** Auto-initialize auth state, normalize scope display to `.`, accept `y/yes`, and force `MBO_PROJECT_ROOT` on auth subprocesses.
+
+
+### BUG-143: `~/.mbo/config.json` `planner` key not recognized — architecturePlanner/componentPlanner left unrouted | Milestone: 1.1 | FIXED
+- **Location:** `src/auth/model-router.js`
+- **Severity:** P1
+- **Status:** FIXED — 2026-03-19
+- **Task:** v0.11.36
+- **Fix:** Added `planner` alias to planner roles and gemini planner fallback to prevent null planner routing.

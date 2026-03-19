@@ -1,0 +1,49 @@
+# NEXT_SESSION — Installer-first runtime flow + v0.11.36 resume
+
+## What changed this session
+- Added installer-first scripts:
+  - `/Users/johnserious/MBO/scripts/mbo-install-local.sh`
+  - `/Users/johnserious/MBO/scripts/mbo-install-alpha.sh`
+  - `/Users/johnserious/MBO/scripts/mbo-run-alpha.sh`
+- Updated `/Users/johnserious/MBO/scripts/alpha-runtime.sh` to run via `npx mbo` (no direct node launcher).
+- Updated docs to enforce runtime entry contract (`mbo`/`npx mbo` only).
+
+## Runtime contract (must follow)
+1. Build/install package from source checkout.
+2. Install package into target project (`MBO_Alpha`) as end-user style dependency.
+3. Run from target project with `npx mbo` (or `mbo` if globally installed).
+4. Do NOT use `node /path/to/bin/mbo.js` for acceptance.
+
+## Install/run commands
+```bash
+cd /Users/johnserious/MBO
+scripts/mbo-install-alpha.sh /Users/johnserious/MBO_Alpha
+
+cd /Users/johnserious/MBO_Alpha
+npx mbo
+```
+
+For scripted E2E capture (dual-log output):
+```bash
+cd /Users/johnserious/MBO
+scripts/alpha-runtime.sh e2e --alpha /Users/johnserious/MBO_Alpha
+```
+
+## E2E acceptance script (4 turns)
+From `/Users/johnserious/MBO_Alpha`:
+1. launch: `npx mbo`
+2. input: `status`
+3. input: `Run readiness-check workflow now and complete one full workflow cycle successfully in plain English.`
+4. input: `go`
+5. input: `approved`
+
+## Remaining focus
+- Resume task `v0.11.36` after installer-flow validation:
+  - classifier budget pressure
+  - planner section reconciliation robustness
+- Save each fresh Alpha transcript to both locations:
+  - `/Users/johnserious/MBO_Alpha/.mbo/logs/`
+  - `/Users/johnserious/MBO/.dev/sessions/analysis`
+
+## Note
+If warning banner still references wrong controller path, verify `~/.mbo/config.json` and keep controller metadata install-driven only (set by installer scripts).

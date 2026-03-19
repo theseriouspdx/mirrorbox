@@ -9,7 +9,6 @@
 1. Read this file (`AGENTS.md`).
 2. Read `.dev/governance/projecttracking.md` — identify current milestone and active task.
 3. Read `.dev/governance/BUGS.md` — check for P0 blockers.
-4. Read `.dev/sessions/NEXT_SESSION.md` — orientation and handoff.
 
 ---
 
@@ -54,4 +53,4 @@ All changes must pass through the 11-stage pipeline. No code touches the reposit
 3. **All modifications proposed as unified diffs only.**
 4. **No stylistic or cleanup changes.**
 
-*Last updated: 2026-03-13*
+*Last updated: 2026-03-19*

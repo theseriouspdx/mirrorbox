@@ -1,0 +1,46 @@
+# projecttracking.md
+## Mirror Box Orchestrator — Canonical Task Ledger
+
+**Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
+**Next Task:** v0.11.86
+**Policy:** This file is the single source of truth for work state.
+
+---
+
+## Active Tasks
+| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
+|---|---|---|---|---|---|---|---|---|
+| v0.11.86 | bug | BUG-086 root-mismatch re-onboarding validation round 2 | IN_PROGRESS | gemini | gemini/bug-086-revalidate | 2026-03-17 | BUG-086 | Fresh install re-onboards when copied profile has missing/foreign `projectRoot`; evidence logged in BUGS.md |
+| v0.11.61 | bug | BUG-061 Merkle scope + MCP query path drift closure | READY | gemini | gemini/bug-061-closure | 2026-03-17 | BUG-061 | Merkle scope contract implemented + non-src drift tests + standardized `node scripts/mcp_query.js` path |
+| v0.11.52 | bug | BUG-052 global mbo CLI entrypoint packaging | READY | codex | codex/bug-052-cli-entrypoint | 2026-03-17 | BUG-052 | `mbo` installable globally and validated in clean environment |
+| v0.11.36 | docs | Workflow canonicalization and validator enforcement | IN_PROGRESS | codex | codex/workflow-canonicalization | 2026-03-17 | BUG-048 | AGENTS/protocol updated, session-close generator deterministic, validator drift checks enforced |
+
+---
+
+## Recently Completed
+| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
+|---|---|---|---|---|---|---|---|---|
+| COLLAPSE-01 | docs | Collapse .dev/governance/AGENTS.md — merge sources, apply C1-C6 | COMPLETED | claude | claude/collapse-01 | 2026-03-18 | COLLAPSE_HANDOFF_20260318.md | Written to .dev/governance/AGENTS.md v1.1; DID reconciliation A+B+C complete |
+| v0.11.92 | docs | COLLAPSE-03 sync `src/templates/AGENTS.md` to governance v1.1 | COMPLETED | claude | claude/collapse-03 | 2026-03-18 | COLLAPSE-03,COLLAPSE_HANDOFF_20260318b.md | Client template includes applicable invariants (1-9,14,18,10-13,15-17), omits controller-only sections; `docs/agent-onboarding.md` stale NEXT_SESSION paths fixed; BUG-135 logged for init-project.js stub gap; validator clean |
+| v0.11.91 | docs | C5 migrate TECHNICAL_DEBT items to BUGS and archive TECHNICAL_DEBT.md | COMPLETED | claude | claude/collapse-c5 | 2026-03-18 | BUG-131,BUG-132,BUG-134,COLLAPSE_HANDOFF_20260318b.md | BUG-131, BUG-132, BUG-134 logged; TECHNICAL_DEBT.md moved to `.dev/archive/governance-artifacts/`; validator clean |
+| COLLAPSE-02 | docs | Create .mbo/STATE.md format + update session-close.sh to write it | COMPLETED | claude | claude/collapse-02-04 | 2026-03-18 | COLLAPSE-01 | STATE_FORMAT.md spec written; session-close.sh writes .mbo/STATE.md on close |
+| COLLAPSE-04 | docs | NEXT_SESSION.md path consolidation to .mbo/sessions/ only | COMPLETED | claude | claude/collapse-02-04 | 2026-03-18 | COLLAPSE-01 | Canonical write to .mbo/sessions/NEXT_SESSION.md; symlinks at old paths; curl MCP block replaced with mcp_query.js |
+| v0.11.22 | feature | Adaptive Onboarding v2 Intelligence Layer (UX-022..UX-028) | COMPLETED | codex | codex/onboarding-v2-ux-elevation | 2026-03-17 | BUG-093,BUG-094,BUG-095,BUG-096,BUG-097,BUG-098,BUG-099,BUG-100,BUG-101 | Merged to master and `scripts/test-onboarding.js` 8/8 pass |
+| v0.10.09 | feature | Sovereign Loop (Self-Patching Validation) | COMPLETED | gemini | gemini/onboarding-v2 | 2026-03-16 | 1.0-09 | Verification gate pass recorded |
+
+---
+
+## Backlog
+| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
+|---|---|---|---|---|---|---|---|---|
+| v0.11.63 | bug | Harden macOS auth fallback explicit user-presence prompt | BACKLOG | unassigned | - | 2026-03-17 | BUG-063 | Deterministic user-presence prompt semantics validated |
+| COLLAPSE-05 | docs | Renumber AGENTS.md invariants to eliminate gaps (1-9, 14, 18) | BACKLOG | unassigned | - | 2026-03-18 | COLLAPSE-01 | Invariants renumbered sequentially across ALL files — full cross-reference surface: .dev/governance/AGENTS.md, src/templates/AGENTS.md, src/auth/call-model.js, src/auth/operator.js, src/auth/did-orchestrator.js, src/state/event-store.js, src/state/state-manager.js, src/state/redactor.js, src/graph/graph-store.js, src/sandbox/sandbox-manager.js, scripts/test-invariants.js, scripts/verify-chain.js, scripts/test-redactor.js, scripts/test-redactor-v2.js, docs/agent-onboarding.md, docs/invariant-audit.md; CHANGELOG.md historical references left untouched; no behavioral changes; worktree copies update on merge |
+
+---
+
+## Status Vocabulary
+- `BACKLOG`: defined but not scheduled
+- `READY`: approved and ready to execute
+- `IN_PROGRESS`: currently being implemented
+- `BLOCKED`: cannot proceed; blocker must be explicit in `Links`
+- `COMPLETED`: accepted with evidence in `Acceptance`

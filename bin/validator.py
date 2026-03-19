@@ -12,7 +12,6 @@ IMPORTS_ALLOW = MBO_ROOT / ".dev" / "governance" / "imports.allow"
 COMPLEXITY_TOML = MBO_ROOT / ".dev" / "governance" / "complexity.toml"
 PROJECTTRACKING = MBO_ROOT / ".dev" / "governance" / "projecttracking.md"
 BUGS = MBO_ROOT / ".dev" / "governance" / "BUGS.md"
-NEXT_SESSION = MBO_ROOT / ".dev" / "sessions" / "NEXT_SESSION.md"
 
 
 @dataclass
@@ -182,8 +181,6 @@ def validate_workflow_consistency():
             if rec["task"] not in task_ids:
                 errs.append(f"{rec['header']}: task '{rec['task']}' not found in projecttracking.md")
 
-    # NEXT_SESSION.md is an optional generated legacy handoff artifact.
-    # Validator enforcement stays anchored to the canonical ledger + bug registry.
 
     return errs
 

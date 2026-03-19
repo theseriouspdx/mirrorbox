@@ -15,6 +15,12 @@ const CONFIG_DIR  = path.join(os.homedir(), '.mbo');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 const LAUNCH_AGENTS_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents');
 const DEFAULT_CONTROLLER_ROOT = path.resolve(__dirname, '../..');
+const SELF_RUN_WARNING = process.env.MBO_SELF_RUN_WARNING === '1';
+
+function selfRunWarningBlock() {
+  const controller = process.env.MBO_SELF_RUN_WARNING_CONTROLLER || process.cwd();
+  return `\x1b[31m[MBO WARNING] MBO SHOULD NOT BE RUN FROM THE MBO DIRECTORY.\n[MBO WARNING] Controller: ${controller}\x1b[0m`;
+}
 
 function canonicalPath(p) {
   try { return fs.realpathSync(p); } catch (_) { return path.resolve(p); }
@@ -421,7 +427,10 @@ function getRoleOptions(role, d) {
 }
 
 function ask(rl, question) {
-  return new Promise(resolve => rl.question(question, a => resolve(a.trim())));
+  return new Promise(resolve => {
+    const prefix = SELF_RUN_WARNING ? `${selfRunWarningBlock()}\n` : '';
+    rl.question(`${prefix}${question}`, a => resolve(a.trim()));
+  });
 }
 
 async function pickRole(rl, role, defaultVal, d) {

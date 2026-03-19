@@ -1,0 +1,191 @@
+# AGENTS.md
+## [Project Name] — Autonomous Agent Governance (v1.1)
+
+**Scope:** This document governs autonomous agents operating in this client repository
+under MBO management. Read at the start of every session.
+
+<!-- COLLAPSE-03 scope decision:
+Include agent-behavior policy that applies in any MBO-managed repo.
+Exclude MBO-controller-internal governance (DID orchestration internals,
+nhash/hard-state protocol, persona store, entropy gate, MBO task-versioning,
+MBO workflow-ledger ownership model). -->
+
+---
+
+## Section 1 — Session Start Protocol
+
+Every development session begins in this order. No exceptions.
+
+1. Read this file (`.mbo/AGENTS.md`)
+2. Read `.mbo/projecttracking.md` — identify current milestone and active task
+3. Read `.mbo/BUGS.md` — check linked P0/P1 blockers for the active task
+4. Read `.mbo/sessions/NEXT_SESSION.md` — generated handoff only (do not hand-edit)
+
+No code is written before this sequence completes.
+
+---
+
+## Section 2 — Pipeline Integrity
+
+All changes must pass through the approval pipeline. No code touches the repository
+without a human typing "go" at the mandatory approval gate.
+
+---
+
+## Section 3 — Authorship & Attribution Policy
+
+1. **Authorship is for the Architect:** No agent shall claim authorship credit on
+   commit pushes, pull requests, or documentation.
+2. **Metadata Only:** Agents may be identified in Git metadata as `Committer` or in
+   `Co-authored-by:` trailers, but `Author` is reserved for the human architect.
+3. **No "AI-Generated" Branding:** Agents must not prepend "AI-Generated" or similar
+   self-crediting labels to commit messages unless explicitly configured by the
+   architect for audit purposes.
+
+---
+
+## Section 4 — Security Invariants
+
+| Agent | Can | Cannot |
+|-------|-----|--------|
+| Any agent | Propose, review, derive, and implement with approval | Write to source without task in task ledger |
+
+### Core Security Invariants (v1.1)
+
+1. **Invariant 1:** No unapproved file modifications.
+2. **Invariant 2:** No write access outside project root.
+3. **Invariant 3:** No execution without human approval.
+4. **Invariant 4:** Every operation reproducible from the event store.
+5. **Invariant 5:** Failed builds revert automatically.
+6. **Invariant 6:** No model bypasses `callModel`.
+7. **Invariant 7:** Context isolation enforced at runtime.
+8. **Invariant 8:** Secrets never enter sandbox execution.
+9. **Invariant 9:** Local models stay local.
+14. **Invariant 14:** No `write_file` for overwrites. Overwriting or modifying an
+    existing file via `write_file` is prohibited. `replace` MUST be used for all
+    modifications to existing files to ensure surgical precision. `write_file` is
+    reserved for creating new files only.
+18. **Invariant 18 (DB Write Prohibition):** Agents MUST NOT write directly to any
+    database under any circumstances. Task and pipeline state flow through governance
+    artifacts and operator-controlled pipeline steps. Direct SQL writes (`INSERT`,
+    `UPDATE`, `DELETE`) through any path are a governance violation.
+
+---
+
+## Section 5 — Session Management & Two-World Integrity
+
+### Invariant 10 (Two-World Isolation)
+- Every operation must declare `world_id` as `mirror` or `subject`.
+- Reads may span worlds; writes must target exactly one world.
+- Missing or invalid `world_id` is a hard failure.
+
+### Invariant 11 (Graph Investigation)
+- Retrieval must use `graph_search` and `graph_query_impact`.
+- Full SPEC/file-dump context injection is disallowed by default.
+
+### Invariant 12 (HardState Budget)
+- HardState must not exceed 5,000 tokens.
+
+### Invariant 13 (Pre-Mutation Checkpoints & Backups)
+- Before any mutation, create an immutable checkpoint.
+- Before any file modification or creation, write a backup under `.dev/bak/`
+  preserving repository topology.
+
+### Invariant 15 (Non-Destructive Recovery)
+- `rm -f` and delete/recreate recovery patterns are prohibited.
+
+### Invariant 16 (Atomic Session-End Backup)
+- On session close, persist event flush, graph delta, handoff record, and integrity
+  hashes.
+
+### Invariant 17 (Worktree-Isolated Verification Gate)
+- All implementation work must occur in a dedicated git worktree with its own branch
+  (`<agent>/<task-or-scope>`).
+- Worktree path convention: `.dev/worktree/<agent>-<task>/`.
+- Create with: `git worktree add .dev/worktree/<agent>-<task> -b <agent>/<task>`.
+- Concurrent agents must not share a working directory.
+- No merge/promotion before verification gate passes.
+- Verification gate minimum: validator passes, task-specific tests pass, no new
+  P0/P1 regressions introduced.
+
+---
+
+## Section 6 — Session Protocols
+
+### 6A. Audit Gate
+When implementation is complete and verification passes, halt and present:
+1. Unified diff of all changes.
+2. Full validator output.
+3. One-paragraph summary.
+
+### 6B. State Sync
+On `approved`, update `.mbo/BUGS.md` and `.mbo/sessions/NEXT_SESSION.md` as
+required by the active task.
+
+### 6C. Session End
+If "end session" is requested:
+1. Write `.mbo/sessions/NEXT_SESSION.md`.
+2. Write `.mbo/STATE.md`.
+3. Terminate MCP if active.
+4. Finalize branch/worktree lifecycle per policy.
+
+---
+
+## Section 7 — Critical Constraints
+
+1. `callModel` is the only path to any model.
+2. No file write outside approved scope.
+3. No code touches the repository without human `go`.
+4. Every model call logged to event store before and after.
+5. Reviewer never sees planner output before the review stage.
+
+---
+
+## Section 8 — Strict Edit Mode
+
+1. **Read-only by default.**
+2. **No mutation without approval.**
+3. **All modifications proposed as unified diffs only.**
+4. **No stylistic or cleanup changes unless functional or performance required.**
+
+---
+
+## Section 9 — Graph-Assisted Context
+
+Run only the queries listed in `.mbo/sessions/NEXT_SESSION.md`.
+Load only the files and SPEC sections those queries return.
+
+Canonical MCP diagnostics command:
+`node scripts/mcp_query.js --diagnose graph_server_info`
+
+If graph is unavailable:
+- Run diagnostics command above.
+- Start/recover graph service per project setup.
+- Report status and wait for human instruction.
+
+---
+
+## Section 10 — Operational Workflow
+
+Every development session follows:
+1. Identify task from task ledger.
+2. Create working worktree (`git worktree add .dev/worktree/<agent>-<task> -b <agent>/<task>`).
+
+   > **DB Write Prohibition:** At no point may an agent write directly to any pipeline
+   > database. All task state flows through governance artifacts → Operator → pipeline.
+   > (See Invariant 18.)
+3. Derive and propose solution from graph/local context.
+4. Human approval (`go`).
+5. Implement and verify (validator + task-specific tests).
+6. Verification gate decision — promotion only after checks pass.
+7. Audit gate (diff + validator output + summary).
+8. Sync state artifacts (task ledger, bug registry, `.mbo/STATE.md`,
+   `.mbo/sessions/NEXT_SESSION.md`).
+9. Branch finalization (promote, then delete or archive branch).
+10. Lock and journal closeout.
+
+---
+
+*Last updated: 2026-03-18 — Synced to governance v1.1 (COLLAPSE-03). Invariants 14,
+17, 18 added. NEXT_SESSION.md canonical path → `.mbo/sessions/NEXT_SESSION.md`.
+Section 11 decision log removed from shipped artifact — see COLLAPSE-03 DID record.*

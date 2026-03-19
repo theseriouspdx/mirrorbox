@@ -68,3 +68,23 @@ node ./scripts/mcp_query.js graph_search "open tasks"
 ---
 
 *Stay Vigilant.*
+
+
+## Installer Flows (No Direct node Launcher)
+
+Use installer scripts instead of `node /path/to/bin/mbo.js`:
+
+```bash
+# Install local source globally for developer machine
+cd /Users/johnserious/MBO
+scripts/mbo-install-local.sh
+
+# Install packaged MBO into Alpha target project
+scripts/mbo-install-alpha.sh /Users/johnserious/MBO_Alpha
+
+# Run in Alpha exactly like end user
+cd /Users/johnserious/MBO_Alpha
+npx mbo
+```
+
+Contract: runtime entry is `mbo`/`npx mbo` only. Avoid direct `node .../bin/mbo.js` for validation runs.

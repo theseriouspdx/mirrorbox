@@ -114,6 +114,13 @@ async function main() {
   const hhmm = String(now.getUTCHours()).padStart(2, '0') +
     String(now.getUTCMinutes()).padStart(2, '0');
   const fullVersion = `${pkg.version}-${yyyymmdd}.${hhmm}`;
+  const selfRunWarning = process.env.MBO_SELF_RUN_WARNING === '1';
+  const red = '\x1b[31m';
+  const reset = '\x1b[0m';
+  const controller = process.env.MBO_SELF_RUN_WARNING_CONTROLLER || PROJECT_ROOT;
+  const warningBlock = selfRunWarning
+    ? `${red}[MBO WARNING] MBO SHOULD NOT BE RUN FROM THE MBO DIRECTORY.\n[MBO WARNING] Controller: ${controller}${reset}\n`
+    : '';
 
   console.log(`MBO Engine v${fullVersion} initialized. [ctrl+f to focus sandbox, SHIFT+T for stats]`);
 
@@ -126,7 +133,7 @@ async function main() {
     input: process.stdin,
     output: process.stdout,
     terminal: true,
-    prompt: `MBO v${fullVersion}> `
+    prompt: `${warningBlock}MBO v${fullVersion}> `
   });
 
   rl.prompt();

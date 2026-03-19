@@ -81,9 +81,7 @@ if [[ "$DB_PATH" == "$DB_PATH_MBO" ]]; then
 else
   BACKUP_DIR="$ROOT_DIR/data/backups"
 fi
-NEXT_ROOT="$ROOT_DIR/NEXT_SESSION.md"
-NEXT_DEV="$ROOT_DIR/.dev/sessions/NEXT_SESSION.md"
-NEXT_DATA="$ROOT_DIR/data/NEXT_SESSION.md"
+SESSIONS_DIR="$ROOT_DIR/.dev/sessions"
 GOVERNANCE_DIR="$ROOT_DIR/.dev/governance"
 
 if [[ -z "$DB_PATH" || ! -f "$DB_PATH" ]]; then
@@ -92,8 +90,7 @@ if [[ -z "$DB_PATH" || ! -f "$DB_PATH" ]]; then
 fi
 
 mkdir -p "$BACKUP_DIR"
-mkdir -p "$(dirname "$NEXT_DEV")"
-mkdir -p "$(dirname "$NEXT_DATA")"
+mkdir -p "$SESSIONS_DIR"
 
 # 1. PRAGMA integrity_check + smart backup
 STAMP="$(date +"%Y%m%d_%H%M%S")"
@@ -245,6 +242,9 @@ SNAPSHOT_SHA="$(shasum -a 256 "$SNAPSHOT_PATH" | awk '{print $1}')"
 ls -t "$BACKUP_DIR"/mirrorbox_*.bak 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1)) | xargs rm -f || true
 ls -t "$SNAPSHOT_DIR"/mirror_snapshot_*.zip 2>/dev/null | tail -n +4 | xargs rm -f || true
 
+# Prune session handoffs: keep last 20
+ls -t "$SESSIONS_DIR"/HANDOFF_*.md 2>/dev/null | tail -n +21 | xargs rm -f || true
+
 # DB health check: compare DB size to src/ size and warn if out of whack
 if [[ -d "$ROOT_DIR/src" ]]; then
   SRC_SIZE_BYTES="$(du -sk "$ROOT_DIR/src" | awk '{print $1 * 1024}')"
@@ -351,9 +351,12 @@ if lsof -ti:"$DEV_PORT" >/dev/null 2>&1; then
 fi
 
 # 3. Generate NEXT_SESSION.md Content
-cat > "$NEXT_ROOT" <<EOF
-# NEXT_SESSION.md
-## Mirror Box Orchestrator — Session Handoff
+HANDOFF_BASENAME="HANDOFF_${STAMP}.md"
+HANDOFF_PATH="$SESSIONS_DIR/$HANDOFF_BASENAME"
+
+cat > "$HANDOFF_PATH" <<EOF
+# Session Handoff: ${STAMP}
+## Mirror Box Orchestrator
 
 **Session ended:** $(date -u +"%Y-%m-%d")
 **Last task:** ${LAST_TASK_ID}: ${LAST_TASK_NAME} (${LAST_TASK_STATUS})
@@ -379,7 +382,7 @@ graph_search("${NEXT_TASK_TITLE}")
 ## Section 2 — Session Summary
 
 - Tasks completed this session: ${COMPLETED_COUNT}
-- Canonical workflow: projecttracking.md is source of truth, BUGS.md links to task IDs, NEXT_SESSION.md is generated.
+- Canonical workflow: projecttracking.md is source of truth, BUGS.md links to task IDs, handoffs are timestamped.
 
 ---
 
@@ -395,15 +398,18 @@ graph_search("${NEXT_TASK_TITLE}")
 - Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 EOF
 
-# Sync all handoff locations for backward compatibility.
-cp "$NEXT_ROOT" "$NEXT_DATA"
-cp "$NEXT_ROOT" "$NEXT_DEV"
+# Update symlink to latest
+ln -sf "$HANDOFF_BASENAME" "$SESSIONS_DIR/LATEST.md"
+
+# Cleanup legacy fixed-path files
+rm -f "$ROOT_DIR/NEXT_SESSION.md" "$ROOT_DIR/data/NEXT_SESSION.md" "$SESSIONS_DIR/NEXT_SESSION.md"
 
 # 4. nhash Seed Calculation (Section 8)
 # X: AGENTS.md NUMBERED sections (e.g. ## Section 1)
 # Y: BUGS.md NUMBERED sections
 echo "----------------------------------------------------"
-echo "Session Handoff Generated: $NEXT_ROOT"
+echo "Session Handoff Generated: $HANDOFF_PATH"
+echo "Latest Symlink: $SESSIONS_DIR/LATEST.md"
 echo "Backup Created: $BACKUP_FILE"
 echo "PRAGMA integrity_check: $INTEGRITY_RESULT"
 echo "SHA-256: $SHA256"

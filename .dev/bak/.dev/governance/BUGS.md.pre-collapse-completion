@@ -1,0 +1,26 @@
+# BUGS.md
+## Mirror Box Orchestrator — Known Issues and Queued Fixes
+
+**Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred with note. Spec gap → spec updated before fix is written.
+
+---
+
+## Section 1 — P0: Blocking Current Milestone (0.6)
+
+(None. Milestone 0.5 SUCCESS. Pre-0.6 Audit PASS.)
+
+### BUG-101: Error message tells user to run `mbo setup` while they are already running `mbo setup` | Milestone: 1.1 | RESOLVED
+- **Location:** `src/auth/operator.js:118` (`_resolveMCP`)
+- **Severity:** P1
+- **Status:** RESOLVED — 2026-03-17
+- **Description:** When `installMCPDaemon` fails during `mbo setup` for a new project, the error message says `Run 'mbo setup' first`. This is emitted while the user is already mid-setup. The message is circular and gives no actionable path forward.
+- **Observed:** `Error: No MCP manifest found in /Users/johnserious/johnseriouscom. Run 'mbo setup' first.`
+- **Fix:** Addressed as part of onboarding v2 merge (2026-03-17). Copy strings in `onboarding.js` follow Section 36 rules — no self-referential `mbo setup` references in setup-time error messages. Error copy now describes the actual condition.
+
+### BUG-100: `installMCPDaemon` fails and hangs for a genuine new project — no manifest bootstrap | Milestone: 1.1 | RESOLVED
+- **Location:** `src/auth/operator.js:118` (`_resolveMCP`), `bin/mbo.js:53` (`runSetupCommand` `.catch`)
+- **Severity:** P0 (blocks setup completion)
+- **Status:** RESOLVED — 2026-03-17
+- **Description:** After onboarding completes for a fresh external project with no prior `.mbo/` state, `installMCPDaemon` launches the operator which throws `No MCP manifest found`. The manifest doesn't exist yet — this is a first-time install. Additionally, the process hangs indefinitely after the error rather than exiting; `process.exit(1)` in the `.catch` handler does not fire, likely due to a dangling async operation or stdin remaining open.
+- **Observed:** Error printed, then process stalls. User must Ctrl+C to recover. `[MBO] MCP daemon ready.` is never printed.
+- **Fix:** Root cause was `rl.close()` draining stdin and collapsing the event loop before the daemon install chain could run. Fixed in onboarding v2 (`createPromptIO().close()` now calls `process.stdin.resume()` after `rl.close()`). Confirmed via BUG-092 fix. Onboarding v2 merged to master 2026-03-17 — all 8 tests pass.

@@ -26,10 +26,9 @@ Execute in order:
 1. Read `.dev/governance/AGENTS.md`
 2. Read `.dev/governance/projecttracking.md` — state the Active Milestone and Task ID
 3. Read `.dev/governance/BUGS.md` — flag any P0 blockers before proceeding
-4. Read `.dev/sessions/NEXT_SESSION.md` — orientation and handoff
-5. Complete the nhash affirmation (AGENTS.md §8) — compute Base nhash, report it, wait for human salt
-6. Run `python3 bin/handshake.py --status` — report session scope and TTL.
-7. Run `graph_search("<first OPEN task description>")` — state SPEC sections and source files loaded
+4. Complete the nhash affirmation (AGENTS.md §8) — compute Base nhash, report it, wait for human salt
+5. Run `python3 bin/handshake.py --status` — report session scope and TTL.
+6. Run `graph_search("<first OPEN task description>")` — state SPEC sections and source files loaded
 
 No code. No proposals. No disk reads beyond this list. Until the human confirms the nhash, nothing else happens.
 

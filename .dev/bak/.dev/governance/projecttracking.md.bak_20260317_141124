@@ -1,0 +1,49 @@
+# projecttracking.md
+## Mirror Box Orchestrator — Canonical Task Ledger
+
+**Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
+**Next Task:** v0.11.88
+**Policy:** This file is the single source of truth for work state.
+
+---
+
+## Active Tasks
+| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
+|---|---|---|---|---|---|---|---|---|
+| v0.11.87 | audit | Live UX Workflow Audit (Human-Driven) | COMPLETED | claude | master | 2026-03-17 | UX-022..028,Section-36 | Section 36 authored and merged to SPEC.md; chat-native contract fully specified |
+<<<<<<< HEAD
+| v0.11.88 | feature | Section 36 Chat-Native Operator & Onboarding Contract | IN_PROGRESS | gemini | section-36-chat-native | 2026-03-17 | BUG-106,BUG-107,BUG-108 | AGENTS.md Hard State Sovereign Loop implemented; DID override logged; Section 36 persona live |
+| v0.11.90 | bug | BUG-116 Gemini CLI no auto-reconnect recovery contract | READY | gemini | - | 2026-03-17 | BUG-116 | Documented MBO-side mitigations and upstream reconnect requirement validated |
+| v0.11.89 | bug | BUG-117 MCP timeout 30s cap — add timeout to buildPayload() | READY | gemini | - | 2026-03-17 | BUG-117 | `update-client-configs.js` buildPayload() emits `"timeout": 30000`; verified dead tool calls fail within 30s |
+=======
+| v0.11.88 | feature | Section 36 Chat-Native Operator & Onboarding Contract | IN_PROGRESS | gemini | gemini/v0.11.88-gov | 2026-03-17 | BUG-106,BUG-107,BUG-108,DID-Override-JES | AGENTS.md Hard State Sovereign Loop implemented; DID override logged; Section 36 persona live |
+>>>>>>> gemini/v0.11.88-gov
+| v0.11.61 | bug | BUG-061 Merkle scope + MCP query path drift closure | READY | gemini | gemini/bug-061-closure | 2026-03-17 | BUG-061 | Merkle scope contract implemented + non-src drift tests + standardized `node scripts/mcp_query.js` path |
+| v0.11.52 | bug | BUG-052 global mbo CLI entrypoint packaging | READY | codex | codex/bug-052-cli-entrypoint | 2026-03-17 | BUG-052 | `mbo` installable globally and validated in clean environment |
+| v0.11.36 | docs | Workflow canonicalization and validator enforcement | IN_PROGRESS | codex | codex/workflow-canonicalization | 2026-03-17 | BUG-048 | AGENTS/protocol updated, session-close generator deterministic, validator drift checks enforced |
+
+---
+
+## Recently Completed
+| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
+|---|---|---|---|---|---|---|---|---|
+| v0.11.87 | audit | Live UX Workflow Audit (Human-Driven) | COMPLETED | claude | master | 2026-03-17 | UX-022..028,Section-36 | Section 36 authored and merged to SPEC.md; chat-native contract fully specified |
+| v0.11.86 | bug | BUG-086 root-mismatch re-onboarding validation round 2 | COMPLETED | gemini | gemini/bug-086-revalidate | 2026-03-17 | BUG-086 | Fresh install re-onboards when copied profile has missing/foreign `projectRoot`; verified with `scripts/test-onboarding.js` |
+| v0.11.22 | feature | Adaptive Onboarding v2 Intelligence Layer (UX-022..UX-028) | COMPLETED | codex | codex/onboarding-v2-ux-elevation | 2026-03-17 | BUG-093,BUG-094,BUG-095,BUG-096,BUG-097,BUG-098,BUG-099,BUG-100,BUG-101 | Merged to master and `scripts/test-onboarding.js` 8/8 pass |
+| v0.10.09 | feature | Sovereign Loop (Self-Patching Validation) | COMPLETED | gemini | gemini/onboarding-v2 | 2026-03-16 | 1.0-09 | Verification gate pass recorded |
+
+---
+
+## Backlog
+| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
+|---|---|---|---|---|---|---|---|---|
+| v0.11.63 | bug | Harden macOS auth fallback explicit user-presence prompt | BACKLOG | unassigned | - | 2026-03-17 | BUG-063 | Deterministic user-presence prompt semantics validated |
+
+---
+
+## Status Vocabulary
+- `BACKLOG`: defined but not scheduled
+- `READY`: approved and ready to execute
+- `IN_PROGRESS`: currently being implemented
+- `BLOCKED`: cannot proceed; blocker must be explicit in `Links`
+- `COMPLETED`: accepted with evidence in `Acceptance`

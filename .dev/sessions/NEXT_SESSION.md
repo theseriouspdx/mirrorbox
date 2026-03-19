@@ -1,67 +1,66 @@
-# NEXT_SESSION.md
-## Mirror Box Orchestrator — Session Handoff
+# NEXT_SESSION — Installer-First Alpha Resume (BUG-144 blocker)
 
-**Session ended:** 2026-03-18
-**Last task:** v0.11.36: Workflow canonicalization and validator enforcement (IN_PROGRESS)
-**Status:** Task Pending
+## Session state at wrap
+- Installer-first flow is active (`mbo`/`npx mbo` only, no direct `node .../bin/mbo.js` for acceptance).
+- Runtime copy path used: `/Users/johnserious/MBO` -> `/Users/johnserious/MBO_Alpha`.
+- Dual transcript requirement remains:
+  - `/Users/johnserious/MBO_Alpha/.mbo/logs/`
+  - `/Users/johnserious/MBO/.dev/sessions/analysis`
 
----
+## Active blockers discovered
+- `BUG-144` (P1, OPEN): onboarding role budget overflow is back during root-mismatch re-onboarding.
+  - Observed: `[BUDGET_EXCEEDED] Input tokens (3612) exceed budget (3000) for role onboarding`.
+  - This currently blocks clean installer-first acceptance flow completion.
+- `BUG-145` (P2, OPEN): self-run warning appears in Alpha due to `~/.mbo/config.json` `controllerRoot` drift.
+  - Non-blocking, but noisy and misleading.
 
-## Section 1 — Next Action
+## Prime Directive (carry forward after bugs are fixed)
+We are running the latest MBO from `/Users/johnserious/MBO` and validating an installer-first flow in `/Users/johnserious/MBO_Alpha`. Install from packaged artifact, run only via `mbo`/`npx mbo`, complete setup/onboarding plus one low-risk bug workflow, and finish with audit logs and clean state sync while preserving mandatory human approval boundaries.
 
-**Task v0.11.86 — BUG-086 root-mismatch re-onboarding validation round 2**
+Partnership model: adaptive operator partner. Ask dynamic onboarding questions based on detected governance artifacts (`projecttracking`, `BUGS`, roadmap/changelog). Drive one full workflow cycle in plain English, keep outputs user-facing (no raw JSON), capture transcript plus audit notes, and tie outcomes back to `projecttracking` and `BUGS` state.
 
-- Status: IN_PROGRESS
-- Linked P0/P1 blockers:
-- BUG-086: profile root mismatch handling must be validated in runtime loop without breaking status-only onboarding checks.
+## Next-session bootstrap prompt (paste this)
+Resume MBO with installer-first end-user flow.
+Project root: /Users/johnserious/MBO
+Target runtime: /Users/johnserious/MBO_Alpha
 
-**Graph queries to run at Gate 0:**
-```
-graph_search("BUG-086 root mismatch re-onboarding validation round 2")
-graph_search("v0.11.36 e2e workflow completion MBO_Alpha planner reviewer fallback")
-```
+Read first:
+- /Users/johnserious/MBO/.dev/governance/AGENTS.md
+- /Users/johnserious/MBO/.dev/governance/projecttracking.md
+- /Users/johnserious/MBO/.dev/governance/BUGS.md
+- /Users/johnserious/MBO/.dev/sessions/NEXT_SESSION.md
 
----
+Session objective:
+1. Fix BUG-144 first (onboarding BUDGET_EXCEEDED regression). Treat as blocker.
+2. Keep installer-first contract strict:
+   - Build/install from packaged artifact
+   - Run only with mbo/npx mbo
+3. Ensure acceptance runs are performed in TTY mode (interactive) until onboarding is stable.
+4. Optionally address BUG-145 warning-path drift after blocker is fixed.
+5. Validate full Alpha E2E cycle from /Users/johnserious/MBO_Alpha:
+   - launch npx mbo (including setup/onboarding)
+   - status
+   - Run readiness-check workflow now and complete one full workflow cycle successfully in plain English.
+   - go
+   - approved
 
-## Section 2 — Session Summary
+Required checks:
+- No BUDGET_EXCEEDED in user-visible output
+- No malformed/non-JSON warning strings in user-visible output
+- No planner fallback error strings listed in prior handoff/governance blockers
+- Reaches audit prompt and state sync cleanly
 
-- Created dedicated worktree branch: `codex/e2e-20260318-212502`.
-- Full transcript logging file used: `/Users/johnserious/MBO/.dev/sessions/TRANSCRIPT_E2E_20260318_212550.log`.
-- Refreshed `/Users/johnserious/MBO_Alpha` from `/Users/johnserious/MBO` (stable source), then synced patched files from worktree for runtime validation.
-- Implemented and synced these runtime changes:
-  - `src/auth/model-router.js`: provider normalization + legacy config harmonization (`claude-cli`, `google`, `anthropic`, `ollama`) and safer fallbacks.
-  - `src/auth/call-model.js`: explicit CLI binary guard.
-  - `src/index.js`: continuous `[ALIVE]` progress indicator while pipeline is running.
-  - `scripts/mbo-session-close.sh`: default incremental refresh; rebuild only when forced.
-  - `src/cli/onboarding.js`: `checkOnboarding(projectRoot, options)` now supports `{ autoRun, returnStatus }` and no longer forces onboarding when status-only check is requested.
-  - `src/auth/operator.js`: reviewer parse fallback hardening; MCP session-id capture/reuse + initialize-on-400 recovery path; assumption-ledger fallback softening; planner malformed-output fallback path partially improved.
-  - `bin/mbo.js`: suppress noisy `ps: etimes` stderr by redirecting `ps` stderr in helper reaper.
-- Current E2E status:
-  - Verified: no raw JSON surfaced in normal operator conversation.
-  - Verified: continuous alive progress appears during long stages.
-  - Verified: session-close defaults to incremental path (no forced rebuild).
-  - Not yet verified: one complete end-to-end workflow cycle to audit approval/sync without fallback failure.
+Execution constraints:
+- Copy latest codebase into Alpha before install/run when needed:
+  - rsync from /Users/johnserious/MBO to /Users/johnserious/MBO_Alpha (excluding .git/node_modules)
+- Install via:
+  - /Users/johnserious/MBO/scripts/mbo-install-alpha.sh /Users/johnserious/MBO_Alpha
+- Run via:
+  - cd /Users/johnserious/MBO_Alpha && npx mbo
+- Save transcript to both:
+  - /Users/johnserious/MBO_Alpha/.mbo/logs/
+  - /Users/johnserious/MBO/.dev/sessions/analysis
 
----
-
-## Section 3 — Immediate Runbook (Next Session)
-
-1. Start from `/tmp/mbo_alpha_runctx` (or another external cwd), always with `MBO_PROJECT_ROOT=/Users/johnserious/MBO_Alpha`.
-2. Run MCP recovery first:
-   - `MBO_PROJECT_ROOT=/Users/johnserious/MBO_Alpha node /Users/johnserious/MBO_Alpha/bin/mbo.js mcp`
-3. Start runtime:
-   - `MBO_PROJECT_ROOT=/Users/johnserious/MBO_Alpha node /Users/johnserious/MBO_Alpha/bin/mbo.js`
-4. Send exactly:
-   - `Run readiness-check workflow now and complete one full workflow cycle successfully in plain English.`
-   - `go`
-   - `approved`
-   - `status`
-5. If stage stalls or loops, prioritize `src/auth/operator.js` planner/reviewer fallback completion (no infinite retries; always keep operator in NL control).
-6. Append all command output to the existing transcript path above.
-
----
-
-## Session End Checklist
-- Branch: `codex/e2e-20260318-212502`
-- Transcript: `/Users/johnserious/MBO/.dev/sessions/TRANSCRIPT_E2E_20260318_212550.log`
-- Governance updated: `projecttracking.md` row for v0.11.36 updated with current scope and blockers.
+After run:
+- Write fresh audit notes under /Users/johnserious/MBO/.dev/sessions/analysis
+- Update governance task/bug state only for actual outcomes

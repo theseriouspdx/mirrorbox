@@ -29,6 +29,12 @@ const C = {
   RESET: '\x1b[0m',
 };
 
+function selfRunPromptPrefix() {
+  if (process.env.MBO_SELF_RUN_WARNING !== '1') return '';
+  const controller = process.env.MBO_SELF_RUN_WARNING_CONTROLLER || process.cwd();
+  return `\x1b[31m[MBO WARNING] MBO SHOULD NOT BE RUN FROM THE MBO DIRECTORY.\n[MBO WARNING] Controller: ${controller}\x1b[0m\n`;
+}
+
 // ─── TTY / IO ─────────────────────────────────────────────────────────────────
 
 function isTTY() {
@@ -49,7 +55,7 @@ function createPromptIO() {
       const displayDefault = defaultValue ? `${C.GREY}(${defaultValue})${C.RESET}` : '';
       const doAsk = () => {
         process.stdout.write(`\n${C.TEAL}${prompt}${C.RESET}${displayDefault ? ' ' + displayDefault : ''}\n`);
-        rl.question(`MBO ${version} > `, (answer) => {
+        rl.question(`${selfRunPromptPrefix()}MBO ${version} > `, (answer) => {
           const trimmed = String(answer || '').trim();
           if (trimmed === '?' || trimmed.toLowerCase() === 'help') {
             if (helpText) {
@@ -255,79 +261,265 @@ function persistProfile(projectRoot, profile) {
   ]);
 }
 
+// ─── Plan rendering helper (BUG-147) ─────────────────────────────────────────
+
+/**
+ * Renders a plan object as labeled plain-text sections for LLM consumption.
+ * Eliminates JSON.stringify(plan) anti-pattern in operator prompts.
+ * JSON is for persistence (onboarding.json, DB) — not LLM communication.
+ */
+function renderPlanAsText(plan) {
+  if (!plan || typeof plan !== 'object') return String(plan || 'none');
+  const lines = [];
+  if (plan.intent)              lines.push(`INTENT:\n${plan.intent}`);
+  if (plan.rationale)           lines.push(`RATIONALE:\n${plan.rationale}`);
+  if (Array.isArray(plan.filesToChange) && plan.filesToChange.length)
+                                lines.push(`FILES:\n${plan.filesToChange.join('\n')}`);
+  if (Array.isArray(plan.invariantsPreserved) && plan.invariantsPreserved.length)
+                                lines.push(`INVARIANTS:\n${plan.invariantsPreserved.join('\n')}`);
+  if (Array.isArray(plan.stateTransitions) && plan.stateTransitions.length)
+                                lines.push(`STATE TRANSITIONS:\n${plan.stateTransitions.join('\n')}`);
+  if (plan.diff)                lines.push(`DIFF:\n${plan.diff}`);
+  return lines.join('\n\n') || JSON.stringify(plan, null, 2);
+}
+
+// ─── Prior profile summary (Section 5 / UX-024) ───────────────────────────────
+
+/**
+ * Renders existing onboarding profile as a concise plain-text summary
+ * for re-onboard update mode. Passed once to the LLM as stable context —
+ * never grows like a raw transcript did.
+ */
+function buildPriorProfileSummary(profile) {
+  if (!profile) return '';
+  const lines = ['Existing Working Agreement (update mode — only ask about unknown or changed fields):'];
+  if (profile.primeDirective)       lines.push(`  Prime Directive: ${profile.primeDirective}`);
+  if (profile.projectType)          lines.push(`  Project type: ${profile.projectType}`);
+  if (profile.users)                lines.push(`  Users: ${profile.users}`);
+  if (profile.deploymentTarget)     lines.push(`  Deployment target: ${profile.deploymentTarget}`);
+  if (profile.subjectRoot)          lines.push(`  Staging path: ${profile.subjectRoot}`);
+  if (Array.isArray(profile.verificationCommands) && profile.verificationCommands.length)
+    lines.push(`  Verification commands: ${profile.verificationCommands.join(', ')}`);
+  if (Array.isArray(profile.dangerZones) && profile.dangerZones.length)
+    lines.push(`  Danger zones: ${profile.dangerZones.join(', ')}`);
+  if (Array.isArray(profile.realConstraints) && profile.realConstraints.length)
+    lines.push(`  Real constraints: ${profile.realConstraints.join(', ')}`);
+  return lines.join('\n');
+}
+
+// ─── Working Agreement sentinel parser ────────────────────────────────────────
+
+const SENTINEL_START = '---WORKING AGREEMENT---';
+const SENTINEL_END   = '---END---';
+const MAX_INTERVIEW_TURNS = 20;
+
+/**
+ * Parses the Working Agreement sentinel block emitted by the LLM at Phase 5.
+ * Returns a profile object, or null if the sentinel is absent or malformed.
+ * Shell never tells the LLM to return JSON — this is the single structured
+ * boundary crossing, detected by sentinel, not by JSON.parse on every turn.
+ */
+function parseSentinel(text) {
+  const start = text.indexOf(SENTINEL_START);
+  const end   = text.indexOf(SENTINEL_END, start);
+  if (start === -1 || end === -1) return null;
+
+  const block = text.slice(start + SENTINEL_START.length, end).trim();
+  const profile = {};
+
+  for (const line of block.split('\n')) {
+    const colon = line.indexOf(':');
+    if (colon === -1) continue;
+    const key   = line.slice(0, colon).trim().toLowerCase().replace(/\s+/g, '_');
+    const value = line.slice(colon + 1).trim();
+    if (key && value) profile[key] = value;
+  }
+
+  // Require at minimum a prime_directive to consider the sentinel valid
+  return profile.prime_directive ? profile : null;
+}
+
 // ─── Conversational Logic (The Shell) ──────────────────────────────────────────
 
 async function runOnboarding(projectRoot, priorData = null, options = {}, io = null) {
   const currentIO = io || (options.nonInteractive ? { ask: async (_, def) => def || '', close: () => {} } : createPromptIO());
-  
+  const isUpdate = !!priorData;
+
   try {
     // Phase 1 & 2: Background Scan & Briefing
     process.stdout.write(`\n${C.GREY}[Scan] Scanning your codebase...${C.RESET}`);
     const scan = scanProject(projectRoot);
     process.stdout.write('\r');
-    
+
     const briefing = buildScanBriefing(projectRoot, scan);
-    printScanBriefing(briefing);
 
-    console.log(`Welcome to Mirror Box Orchestrator v${version}`);
-    console.log(`Please spend a few minutes to help us get acquainted with you and your project.
+    // Section 5 / UX-024: Update mode — show existing agreement, ask if update needed
+    if (isUpdate) {
+      console.log(`\n${C.TEAL}Here is what we already have established:${C.RESET}\n`);
+      console.log(buildPriorProfileSummary(priorData));
+      console.log('');
+    } else {
+      printScanBriefing(briefing);
+      console.log(`Welcome to Mirror Box Orchestrator v${version}`);
+      console.log(`Please spend a few minutes to help us get acquainted with you and your project.
 Feel free to ask for clarification on any question, or go back to a previous question, or ask for help.\n`);
+    }
 
-    let transcript = `System: Welcome. Scan complete. Briefing shown.\nConfirmed: ${briefing.confirmed.join(', ')}\nInferred: ${briefing.inferred.join(', ')}\nUnknown: ${briefing.unknown.join(', ')}\n\n`;
-    let profile = null;
+    // Build scan briefing as plain text — never JSON.stringify(scan)
+    const scanSummary = [
+      'Scan results:',
+      briefing.confirmed.map(c => `  Confirmed — ${c}`).join('\n'),
+      briefing.inferred.length  ? briefing.inferred.map(i  => `  Inferred — ${i}`).join('\n')  : '',
+      briefing.unknown.length   ? briefing.unknown.map(u   => `  Unknown — ${u}`).join('\n')   : '',
+    ].filter(Boolean).join('\n');
+
+    const priorSummary = isUpdate ? buildPriorProfileSummary(priorData) : '';
 
     // Phase 3 & 4: Interview Loop
-    while (true) {
-      const response = await callModel('onboarding', `I am performing the conversational onboarding (Section 36) for this project.
-Based on the transcript so far and the project scan, what is your next question or action?
-Follow Section 36 principles: One Turn, One Question. Proactively seed Q3 (Prime Directive) and Q4 (Personality).
-If the interview is complete and the user has accepted the synthesis, return a JSON object with 'type: "persist"' and the full 'profile' data.
-Otherwise, return a JSON object with 'type: "question"', 'text', 'defaultValue', 'helpText', and optional 'key'.
+    // LLM speaks plain English throughout. No JSON per turn.
+    // Shell accumulates only the current session's Q&A — not the prior profile history.
+    // The prior profile is passed once as a stable summary, not grown each turn.
+    let sessionTranscript = '';
+    let profile = null;
+    let turns = 0;
 
-Scan Data: ${JSON.stringify(scan)}
-Current Transcript:
-${transcript}`, { priorData });
+    while (turns < MAX_INTERVIEW_TURNS) {
+      turns++;
 
-      let parsed;
-      try {
-        parsed = JSON.parse(response);
-      } catch {
-        parsed = { type: 'question', text: response };
-      }
+      const prompt = [
+        'You are conducting a conversational onboarding interview (Section 36).',
+        'Speak in plain English. One question per turn. Do not ask multiple questions at once.',
+        isUpdate
+          ? 'This is an update session. Only ask about fields that are unknown or have changed. Do not re-ask high-confidence fields.'
+          : 'This is a fresh onboarding. Work through the full interview.',
+        '',
+        scanSummary,
+        priorSummary ? `\n${priorSummary}` : '',
+        sessionTranscript ? `\nConversation so far:\n${sessionTranscript}` : '',
+        '',
+        'When the interview is complete and the user has accepted the Working Agreement,',
+        `emit the sentinel block exactly as shown — nothing before ${SENTINEL_START}, nothing after ${SENTINEL_END} except the fields:`,
+        '',
+        SENTINEL_START,
+        'prime_directive: <synthesized prime directive text>',
+        'project_type: <value>',
+        'users: <value>',
+        'deployment_target: <value or unknown>',
+        'staging_path: <absolute path or internal>',
+        'verification_commands: <comma-separated or none>',
+        'danger_zones: <comma-separated paths or none>',
+        'real_constraints: <comma-separated or none>',
+        'partnership: <partnership/personality note>',
+        SENTINEL_END,
+        '',
+        'If the interview is not yet complete, ask your next single question in plain English.',
+      ].filter(s => s !== null).join('\n');
 
-      if (parsed.type === 'persist') {
-        profile = parsed.profile;
+      const response = await callModel('onboarding', prompt, {}, null);
+
+      // Check for sentinel — Phase 5 trigger
+      const parsed = parseSentinel(response);
+      if (parsed) {
+        // Show the Working Agreement to the user before persisting (Section 36.3)
+        console.log(`\n${C.TEAL}Here is the Working Agreement we arrived at:${C.RESET}\n`);
+        console.log(`  Prime Directive: ${parsed.prime_directive}`);
+        if (parsed.partnership)            console.log(`  Partnership: ${parsed.partnership}`);
+        if (parsed.project_type)           console.log(`  Project type: ${parsed.project_type}`);
+        if (parsed.deployment_target)      console.log(`  Deployment target: ${parsed.deployment_target}`);
+        if (parsed.staging_path)           console.log(`  Staging path: ${parsed.staging_path}`);
+        if (parsed.verification_commands)  console.log(`  Verification commands: ${parsed.verification_commands}`);
+        if (parsed.danger_zones)           console.log(`  Danger zones: ${parsed.danger_zones}`);
+        console.log('');
+
+        const decision = await currentIO.ask('Accept, Edit, or Regenerate?', 'Accept',
+          'Accept locks this in. Edit lets you rewrite the Prime Directive verbatim. Regenerate produces a new synthesis.');
+
+        const d = decision.trim().toLowerCase();
+        if (d === 'edit') {
+          const edited = await currentIO.ask('Enter your Prime Directive verbatim:', parsed.prime_directive);
+          parsed.prime_directive = edited;
+        } else if (d === 'regenerate' || d === 'regen') {
+          sessionTranscript += `\nUser: Regenerate the Working Agreement.\n`;
+          continue;
+        }
+        // Accept or edited — build profile from sentinel fields
+        profile = {
+          primeDirective:        parsed.prime_directive,
+          q3Raw:                 parsed.prime_directive,
+          q4Raw:                 parsed.partnership || '',
+          projectType:           parsed.project_type || (priorData && priorData.projectType) || '',
+          users:                 parsed.users || (priorData && priorData.users) || '',
+          deploymentTarget:      parsed.deployment_target || (priorData && priorData.deploymentTarget) || '',
+          subjectRoot:           parsed.staging_path === 'internal' ? '' : (parsed.staging_path || (priorData && priorData.subjectRoot) || ''),
+          verificationCommands:  parsed.verification_commands && parsed.verification_commands !== 'none'
+                                   ? parsed.verification_commands.split(',').map(s => s.trim()).filter(Boolean)
+                                   : (priorData && priorData.verificationCommands) || [],
+          dangerZones:           parsed.danger_zones && parsed.danger_zones !== 'none'
+                                   ? parsed.danger_zones.split(',').map(s => s.trim()).filter(Boolean)
+                                   : (priorData && priorData.dangerZones) || [],
+          realConstraints:       parsed.real_constraints && parsed.real_constraints !== 'none'
+                                   ? parsed.real_constraints.split(',').map(s => s.trim()).filter(Boolean)
+                                   : (priorData && priorData.realConstraints) || [],
+          // Preserve fields from prior profile that sentinel doesn't cover
+          ...(priorData ? {
+            assumedConstraints:  priorData.assumedConstraints,
+            canonicalConfigPath: priorData.canonicalConfigPath,
+            onboardingVersion:   (priorData.onboardingVersion || 1) + 1,
+          } : { onboardingVersion: 1 }),
+          languages:    scan.languages,
+          frameworks:   scan.frameworks,
+          buildSystem:  scan.buildSystem,
+          hasCI:        scan.hasCI,
+          testCoverage: scan.testCoverage,
+          projectNotes: { scanRoots: scan.scanRoots, scanSummary: { fileCount: scan.fileCount, tokenCountRaw: scan.tokenCountRaw } },
+          onboardedAt:  Date.now(),
+          binaryVersion: version,
+          createdAt:    priorData ? (priorData.createdAt || new Date().toISOString()) : new Date().toISOString(),
+          updatedAt:    new Date().toISOString(),
+        };
         break;
       }
 
-      // Handle Staging Directory logic separately (Section 36.5 / BUG-122 / BUG-123)
-      if (parsed.key === 'subjectRoot') {
-        const optIn = await currentIO.ask('Use an external staging directory? (default: no, uses .dev/worktree/)', 'N', 'MBO uses a "Mirror Box" to safely stage and verify changes. By default, it uses an internal worktree in .dev/worktree. If you prefer to stage in a specific external directory, say "y".');
-        if (optIn.toLowerCase() !== 'y') {
-          transcript += `MBO: Use external staging? User: No. (Defaulting to .dev/worktree/)\n`;
-          continue; 
-        }
+      // Sentinel absent — LLM asked a question. Display and get answer.
+      // Strip any trailing sentinel fragment from the displayed text (defensive)
+      const displayText = response.replace(/---WORKING AGREEMENT---[\s\S]*$/, '').trim();
+      if (!displayText) continue;
+
+      process.stdout.write(`\n${C.TEAL}${displayText}${C.RESET}\n`);
+
+      // Handle staging directory opt-in gate (Section 36.5)
+      if (/external staging|staging directory/i.test(displayText)) {
+        const optIn = await currentIO.ask('Use an external staging directory? (default: no, uses .dev/worktree/)', 'N',
+          'MBO uses a Mirror Box to safely stage changes. Default is internal .dev/worktree/.');
+        const answer = optIn;
+        sessionTranscript += `MBO: ${displayText}\nUser: ${answer}\n`;
+        if (answer.toLowerCase() !== 'y') continue;
       }
 
-      const answer = await currentIO.ask(parsed.text, parsed.defaultValue, parsed.helpText);
-      transcript += `MBO: ${parsed.text}\nUser: ${answer}\n`;
+      const answer = await currentIO.ask('', '', '');
+      sessionTranscript += `MBO: ${displayText}\nUser: ${answer}\n`;
 
-      // Conversational corrections and staging auto-create (BUG-122)
-      if (parsed.key === 'subjectRoot' && answer) {
+      // Handle staging auto-create inline (Section 36.5 / BUG-122)
+      if (/staging|subject root|directory path/i.test(displayText) && answer) {
         const val = validateSubjectRoot(answer, projectRoot);
         if (!val.ok && val.reason === 'does_not_exist') {
           const confirm = await currentIO.ask(`The directory "${val.path}" doesn't exist yet. Create it now?`, 'Y');
           if (confirm.toLowerCase() === 'y') {
             try {
               fs.mkdirSync(val.path, { recursive: true });
-              transcript += `System: Directory ${val.path} created.\n`;
+              sessionTranscript += `System: Directory ${val.path} created.\n`;
             } catch (e) {
               console.log(`\n${C.GREY}Could not create directory: ${e.message}${C.RESET}\n`);
-              transcript += `System: Failed to create ${val.path}: ${e.message}\n`;
+              sessionTranscript += `System: Failed to create ${val.path}: ${e.message}\n`;
             }
           }
         }
       }
+    }
+
+    if (!profile) {
+      // Section 36.8: No stack trace. Plain-English error.
+      throw new Error('interview completed without a Working Agreement — sentinel not received after maximum turns');
     }
 
     // Phase 5: Atomic Persistence
@@ -337,6 +529,7 @@ ${transcript}`, { priorData });
     return profile;
 
   } catch (err) {
+    // Section 36.8: No raw stack trace in terminal output under any error condition.
     console.error(`\nSomething went wrong: ${err.message}.`);
     console.log(`Run 'mbo setup --verbose' for diagnostic output.\n`);
     throw err;

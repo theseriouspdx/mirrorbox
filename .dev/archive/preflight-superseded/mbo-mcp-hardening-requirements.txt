@@ -1,0 +1,593 @@
+================================================================================
+SUPERSEDED — 2026-03-13
+================================================================================
+
+This document is OBSOLETE. Do not implement any requirements contained herein.
+
+Root cause analysis (2026-03-13) determined that this specification was written
+to compensate for MBO managing its own MCP process lifecycle — the wrong layer.
+Every failure class in Section 2 (F-01 through F-09) is eliminated by design
+when the OS owns the process, not the application.
+
+REPLACED BY:
+  Architecture:  docs/mcp.md
+  Impl spec:     .dev/preflight/mcp-daemon-migration.md
+  Spec section:  SPEC.md Section 32 (marked SUPERSEDED)
+  Task:          projecttracking.md Task 1.1-H23
+
+The H23 contract (now also SUPERSEDED by H30 — 2026-03-15):
+  H23: launchd starts node src/graph/mcp-server.js at port 7337.
+  H30: ephemeral --port=0 + manifest discovery for multi-project isolation.
+  Current canonical architecture: docs/MCP_PORT_REFERENCE.md
+
+================================================================================
+
+
+MBO MCP Runtime Hardening
+Requirements Specification
+
+Version 1.0 — March 2026
+Mirror Box Orchestrator
+
+Requirements-only specification. No implementation details, architecture diagrams, component names, or code.
+
+1. Executive Summary
+MBO’s MCP runtime has experienced repeated brittleness across its lifecycle: startup races producing EADDRINUSE/EPERM failures, stale listeners causing hung RPC initialize calls, dual-manifest confusion between dev and runtime modes, and fallback to dead endpoints when manifests drift from actual process state. Prior patches have improved symptoms but have not eliminated the structural root causes.
+This document defines what “hardened MCP” must mean for MBO. It establishes non-negotiable reliability requirements, testable invariants, and acceptance criteria grounded in proven patterns from production-grade systems including systemd, Kubernetes, Consul, PostgreSQL, Redis Sentinel, and NATS. The goal is a durable reliability contract that stops iterative patching and provides a specification sufficient for two independent teams to build compatible solutions passing the same acceptance suite.
+Every requirement herein is testable, binary pass/fail. The specification covers the complete lifecycle: startup, steady-state, degraded operation, incident handling, and shutdown. It explicitly defines prohibited states, what clients may and may not infer from runtime signals, and SLO-style expectations for startup success rate, query latency, and mean time to recovery.
+
+2. Failure Taxonomy
+The following taxonomy classifies MBO’s observed MCP failures by root cause category. Each failure class maps to one or more requirements in subsequent sections.
+ID
+Failure Class
+Observed Symptom
+Root Cause Category
+F-01
+Startup Race
+EADDRINUSE when two starters race for the same port
+Ownership / Concurrency
+F-02
+Stale Listener
+TCP socket open but process hung; initialize never completes
+Health / Readiness
+F-03
+Manifest Drift
+Manifest port/pid does not match running process
+Discovery / Endpoint Truth
+F-04
+Dual Manifest
+Dev and runtime manifests coexist with conflicting ports
+State Model
+F-05
+Zombie Process
+Old server PID lingers after failed shutdown
+Lifecycle / Supervision
+F-06
+Port Permission
+EPERM on listen after system sandbox restriction
+Startup / Port Selection
+F-07
+Stream Destroyed
+ERR_STREAM_DESTROYED crash during LSP/jsonrpc shutdown
+Shutdown / Isolation
+F-08
+Initialize Hang
+Client blocks on initialize while server is scanning
+Readiness / Client Behavior
+F-09
+Stale Session
+Client sends requests with expired mcp-session-id
+Session / Recovery
+F-10
+Config Drift
+.mcp.json / .gemini/settings.json port stale after restart
+Discovery / Sync
+
+3. Non-Negotiable Reliability Requirements
+These requirements are absolute. Any implementation that violates one or more of these is non-compliant regardless of other qualities.
+3.1 Single-Writer Ownership
+REQ-OWN-01: At most one MCP server process shall own the lifecycle for a given project root at any point in time. This is the single-writer principle: exactly one process may bind the listening port, write the manifest, and serve RPC requests for a project root.
+Precedent: systemd unit activation — systemd enforces that each service unit has exactly one main PID. Starting a unit that is already running is a no-op, not a race. PostgreSQL enforces single-instance ownership via a PID lock file in the data directory; a second postmaster that detects an existing lock with a live process refuses to start.
+3.2 Explicit Readiness Contract
+REQ-RDY-01: A server shall not be considered “ready” until it has: (a) successfully bound and is listening on its port, (b) completed all initialization required to serve RPC requests, and (c) written a valid, checksummed manifest with status=“ready”. An open TCP socket alone is never sufficient evidence of readiness.
+Precedent: Kubernetes startup + readiness probes — Kubernetes distinguishes three levels: startup (has the container started at all?), readiness (can it accept traffic?), and liveness (is it still healthy?). A container with an open port but failing readiness probes receives zero traffic. systemd’s Type=notify model requires the service to send READY=1 explicitly; the service manager does not treat process existence or port binding as readiness.
+3.3 Atomic State Transitions
+REQ-STATE-01: All manifest state transitions shall be atomic. A manifest file shall never be in a partially-written or inconsistent state visible to readers. Every manifest write shall use atomic file replacement (write-to-tmp, fsync, rename) and include a cryptographic checksum that readers validate before trusting content.
+Precedent: etcd/Consul watch semantics — etcd guarantees linearizable writes via Raft consensus; a key-value update is either fully visible or not visible at all. Consul’s agent writes its service catalog atomically; partial catalog states never reach consumers. PostgreSQL’s WAL guarantees that committed transactions are either fully visible or not visible after crash recovery.
+3.4 Deterministic Failure Behavior
+REQ-FAIL-01: Failures shall be deterministic and fail-fast. A startup that cannot acquire the port or the lock within the configured timeout shall exit non-zero within 30 seconds. A server that detects internal corruption shall transition to “incident” state and cease serving rather than returning incorrect results.
+Precedent: NATS server — NATS exits immediately on configuration errors or port conflicts rather than retrying silently. Redis Sentinel promotes a deterministic failover within configured timeouts; ambiguous states trigger explicit SDOWN/ODOWN notifications rather than silent degradation.
+3.5 No Silent Fallback
+REQ-NOFB-01: No component shall silently fall back to a hardcoded port, default endpoint, or stale manifest. If discovery fails, the failure shall be surfaced as an error to the caller with an actionable message. There shall be exactly zero code paths that use port 3737 (or any other literal) as a silent default.
+Precedent: Envoy xDS — Envoy’s xDS protocol requires explicit cluster discovery configuration. If the management server is unreachable, Envoy serves its last-known-good configuration but logs warnings at CRITICAL level and exposes the failure via the admin /clusters endpoint. It never invents endpoints.
+
+4. State Model Requirements
+The MCP server lifecycle shall be modeled as a finite state machine with exactly five legal states. All transitions are explicit and auditable.
+State
+Description
+Allowed Transitions
+Client Behavior
+STARTING
+Process spawned, acquiring lock, binding port
+READY, STOPPED
+Clients MUST NOT send requests
+READY
+Port bound, manifest valid, serving RPC
+INCIDENT, STOPPED
+Clients MAY send requests
+INCIDENT
+Unrecoverable error detected; serving ceased
+STOPPED
+Clients MUST NOT send requests
+STOPPED
+Orderly shutdown complete; manifest marked stopped
+STARTING (new process)
+Clients MUST NOT send requests
+ABSENT
+No manifest exists; no server has ever run or manifest was cleaned
+STARTING (new process)
+Clients MUST NOT send requests
+
+REQ-STATE-02: The following state transitions are prohibited and constitute implementation bugs: STARTING → INCIDENT (must pass through READY or fail to STOPPED), READY → STARTING (restarts create a new process; the old one goes to STOPPED), INCIDENT → READY (recovery requires a full restart), STOPPED → READY (must go through STARTING).
+REQ-STATE-03: Manifest status shall be updated within 1 second of the actual state transition. The last_verified_at timestamp shall be refreshed on every manifest write. A manifest whose last_verified_at is more than 60 seconds old shall be treated as potentially stale by clients.
+REQ-STATE-04: Each server incarnation shall have a unique, opaque instance_id (UUID). The epoch counter shall be monotonically increasing across restarts for the same project root. Together, (project_root, epoch, instance_id) uniquely identifies a server incarnation across all time.
+
+5. Health and Readiness Requirements
+5.1 Readiness Definition
+REQ-RDY-02: Readiness shall be defined as the conjunction of: (a) HTTP server listening and accepting connections, (b) MCP protocol initialize handshake can complete within 5 seconds, (c) manifest status == “ready” with valid checksum, (d) manifest PID matches a live process with matching process_start_ms fingerprint.
+5.2 Liveness Definition
+REQ-LIV-01: Liveness shall be defined as: the server responds to an HTTP probe (any status code including 4xx/5xx counts as alive) within the configured probe timeout. A server that fails to respond to N consecutive liveness probes (configurable, default 3) within the probe window is declared stuck.
+Precedent: Kubernetes liveness probes — Kubernetes uses a failureThreshold (default 3) with configurable periodSeconds and timeoutSeconds. Any HTTP response, including errors, proves the process is alive. Only connection failure or timeout indicates a stuck process.
+5.3 Startup Probe
+REQ-START-01: A dedicated startup probe shall be used during the STARTING phase. Liveness and readiness checks shall not run until the startup probe succeeds. The startup probe shall have a longer timeout window (default 30 seconds) to accommodate graph scanning on large codebases.
+Precedent: Kubernetes startup probes — Startup probes exist specifically to prevent liveness probes from killing slow-starting applications. Until the startup probe passes, other probes are suspended.
+5.4 Watchdog Heartbeat
+REQ-WD-01: In steady state, the server shall emit a heartbeat signal at a regular interval (configurable, default 10 seconds). This heartbeat shall update the manifest last_verified_at timestamp. An external watchdog that does not see a heartbeat within 2x the interval shall escalate to active probing.
+Precedent: systemd WatchdogSec — systemd’s watchdog protocol requires services to send WATCHDOG=1 at a regular cadence. If the service fails to ping within the configured interval, systemd restarts it. This is the canonical pattern for catching hung processes that hold a port open but have stopped making progress.
+
+6. Ownership and Concurrency Requirements
+REQ-LOCK-01: A startup lock shall be acquired before any port binding or manifest writing. The lock shall be implemented using atomic file creation (O_CREAT | O_EXCL). The lock file shall contain the owner’s PID, process_start_ms, and a nonce. Lock staleness shall be determined by: (a) owner PID no longer alive, or (b) lock age exceeds the configured stale threshold (default 15 seconds).
+REQ-LOCK-02: The lock owner shall release the lock after writing the “ready” manifest. If the process crashes before releasing, the next starter shall detect staleness and reclaim the lock. There shall be no window where both a lock and a stale manifest coexist with a dead process for longer than the stale threshold.
+REQ-PID-01: Process identity shall be verified using the (PID, process_start_ms) tuple, not PID alone. PID reuse across unrelated processes is a known operating system behavior. The process_start_ms shall be obtained from the OS process table (e.g., ps -o lstart=) and rounded to second granularity for portability.
+Precedent: PostgreSQL PID file — PostgreSQL writes postmaster.pid with the PID and data directory. A new postmaster validates that the PID in the file is alive and belongs to a PostgreSQL process before deciding whether to start or abort.
+REQ-PORT-01: Port selection shall prefer the port from the previous valid manifest for stability. If that port is unavailable, a dynamically allocated free port shall be used. The selected port shall be verified as bindable before proceeding with server startup. There shall be no gap between port selection and binding where another process could claim the port.
+
+7. Discovery and Endpoint Truth Requirements
+REQ-DISC-01: The manifest file (.mbo/run/mcp.json or .dev/run/mcp.json) is the single source of truth for the MCP endpoint. All clients, helpers, watchdogs, and IDE integrations shall resolve the endpoint exclusively through the manifest. No component shall cache a port or URL beyond the lifetime of a single RPC interaction without re-validating the manifest.
+REQ-DISC-02: Manifest resolution shall follow a deterministic precedence order: (1) dev manifest if mode == dev, (2) runtime manifest. If a manifest exists but is invalid (bad checksum, wrong version, status != ready), resolution shall fail with an actionable error. It shall never silently fall through to the next candidate when the first candidate is present but corrupt.
+REQ-DISC-03: Client configuration files (.mcp.json, .gemini/settings.json) shall be treated as derived caches, not authoritative sources. They shall be updated atomically after every manifest change. Staleness in these files shall never cause a client to connect to a wrong or dead server.
+Precedent: Consul service catalog + DNS — Consul maintains a single authoritative service catalog. DNS and HTTP API queries always reflect the current catalog state. Stale DNS caches are bounded by TTL. Consul agents actively deregister services that fail health checks rather than serving stale endpoints.
+REQ-DISC-04: Manifest schema shall be versioned (currently v3). Readers encountering an unknown version shall fail closed (reject the manifest) rather than attempting to parse unknown fields.
+
+8. Client Behavior Requirements
+Clients are any process that consumes the MCP endpoint: the Operator, IDE extensions, helper scripts, and external agents. Client behavior must be tightly specified to prevent the compensation patterns that currently mask server bugs.
+REQ-CLI-01: Clients SHALL validate the manifest checksum before trusting any field. A failed checksum shall be treated identically to a missing manifest.
+REQ-CLI-02: Clients SHALL verify that the manifest PID corresponds to a live process with matching process_start_ms before sending RPC requests. A manifest whose PID is dead shall be treated as stale.
+REQ-CLI-03: Clients SHALL NOT infer server readiness from TCP port reachability alone. A successful TCP connect to the manifest port is necessary but not sufficient. The manifest status must be “ready” and the checksum must be valid.
+REQ-CLI-04: Clients SHALL implement bounded retry with exponential backoff for transient failures (connection refused, 503). The maximum retry window shall be 30 seconds for startup and 10 seconds for steady-state operations. After exhausting retries, the client shall surface a clear error rather than blocking indefinitely.
+REQ-CLI-05: Clients SHALL NOT attempt to restart, kill, or otherwise manage the server process lifecycle. Lifecycle management is the exclusive responsibility of the supervision layer. Clients that detect a dead server shall report the failure and wait for supervision to act.
+Precedent: Envoy xDS client — Envoy’s xDS client never restarts the management server. It reports connectivity failures, uses last-known-good configuration, and waits for the management server to become available. This separation prevents cascading failures from overeager client-side recovery.
+REQ-CLI-06: On receiving a session-not-found error (stale mcp-session-id), clients SHALL re-initialize transparently by sending a new initialize request. This shall happen at most once per request; a second session-not-found triggers an error surfaced to the user.
+
+9. Observability and Incident Requirements
+REQ-OBS-01: All state transitions shall be logged with structured output including: timestamp (ISO 8601 UTC), transition (from_state → to_state), instance_id, epoch, pid, and reason. Logs shall be written to a dedicated log file in .dev/logs/.
+REQ-OBS-02: Incident transitions shall include an incident_reason field in the manifest that is human-readable and machine-parseable. The field shall contain the failure class ID from the taxonomy (e.g., F-01) where applicable.
+REQ-OBS-03: A circuit breaker shall track restart failures within a rolling window (default 30 seconds). If the number of restart failures exceeds the threshold (default 3), the system shall enter a circuit-open state, write an incident manifest, and cease restart attempts until human intervention or the window expires.
+Precedent: Redis Sentinel SDOWN/ODOWN — Redis Sentinel distinguishes between subjective down (one sentinel’s view) and objective down (quorum agreement). This two-phase model prevents flapping. The circuit breaker serves an analogous purpose for MBO: repeated restarts within a window indicate a structural problem, not a transient failure.
+REQ-OBS-04: The server shall expose a structured status endpoint or tool (graph_server_info) that returns: project_root, project_id, instance_id, epoch, status, last_verified_at, uptime, restart_count, is_scanning, and last_scan_status. This shall be queryable even in degraded states.
+
+10. Security and Isolation Requirements
+REQ-SEC-01: The MCP server shall bind exclusively to 127.0.0.1 (loopback). Binding to 0.0.0.0 or any non-loopback address is a prohibited state.
+REQ-SEC-02: Project isolation shall be enforced by project_id (SHA-256 of canonical root path, 16-char hex prefix). A server shall reject any RPC request whose implicit project context does not match its own project_id. Cross-project requests are a prohibited state.
+REQ-SEC-03: Manifest files shall have restrictive permissions (0600 on Unix). Lock files shall be created with 0600. Run directories shall be created with 0700.
+REQ-SEC-04: The server shall sanitize all tool call arguments before processing. Path arguments shall be validated against the project root to prevent path traversal. No tool call shall access files outside the project root without explicit configuration.
+Precedent: PostgreSQL pg_hba.conf + data directory permissions — PostgreSQL refuses to start if the data directory permissions are too open. The pg_hba.conf controls client authentication per-connection. This defense-in-depth approach — filesystem permissions plus application-level access control — is the model for MBO’s security posture.
+
+11. Migration and Compatibility Requirements
+REQ-MIG-01: The hardened implementation shall be backward compatible with manifest version 3 clients during a transition period of at least 30 days. New features may be added to the manifest schema additively (new fields with defaults) but no existing field semantics shall change without a version bump.
+REQ-MIG-02: The transition from the current behavior to the hardened behavior shall not require coordinated deployment. Clients and servers shall be independently upgradeable. A v3-hardened server shall be consumable by existing v3 clients. A v3-hardened client shall gracefully handle a non-hardened v3 server.
+REQ-MIG-03: Stale artifacts from prior versions (old PID files, .ready sentinels, v2 or v1 manifests) shall be detected and cleaned up during the first hardened startup. Cleanup shall be logged and shall not block startup for more than 5 seconds.
+REQ-MIG-04: The launchd plist (com.johnserious.mbo-mcp.plist) and any other OS-level supervision configuration shall continue to function without modification. If supervision behavior changes are required, they shall be documented in a migration guide published alongside the implementation.
+Precedent: Consul upgrade path — Consul provides explicit upgrade guides for each major version, supports mixed-version clusters during rolling upgrades, and maintains backward compatibility for at least one major version. This is the model for MBO’s migration path.
+
+12. Acceptance Criteria
+Each criterion is binary pass/fail. The hardened implementation must pass ALL criteria. Partial compliance is non-compliant.
+12.1 Startup
+	•	AC-START-01: Starting the server from a clean state (no manifest, no lock, no running process) succeeds and writes a valid manifest within 30 seconds, 99 times out of 100 consecutive attempts.
+	•	AC-START-02: Starting the server when an existing healthy server is running for the same project root is a no-op that returns the existing server’s endpoint. No second process is spawned.
+	•	AC-START-03: Starting the server when a stale lock exists (dead PID) succeeds within 30 seconds after reclaiming the lock.
+	•	AC-START-04: Starting the server when a stale manifest exists (dead PID) succeeds and writes a new valid manifest with incremented epoch.
+	•	AC-START-05: Starting the server when the previous port is occupied by a non-MBO process selects a new free port and succeeds.
+12.2 Readiness
+	•	AC-RDY-01: A client that reads the manifest and finds status=“ready” can successfully complete an MCP initialize handshake within 5 seconds, 99 times out of 100 attempts.
+	•	AC-RDY-02: A client that reads the manifest and finds status != “ready” never sends RPC requests to the endpoint.
+	•	AC-RDY-03: A client that connects to the manifest port but the manifest checksum is invalid treats the endpoint as unavailable.
+12.3 Steady State
+	•	AC-SS-01: A graph_server_info call returns within 500ms, 99 times out of 100 attempts, while the server is in READY state.
+	•	AC-SS-02: The manifest last_verified_at is never more than 2x the heartbeat interval old while the server is in READY state.
+	•	AC-SS-03: After a successful graph_rescan, the index_revision is strictly greater than before, and the manifest remains valid.
+12.4 Failure and Recovery
+	•	AC-FAIL-01: Killing the server process with SIGKILL results in a stale manifest detectable by any client within max(stale_threshold, 15 seconds).
+	•	AC-FAIL-02: After SIGKILL, a new server start succeeds within 30 seconds (lock reclamation + startup).
+	•	AC-FAIL-03: Three consecutive restart failures within 30 seconds trigger circuit-open state. The manifest status is “incident” with a descriptive reason.
+	•	AC-FAIL-04: A server that enters INCIDENT state does not accept new RPC sessions.
+12.5 Shutdown
+	•	AC-SHUT-01: SIGTERM causes orderly shutdown: sessions closed, manifest set to “stopped”, lock released, all within 10 seconds.
+	•	AC-SHUT-02: After orderly shutdown, the manifest exists with status=“stopped” and no stale .ready sentinel.
+	•	AC-SHUT-03: After orderly shutdown, the port is free for a new server to bind immediately.
+12.6 Isolation
+	•	AC-ISO-01: Two MBO projects on the same machine with different project roots can run MCP servers simultaneously without interference.
+	•	AC-ISO-02: A client in project A cannot accidentally send RPC requests to project B’s server.
+12.7 SLO Targets
+Metric
+Target
+Measurement Method
+Startup success rate (clean start)
+≥99%
+100 consecutive clean starts; count failures
+Initialize handshake latency (p99)
+≤5 seconds
+100 consecutive initialize calls after READY
+graph_server_info latency (p99)
+≤500ms
+100 consecutive calls during READY state
+MTTR after SIGKILL
+≤30 seconds
+Time from SIGKILL to new server READY
+Manifest staleness (max age when alive)
+≤2x heartbeat interval
+Continuous monitoring of last_verified_at
+Shutdown duration (orderly)
+≤10 seconds
+Time from SIGTERM to port-free
+
+13. Out of Scope
+	•	Multi-machine or networked MCP deployment. This specification covers single-machine, loopback-only operation.
+	•	TLS/mTLS for MCP transport. Loopback-only binding makes TLS unnecessary for the current threat model.
+	•	Automatic horizontal scaling of MCP servers. One server per project root is the invariant.
+	•	Graph query performance optimization. Query latency beyond the SLO targets in Section 12 is a separate concern.
+	•	IDE-specific integration details (VS Code, JetBrains, etc.). Client requirements are specified generically.
+	•	Database schema migration or graph store internals. The specification concerns runtime lifecycle only.
+	•	Authentication/authorization of RPC callers. All local callers are trusted in the current threat model.
+
+14. Risks and Tradeoffs
+Risk
+Mitigation
+Residual Impact
+Lock file left on NFS or non-POSIX filesystem where O_EXCL is unreliable
+Document requirement for local POSIX filesystem for .mbo/run/. Validate at startup.
+Low: MBO targets local macOS/Linux development machines
+ps -o lstart= unavailable in sandboxed/Docker environments
+Degrade gracefully: skip process_start_ms validation, log warning. Accept reduced PID-reuse protection.
+Medium: false positive on PID match possible in sandboxed CI
+Heartbeat interval too aggressive causes unnecessary disk I/O on large manifests
+Default 10s is conservative. Make configurable. Heartbeat updates only last_verified_at and checksum.
+Low: single small file write
+Circuit breaker false-positive from external port conflicts (not MBO’s fault)
+Circuit breaker tracks MBO-specific restart failures, not arbitrary port errors. Port selection tries dynamic fallback.
+Low: dynamic port selection handles most conflicts
+Backward compatibility during migration window adds code complexity
+Time-boxed 30-day compatibility window. After window, old code paths removed.
+Medium: temporary complexity, explicitly bounded
+Watchdog kills server during long graph scan in READY state
+Liveness probe counts any HTTP response as alive. Graph scanning does not block the HTTP server’s event loop.
+Low: HTTP server remains responsive during scan
+
+15. Real-World Precedent Table
+System
+Pattern
+Source
+Mapped Requirement(s)
+systemd
+Type=notify readiness (READY=1)
+freedesktop.org/software/systemd/man/sd_notify.html
+REQ-RDY-01, REQ-RDY-02
+systemd
+WatchdogSec heartbeat
+freedesktop.org/software/systemd/man/systemd.service.html
+REQ-WD-01
+Kubernetes
+Startup / Readiness / Liveness probes
+kubernetes.io/docs/concepts/configuration/liveness-readiness-startup-probes
+REQ-RDY-01, REQ-LIV-01, REQ-START-01
+Kubernetes
+Pod restartPolicy + failure threshold
+kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle
+REQ-FAIL-01, REQ-OBS-03
+Consul
+Service catalog + health checks + deregistration
+developer.hashicorp.com/consul/docs/services/usage/checks
+REQ-DISC-01, REQ-DISC-03
+etcd
+Linearizable writes via Raft
+etcd.io/docs/latest/learning/api
+REQ-STATE-01
+PostgreSQL
+PID lock file + data directory ownership
+postgresql.org/docs/current/server-start.html
+REQ-OWN-01, REQ-PID-01
+PostgreSQL
+pg_hba.conf + directory permissions
+postgresql.org/docs/current/auth-pg-hba-conf.html
+REQ-SEC-01 – REQ-SEC-04
+Redis Sentinel
+SDOWN/ODOWN + deterministic failover
+redis.io/docs/management/sentinel
+REQ-OBS-03, REQ-FAIL-01
+NATS
+Fail-fast on config error / port conflict
+docs.nats.io/running-a-nats-service/configuration
+REQ-FAIL-01, REQ-NOFB-01
+Envoy
+xDS protocol + last-known-good + admin /clusters
+envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol
+REQ-NOFB-01, REQ-CLI-05
+nginx
+Master/worker PID file + graceful reload
+nginx.org/en/docs/control.html
+REQ-OWN-01, REQ-LOCK-01
+
+16. Definition of Done
+The hardened MCP runtime is done when ALL of the following are true:
+	•	All acceptance criteria in Section 12 pass on macOS (primary) and Linux (CI).
+	•	A test harness exists that can run the full acceptance suite in under 5 minutes with no manual steps.
+	•	All non-negotiable requirements (Section 3) are verified by at least one acceptance criterion.
+	•	The failure taxonomy (Section 2) has a corresponding test for each failure class that demonstrates the failure is either prevented or detected-and-recovered within SLO bounds.
+	•	The state model (Section 4) is verified by a state-transition test that exercises every legal transition and asserts every prohibited transition is impossible.
+	•	The MTTR after SIGKILL is measured and documented as ≤30 seconds on both macOS and Linux.
+	•	Backward compatibility with existing v3 manifest clients is verified by running the existing test suite against the hardened server with zero regressions.
+	•	All client behavior requirements (Section 8) are enforced by at least one integration test.
+	•	Structured logging for all state transitions is verified by log output inspection in the test harness.
+	•	The circuit breaker is verified by a test that triggers 3+ restart failures and asserts the incident state.
+	•	Two-project isolation (AC-ISO-01, AC-ISO-02) is verified by a concurrent test running two servers on different project roots.
+	•	Documentation is updated: docs/mcp.md reflects all new behavior, invariants, and troubleshooting for the hardened runtime.
+
+End of Requirements Specification
+
+17. Acceptance-Test Template (Normative)
+This section defines the conformance template that SHALL drive the acceptance suite. It is implementation-agnostic and maps directly to requirements and acceptance criteria. Every test MUST return binary PASS/FAIL with machine-parseable evidence.
+
+17.1 Harness Contract
+T-HAR-01: The harness SHALL execute on macOS and Linux with identical test IDs and verdict semantics.
+T-HAR-02: Every test result SHALL include: test_id, req_ids, ac_ids, start_time_utc, end_time_utc, verdict, failure_reason (if FAIL), and evidence pointers.
+T-HAR-03: Evidence SHALL include structured logs, state snapshots, and timing records sufficient to independently reproduce verdicts.
+T-HAR-04: Time-based assertions SHALL use monotonic clocks for duration checks.
+T-HAR-05: Any test exceeding its own timeout SHALL FAIL (never “inconclusive”).
+
+17.2 Standard Test Record Schema
+Each test case SHALL conform to:
+- test_id
+- title
+- mapped_requirements (one or more REQ-*)
+- mapped_acceptance (one or more AC-*)
+- preconditions
+- setup
+- stimulus
+- expected_outcomes
+- prohibited_observations
+- evidence_required
+- timeout_budget
+
+17.3 Environment Profiles
+Profile A (Nominal): no injected faults, stable local resources.
+Profile B (Degraded): injected contention/latency/resource stress within safe bounds.
+Profile C (Incident): deterministic fault injections that trigger incident semantics.
+All AC tests SHALL declare profile(s) used.
+
+17.4 Fault Injection Catalog (Abstract)
+FI-01 Concurrent start contention
+FI-02 Startup dependency unavailable
+FI-03 Initialize path stall
+FI-04 Ownership lease/token invalidation
+FI-05 Endpoint truth conflict (dual-record input)
+FI-06 Forced process termination
+FI-07 Readiness withdrawal condition
+FI-08 Liveness failure condition
+FI-09 Clock/scheduler disturbance affecting confidence
+FI-10 Shutdown during in-flight requests
+
+17.5 Conformance Test Matrix
+
+Lifecycle
+T-LIFE-01 Startup reaches terminal outcome
+- mapped_requirements: REQ-NN-4, REQ-NN-5
+- mapped_acceptance: AC-1
+- stimulus: start runtime under Profile A and Profile B(FI-02)
+- expected_outcomes: reaches STEADY or INCIDENT before startup deadline
+- prohibited_observations: unbounded STARTUP hang
+
+T-LIFE-02 Initialize bounded completion
+- mapped_requirements: REQ-NN-4, REQ-HR-2
+- mapped_acceptance: AC-2
+- stimulus: invoke initialize under Profile A and FI-03
+- expected_outcomes: success or terminal timeout/error before initialize deadline
+- prohibited_observations: indefinite pending initialize
+
+T-LIFE-03 Shutdown bounded completion
+- mapped_requirements: REQ-NN-4
+- mapped_acceptance: AC-3
+- stimulus: trigger shutdown with active and idle conditions (FI-10)
+- expected_outcomes: completes within shutdown deadline; rejects new sessions after shutdown begins
+- prohibited_observations: accepts new sessions after shutdown start
+
+Ownership / Concurrency
+T-OWN-01 Single-winner startup
+- mapped_requirements: REQ-NN-1, REQ-OC-3
+- mapped_acceptance: AC-4
+- stimulus: FI-01 with N parallel start requests
+- expected_outcomes: exactly one owner becomes authoritative
+- prohibited_observations: multiple active owners
+
+T-OWN-02 Stale fence rejection
+- mapped_requirements: REQ-OC-1, REQ-OC-2
+- mapped_acceptance: AC-5
+- stimulus: issue mutable operation using stale ownership token (FI-04)
+- expected_outcomes: deterministic rejection class
+- prohibited_observations: stale token mutation success
+
+T-OWN-03 Demotion on ownership loss
+- mapped_requirements: REQ-OC-4, REQ-OC-5
+- mapped_acceptance: AC-6
+- stimulus: invalidate current ownership validity (FI-04)
+- expected_outcomes: owner demoted within demotion SLA; no overlap multi-writer window
+- prohibited_observations: concurrent mutable authority
+
+Discovery / Endpoint Truth
+T-DISC-01 Publish only when valid STEADY
+- mapped_requirements: REQ-NN-3, REQ-DET-3
+- mapped_acceptance: AC-7
+- stimulus: traverse STARTUP->STEADY and STEADY->DEGRADED/INCIDENT
+- expected_outcomes: endpoint discoverable only in valid STEADY
+- prohibited_observations: discoverable endpoint outside allowed conditions
+
+T-DISC-02 Stale endpoint expiry
+- mapped_requirements: REQ-DET-6
+- mapped_acceptance: AC-8
+- stimulus: stop endpoint freshness renewal (FI-06 or FI-07)
+- expected_outcomes: discovery entry removed/invalidated within TTL bound
+- prohibited_observations: stale endpoint routable past expiry
+
+T-DISC-03 Dual-truth conflict determinism
+- mapped_requirements: REQ-DET-1, REQ-DET-5
+- mapped_acceptance: AC-9
+- stimulus: inject dual conflicting truth inputs (FI-05)
+- expected_outcomes: deterministic authoritative outcome + incident evidence emitted
+- prohibited_observations: nondeterministic resolution across runs
+
+Health / Readiness
+T-HR-01 Transport-open is not readiness
+- mapped_requirements: REQ-HR-1, REQ-HR-2
+- mapped_acceptance: AC-10
+- stimulus: present reachable transport without readiness condition
+- expected_outcomes: readiness negative, request eligibility denied
+- prohibited_observations: inferred ready from transport alone
+
+T-HR-02 Readiness withdrawal SLA
+- mapped_requirements: REQ-HR-5
+- mapped_acceptance: AC-11
+- stimulus: induce readiness failure (FI-07)
+- expected_outcomes: endpoint withdrawn within withdrawal SLA
+- prohibited_observations: routable endpoint after withdrawal deadline
+
+T-HR-03 Liveness policy response
+- mapped_requirements: REQ-HR-3
+- mapped_acceptance: AC-12
+- stimulus: induce liveness failure (FI-08)
+- expected_outcomes: configured liveness policy invoked deterministically
+- prohibited_observations: silent stuck state with no policy action
+
+Client Determinism
+T-CLI-01 Bounded retries
+- mapped_requirements: REQ-CB-2
+- mapped_acceptance: AC-13
+- stimulus: repeated transient failures
+- expected_outcomes: retries stop at configured bounds
+- prohibited_observations: unbounded retry loops
+
+T-CLI-02 Terminal fail-fast classes
+- mapped_requirements: REQ-CB-3
+- mapped_acceptance: AC-14
+- stimulus: inject owner mismatch, stale generation, incident response
+- expected_outcomes: immediate terminal classification
+- prohibited_observations: retries on terminal classes
+
+T-CLI-03 Stale-session bounded recovery
+- mapped_requirements: REQ-CB-5
+- mapped_acceptance: AC-15
+- stimulus: inject stale session condition
+- expected_outcomes: one transparent re-init attempt max, then surfaced error
+- prohibited_observations: infinite transparent re-init behavior
+
+Incident Behavior
+T-INC-01 Incident-safe suppression
+- mapped_requirements: REQ-NN-7, REQ-OI-2
+- mapped_acceptance: AC-16
+- stimulus: inject confidence-breaking condition (FI-09)
+- expected_outcomes: unsafe mutable actions suppressed
+- prohibited_observations: normal mutable flow while incident-safe active
+
+T-INC-02 Incident entry/exit criteria
+- mapped_requirements: REQ-OI-2
+- mapped_acceptance: AC-17
+- stimulus: trigger incident then restore conditions
+- expected_outcomes: entry and exit follow explicit criteria with events
+- prohibited_observations: silent state flips without criteria evidence
+
+T-INC-03 Timeline reconstructability
+- mapped_requirements: REQ-OI-1, REQ-OI-4
+- mapped_acceptance: AC-18
+- stimulus: execute multi-step fault scenario
+- expected_outcomes: ordered causal timeline reconstructable from emitted evidence
+- prohibited_observations: missing or contradictory event chain
+
+Migration / Compatibility
+T-MIG-01 Legacy client compatibility
+- mapped_requirements: REQ-MC-1
+- mapped_acceptance: AC-19
+- stimulus: run legacy-compatible client matrix against hardened runtime
+- expected_outcomes: contract-compliant behavior during compatibility window
+- prohibited_observations: regression outside declared incompatibilities
+
+T-MIG-02 Hardened client with legacy runtime
+- mapped_requirements: REQ-MC-1, REQ-MC-2
+- mapped_acceptance: AC-20
+- stimulus: run hardened client against legacy-compatible runtime
+- expected_outcomes: graceful compatibility handling per contract
+- prohibited_observations: undefined behavior or silent misrouting
+
+T-MIG-03 Mixed-artifact conflict determinism
+- mapped_requirements: REQ-MC-2, REQ-MC-3
+- mapped_acceptance: AC-21
+- stimulus: provide mixed legacy/new artifacts with conflict
+- expected_outcomes: deterministic winner + observable incident/conflict evidence
+- prohibited_observations: nondeterministic artifact precedence
+
+SLO Validation
+T-SLO-01 Startup SLO
+- mapped_requirements: REQ-NN-4
+- mapped_acceptance: AC-22
+- stimulus: rolling-window startup sample collection
+- expected_outcomes: startup success rate meets target
+
+T-SLO-02 Initialize SLO
+- mapped_requirements: REQ-HR-2
+- mapped_acceptance: AC-23
+- stimulus: initialize samples during STEADY windows
+- expected_outcomes: success rate meets target
+
+T-SLO-03 Query SLO
+- mapped_requirements: REQ-NN-3
+- mapped_acceptance: AC-24
+- stimulus: request samples during STEADY windows
+- expected_outcomes: query success meets target
+
+T-SLO-04 MTTR SLO
+- mapped_requirements: REQ-OI-3
+- mapped_acceptance: AC-25
+- stimulus: induced P1 lifecycle incidents
+- expected_outcomes: MTTR percentiles meet target
+
+17.6 Prohibited-State Test Suite (Mandatory)
+At minimum, one negative test per prohibited state:
+- PSTATE-01 Multiple active owners
+- PSTATE-02 Discoverable endpoint while not ready
+- PSTATE-03 STEADY without ownership validity
+- PSTATE-04 Infinite STARTUP
+- PSTATE-05 Infinite initialize
+- PSTATE-06 Shutdown accepting new sessions
+- PSTATE-07 Stale endpoint beyond TTL
+- PSTATE-08 Nondeterministic dual-truth resolution
+
+17.7 Evidence and Reporting Requirements
+T-EVID-01 Each failing test SHALL emit a minimal reproducibility bundle: input conditions, injected faults, ordered events, and observed outputs.
+T-EVID-02 Conformance summary SHALL include per-REQ coverage and per-AC pass/fail rollup.
+T-EVID-03 No requirement may be marked “covered” without at least one passing and one failing-path assertion where applicable.
+
+17.8 Exit Criteria for Test Program
+The acceptance program is complete only when:
+- All tests in 17.5 and 17.6 pass.
+- No flaky test remains unresolved across repeated runs.
+- Coverage report shows 100% REQ and AC mapping coverage.
+- SLO validations are computed using declared window and denominator rules.
+
+End of Acceptance-Test Template

@@ -2,7 +2,7 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-143
+**Next bug number:** BUG-146
 
 ---
 
@@ -18,35 +18,22 @@
 - **Required re-fix:** Guard must handle absent `projectRoot` as a mismatch, not a pass. Treat missing field as foreign profile. Task v0.11.86 in progress.
 - **Acceptance:** `rm -rf MBO_Alpha && cp -r MBO/. MBO_Alpha/ && node bin/mbo.js setup` triggers `[SYSTEM]` root-mismatch warning and re-runs interview.
 
-### BUG-141: Classifier BUDGET_EXCEEDED — sessionHistory/stateSummary leaking into classifier context | Milestone: 1.1 | FIXED
-- **Location:** `src/auth/operator.js` → `classifyRequest()`
-- **Severity:** P1 (runtime blocker — breaks E2E on any multi-turn session)
-- **Status:** FIXED — 2026-03-19
-- **Task:** v0.11.36
-- **Description:** `classifyRequest()` was passing `{ userMessage, sessionHistory, stateSummary }` as context to the `classifier` role (1500-token input budget). After even one prior turn, `sessionHistory` pushed input to 1667+ tokens → `[BUDGET_EXCEEDED]` → heuristic fallback → degraded Stage 1.5 ledger.
-- **Fix:** Stripped `classifyRequest()` context to `{ userMessage }` only. Budget stays at 1500, permanently immune to history growth.
-- **Known tradeoff:** Classifier loses session-history awareness. If needed later, raise `DEFAULT_TOKEN_BUDGETS.classifier.input` first — do not re-add raw history.
-- **Acceptance:** Alpha E2E with multi-turn prompts completes classification without `[BUDGET_EXCEEDED]`.
 
-### BUG-142: Worktree auth/bootstrap friction — inconsistent root and session display | Milestone: 1.1 | FIXED
-- **Location:** `bin/handshake.py`, `bin/mbo.js`
+### BUG-144: Onboarding role exceeds token budget during re-onboarding loop, exposing stack trace and blocking runtime | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/onboarding.js` (`runOnboarding` callModel onboarding role), `src/index.js` startup onboarding gate
+- **Severity:** P1
+- **Status:** OPEN — observed 2026-03-19 during installer-first Alpha validation
+- **Task:** v0.11.36
+- **Description:** During root-mismatch re-onboarding in `/Users/johnserious/MBO_Alpha`, onboarding prompt/context grows until the onboarding role exceeds its token budget (`[BUDGET_EXCEEDED] Input tokens (3612) exceed budget (3000)`), then throws and aborts startup.
+- **Observed output:** budget error followed by stack trace and operator respawn behavior.
+- **Expected:** onboarding remains within budget (or degrades gracefully) without user-facing stack traces, and runtime reaches normal operator prompt.
+- **Acceptance:** Installer-first TTY launch in `MBO_Alpha` completes onboarding and reaches runtime prompt with no onboarding `BUDGET_EXCEEDED` error.
+
+### BUG-145: Self-run warning banner shown in Alpha runtime due to controllerRoot drift in global config | Milestone: 1.1 | OPEN
+- **Location:** `bin/mbo.js` (`setSelfRunWarningEnv`), `~/.mbo/config.json` metadata stamping
 - **Severity:** P2
-- **Status:** FIXED — 2026-03-19
+- **Status:** OPEN — observed 2026-03-19 during installer-first Alpha validation
 - **Task:** v0.11.36
-- **Description:** Fresh worktrees without `.journal/state.json` hard-exited on `--status`. Auth scope displayed as `src` not `.`. Risk confirmation required `yes` not `y`. Auth subcommands did not force `MBO_PROJECT_ROOT` to resolved project root.
-- **Fix:** Auto-init state on first use; `_display_scope` normalizes to `.`; accept `y`/`yes`; `authEnv` forces root in all subprocess calls.
-- **Acceptance:** Fresh worktree runs `mbo auth status` without pre-existing state.json; shows `[SESSION] Active: .`
-
----
-
-*Last updated: 2026-03-19 — split performed. 76 resolved bugs archived to BUGS-resolved.md. 3 outstanding (BUG-086 partial, BUG-141 fixed/verify pending, BUG-142 fixed/verify pending).*
-
-### BUG-143: `~/.mbo/config.json` `planner` key not recognized — architecturePlanner/componentPlanner left unrouted | Milestone: 1.1 | FIXED
-- **Location:** `src/auth/model-router.js` → `routeModels()`, `~/.mbo/config.json`
-- **Severity:** P1 (runtime blocker — planner roles get null config, pipeline hard-fails)
-- **Status:** FIXED — 2026-03-19
-- **Task:** v0.11.36
-- **Description:** `mbo setup` writes a `planner` key to `~/.mbo/config.json`. The model router expects `architecturePlanner` and `componentPlanner` keys. The `planner` entry never matched, all three planner fallback checks (claude CLI, openrouter, ollama) also failed in the Alpha environment, and both planner roles were left as `null`. `callModel` then threw `No provider configured for role 'architecturePlanner'` on every `go`.
-- **Fix 1:** Added `planner` → `architecturePlanner`/`componentPlanner` alias in the `opConfig` block before the roles loop. Non-destructive — only aliases when specific keys are absent.
-- **Fix 2:** Added `cli.gemini.authenticated` as a planner fallback after openrouter, before ollama. Gemini is the working auth in this environment and already handles classifier/operator.
-- **Acceptance:** `go` after a standard workflow prompt routes planners successfully without `No provider configured` error.
+- **Description:** Warning banner `MBO SHOULD NOT BE RUN FROM THE MBO DIRECTORY` is shown while running from `/Users/johnserious/MBO_Alpha` because global config currently sets `controllerRoot=/Users/johnserious/MBO_Alpha`. This creates false-positive path warnings in target runtime.
+- **Expected:** warning only when cwd is inside true controller repo path (`/Users/johnserious/MBO`), not Alpha target runtime.
+- **Acceptance:** `cd /Users/johnserious/MBO_Alpha && npx mbo` runs without controller-directory warning while `cd /Users/johnserious/MBO && npx mbo` still warns.

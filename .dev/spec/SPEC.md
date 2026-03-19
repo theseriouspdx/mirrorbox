@@ -953,7 +953,7 @@ Timeout values are in seconds. `verification` timeout is not configurable.
 
 ### The Invariant
 
-Only the patch generator writes project source files. Only the orchestrator core writes state files (`mirrorbox.db`, `state.json`, `NEXT_SESSION.md`, `CHANGELOG.md`, `AGENTS.md`). No model holds a file handle. All writes go through the orchestrator's `writeFile` function, which enforces:
+Only the patch generator writes project source files. Only the orchestrator core writes state files (`mirrorbox.db`, `state.json`, `CHANGELOG.md`, governance ledgers under `.dev/governance/`, and optional session handoff artifacts under `.dev/sessions/`). No model holds a file handle. All writes go through the orchestrator's `writeFile` function, which enforces:
 
 1. Target path must be within project root
 2. Target path must appear in the approved file list
@@ -1473,7 +1473,7 @@ Every token of every model input and output appended to `data/transcript.jsonl` 
 
 ### Session Handoff
 
-On clean session end, orchestrator writes `data/NEXT_SESSION.md`:
+On clean session end, orchestrator may write a generated handoff artifact at `.dev/sessions/NEXT_SESSION.md` when enabled by governance mode:
 
 ```typescript
 interface SessionHandoff {
@@ -1486,7 +1486,7 @@ interface SessionHandoff {
 }
 ```
 
-If the session ends via force-kill and the handoff never writes, the next session detects the missing handoff and reconstructs state from the database.
+If the session ends via force-kill and the handoff never writes, the next session reconstructs orientation from canonical governance state (`projecttracking.md`, `BUGS.md`) plus database state.
 
 ---
 
@@ -2048,10 +2048,19 @@ Every session ends with:
 1. `projecttracking.md` updated — task status, any new tasks discovered
 2. `BUGS.md` updated — any bugs found during session logged with severity
 3. `CHANGELOG.md` updated — what shipped
-4. `NEXT_SESSION.md` written — last task, status, suggested next task, any unresolved issues
+4. Optional handoff artifact refreshed when enabled (`.dev/sessions/NEXT_SESSION.md`)
 5. All changes committed with message referencing task ID
 
 No session ends without documentation updated. This is not optional.
+
+### Worktree Lifecycle Contract
+
+For any task branch that has been merged and accepted:
+1. Remove attached git worktree paths associated with that branch.
+2. Delete the working branch locally/remotely, unless explicitly retained.
+3. If retained, move/rename under `archive/*` and record the reason in session artifacts.
+
+Stale attached worktrees after merge are workflow violations and must be resolved before declaring session closure clean.
 
 ### Bug Triage During Development
 
@@ -2106,6 +2115,20 @@ Deliver a deterministic, testable bootstrap path that makes MBO portable per-pro
 - `mbo` and `mboalpha` MUST resolve `PROJECT_ROOT` by walking upward from `process.cwd()` for `.mbo/`.
 - If no `.mbo/` exists in ancestry, `PROJECT_ROOT = process.cwd()`.
 
+### 28.3A Installer-First Runtime Entry Contract
+- Acceptance and runtime validation MUST use the packaged CLI entrypoint only (`mbo` or `npx mbo`).
+- Direct Node launchers (`node .../bin/mbo.js`) are prohibited for acceptance runs because they bypass packaged-entry behavior.
+- Installer-first flow is authoritative for local end-user simulation:
+  1. Build package from source checkout (`npm pack`).
+  2. Install package into target runtime project (for example `MBO_Alpha`).
+  3. Run from target project directory with `npx mbo` (or global `mbo` if installed).
+- If helper scripts exist for packaging/runtime (`scripts/mbo-install-alpha.sh`, `scripts/mbo-run-alpha.sh`, `scripts/alpha-runtime.sh`), they MUST preserve this entry contract and MUST NOT reintroduce direct Node launcher usage.
+
+### 28.3B Self-Run Warning Contract
+- Running MBO from within the configured controller repository is allowed for development workflows but MUST surface a prominent warning banner on interactive prompts.
+- The warning MUST identify the controller path and remain non-fatal for setup/init/operator entrypoints.
+- The warning state may be propagated via process environment for child prompt surfaces to preserve consistent operator visibility.
+
 ### 28.4 Machine Config
 - Config file path: `~/.mbo/config.json`.
 - If missing: run setup inline in TTY, fail in non-TTY with explicit missing requirements.
@@ -2132,6 +2155,14 @@ MUST ensure this effective policy:
 If `.mbo/` already ignored, append only missing negations.
 If `.mbo/mirrorbox.db` is tracked, print:
 `git rm --cached .mbo/mirrorbox.db`
+
+### 28.6A Packaged Artifact Curation
+- Installer artifacts (`npm pack`) MUST be runtime-minimal and exclude non-runtime trees and evidence directories.
+- Enforced exclusions MUST include at minimum:
+  - `.dev/` (including governance snapshots/backups/worktrees)
+  - `backups/`
+  - ad-hoc transcript logs and temporary session artifacts not required at runtime
+- Curation may be implemented with `.npmignore` and/or `package.json` `files`, but the resulting tarball contract is normative.
 
 ### 28.7 Launch Sequence (Authoritative Order)
 1. Resolve root.
@@ -2184,6 +2215,7 @@ Until then, host-side human auth is authoritative; containerized flows must not 
 - Tokenmiser MUST use `cl100k_base`.
 - MUST respect `.gitignore`.
 - MUST exclude `.mbo/logs`, `.mbo/sessions`, and generated artifacts.
+- Packaged distribution artifacts MUST exclude non-runtime governance and recovery trees (for example `.dev/`, backups, worktrees, ad-hoc logs) so installer-based runtimes receive runtime-only contents.
 
 ### 29.4 Request Baseline (The "Without" Baseline)
 - For every `callModel` request, calculate a "Raw" baseline.
@@ -2544,6 +2576,18 @@ Rules:
   e.g., "Build system: npm" not "buildSystem: npm".
 - Log-level output (paths, debug tokens) MUST be directed to `.mbo/logs/` only,
   never to the terminal during an active onboarding session.
+
+### 36.7A Acceptance Transcript Capture
+- Alpha acceptance sessions MUST persist a transcript under the target project's `.mbo/logs/` directory.
+- During active MBO self-development, acceptance transcripts SHOULD also be mirrored to controller-side session analysis (`.dev/sessions/analysis`) to keep handoff evidence in one canonical review location.
+- When both locations are required, runtime helpers MUST write both copies within the same run and surface both output paths in operator-facing status lines.
+
+### 36.7B Acceptance Runtime Quality Gate
+Installer-path acceptance cycles (target project launched via `mbo`/`npx mbo`) MUST satisfy all of the following transcript-level checks:
+- No `BUDGET_EXCEEDED` surfaced in operator-visible output.
+- No malformed/non-JSON warning strings surfaced to the operator.
+- No known planner fallback error strings listed in active handoff/governance blockers.
+- Workflow reaches audit prompt and state-sync completion path without fatal interruption.
 
 ### 36.8 Error Handling
 - No raw stack traces in terminal output under any error condition during

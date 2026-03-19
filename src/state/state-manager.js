@@ -7,7 +7,6 @@ const { randomUUID } = require('crypto');
 const RUNTIME_ROOT = path.resolve(process.env.MBO_PROJECT_ROOT || process.cwd());
 const CONTROLLER_ROOT = path.resolve(__dirname, '../..');
 const STATE_JSON_PATH = path.join(RUNTIME_ROOT, 'data/state.json');
-const HANDOFF_MD_PATH = path.join(RUNTIME_ROOT, 'NEXT_SESSION.md');
 
 class StateManager {
   /**
@@ -63,7 +62,7 @@ class StateManager {
 
   /**
    * Section 17: Session Handoff
-   * Triggers the session-close script to generate NEXT_SESSION.md and backups.
+   * Triggers the session-close script to generate timestamped handoff artifacts and backups.
    */
   generateHandoff() {
     const { spawnSync } = require('child_process');

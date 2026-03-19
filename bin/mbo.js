@@ -24,10 +24,46 @@ const entry = path.join(__dirname, '..', 'src', 'index.js');
 const HOME_CONFIG_DIR = path.join(require('os').homedir(), '.mbo');
 const HOME_CONFIG_PATH = path.join(HOME_CONFIG_DIR, 'config.json');
 
+function printSelfRunWarning(packageRoot) {
+  const red = '\x1b[31m';
+  const reset = '\x1b[0m';
+  process.stderr.write(
+    `${red}[MBO WARNING] MBO SHOULD NOT BE RUN FROM THE MBO DIRECTORY.\n` +
+    `[MBO WARNING] Controller: ${path.resolve(packageRoot)}${reset}\n`
+  );
+}
+
+function setSelfRunWarningEnv() {
+  let controller = null;
+  try {
+    if (fs.existsSync(HOME_CONFIG_PATH)) {
+      const cfg = JSON.parse(fs.readFileSync(HOME_CONFIG_PATH, 'utf8'));
+      if (cfg && typeof cfg.controllerRoot === 'string' && cfg.controllerRoot.trim()) {
+        controller = path.resolve(cfg.controllerRoot);
+      }
+    }
+  } catch {}
+
+  if (!controller) return;
+  const cwd = path.resolve(INVOCATION_CWD);
+  const inController = cwd === controller || cwd.startsWith(`${controller}${path.sep}`);
+  if (!inController) return;
+
+  process.env.MBO_SELF_RUN_WARNING = '1';
+  process.env.MBO_SELF_RUN_WARNING_CONTROLLER = controller;
+}
+
+function warningPromptPrefix() {
+  if (process.env.MBO_SELF_RUN_WARNING !== '1') return '';
+  return '\x1b[31m[MBO WARNING] MBO SHOULD NOT BE RUN FROM THE MBO DIRECTORY.\n[MBO WARNING] Controller: '
+    + `${process.env.MBO_SELF_RUN_WARNING_CONTROLLER || path.resolve(PACKAGE_ROOT)}\x1b[0m\n`;
+}
+
 function runSetupCommand() {
   const setup = require('../src/cli/setup');
   const { checkOnboarding } = require('../src/cli/onboarding');
   const { detectProviders } = require('../src/cli/detect-providers');
+  const warnedPrompt = warningPromptPrefix();
   Promise.resolve()
     .then(async () => {
       // BUG-085 fix (1): Gate on project-local .mbo/config.json, not global ~/.mbo/config.json.
@@ -68,6 +104,10 @@ function runSetupCommand() {
       process.stdout.write('[MBO] MCP daemon ready. Port written to .dev/run/mcp.json\n');
     })
     .catch(err => { console.error(err); process.exit(1); });
+
+  if (warnedPrompt) {
+    process.stderr.write(warnedPrompt);
+  }
 }
 
 function runTeardownCommand() {
@@ -569,6 +609,7 @@ function ensureNodeModules() {
 ensureNodeModules();
 
 if (process.argv[2] === 'setup') {
+  setSelfRunWarningEnv();
   runSetupCommand();
 } else if (process.argv[2] === 'teardown') {
   runTeardownCommand();
@@ -579,8 +620,7 @@ if (process.argv[2] === 'setup') {
   runAuthCommand(process.argv);
 } else if (process.argv[2] === 'init') {
   if (isSelfRunDisallowed(INVOCATION_CWD, PACKAGE_ROOT)) {
-    process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
-    process.exit(2);
+    setSelfRunWarningEnv();
   }
   const { initProject } = require('../src/cli/init-project');
   initProject(INVOCATION_CWD);
@@ -593,8 +633,7 @@ if (process.argv[2] === 'setup') {
     spawnSync('python3', [path.join(PACKAGE_ROOT, 'bin', 'handshake.py'), '--revoke'], {
       env: { ...process.env, MBO_PROJECT_ROOT: PROJECT_ROOT },
     });
-    process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
-    process.exit(2);
+    setSelfRunWarningEnv();
   }
   // Task 1.1-H28: Persistent Operator Loop
   function spawnOperator() {
