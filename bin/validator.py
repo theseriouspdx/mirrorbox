@@ -36,6 +36,24 @@ PORT_BAN_PATTERNS = [
 ]
 
 
+JSON_PROTOCOL_BAN_PATTERNS = [
+    re.compile(r"\breturn\s+(?:a\s+)?json\b", re.IGNORECASE),
+    re.compile(r"\brespond\s+(?:with|in)\s+json\b", re.IGNORECASE),
+    re.compile(r"\bjson\s+object\b", re.IGNORECASE),
+    re.compile(r"\btype\s*[:=]\s*['\"]?(?:persist|question)['\"]?", re.IGNORECASE),
+]
+
+JSON_PROTOCOL_ALLOW_CONTEXT_PATTERNS = [
+    re.compile(r"transport payload", re.IGNORECASE),
+    re.compile(r"inert project content", re.IGNORECASE),
+    re.compile(r"json\.stringify\(", re.IGNORECASE),
+    re.compile(r"json\.parse\(", re.IGNORECASE),
+    re.compile(r"\bapplication/json\b", re.IGNORECASE),
+    re.compile(r"\bdo\s+not\s+use\s+json\b", re.IGNORECASE),
+    re.compile(r"\bnever\b.*\breturn\s+(?:a\s+)?json\b", re.IGNORECASE),
+]
+
+
 @dataclass
 class BudgetConfig:
     loc: int = 250
@@ -251,6 +269,33 @@ def validate_no_hardcoded_mcp_ports():
     return errs
 
 
+def validate_no_json_protocol_prompts():
+    errs = []
+    roots = [MBO_ROOT / "src", MBO_ROOT / "personalities"]
+
+    for root in roots:
+        if not root.exists():
+            continue
+        for fpath in root.rglob("*.js") if root.name == "src" else root.rglob("*.md"):
+            try:
+                lines = fpath.read_text().splitlines()
+            except Exception:
+                continue
+
+            for idx, line in enumerate(lines, start=1):
+                text = line.strip()
+                if not text:
+                    continue
+                if any(allow.search(text) for allow in JSON_PROTOCOL_ALLOW_CONTEXT_PATTERNS):
+                    continue
+                for ban in JSON_PROTOCOL_BAN_PATTERNS:
+                    if ban.search(text):
+                        errs.append(f"{fpath}:{idx}: JSON-as-protocol prompt pattern is disallowed: {text[:140]}")
+                        break
+
+    return errs
+
+
 def main():
     cfg = load_config()
     whitelist = None
@@ -275,6 +320,10 @@ def main():
     port_errors = validate_no_hardcoded_mcp_ports()
     if port_errors:
         all_violations["ports"] = port_errors
+
+    json_protocol_errors = validate_no_json_protocol_prompts()
+    if json_protocol_errors:
+        all_violations["json_protocol"] = json_protocol_errors
 
     if all_violations:
         for fpath, violations in all_violations.items():

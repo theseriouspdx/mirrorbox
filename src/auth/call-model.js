@@ -192,32 +192,8 @@ function verifyContextIntegrity(fullPrompt, role) {
   }
 }
 
-/**
- * Section 10: Ensures models that MUST return JSON do so.
- * DDR-001: Demoted to console.warn — the Operator extraction pass is now
- * the authority on whether a structured decision was recoverable.
- * callModel no longer throws for NL responses from structured roles.
- */
-function validateOutputSchema(role, response, options = {}) {
-  if (options.expectJson !== true) return;
-  // Only roles that are explicitly instructed to return structured deliverables
-  // (e.g. patchGenerator producing a code patch object) remain here.
-  // classifier and operator use plain-English labeled sections — DDR-001.
-  const mustBeJson = new Set(['patchGenerator']);
-  if (!mustBeJson.has(role)) return;
-  
-  const jsonMatch = response && response.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    console.warn(`[callModel] ${role} returned non-JSON. Operator _extractDecision will attempt NL recovery.`);
-    return;
-  }
-  
-  try {
-    JSON.parse(jsonMatch[0]);
-  } catch (e) {
-    console.warn(`[callModel] ${role} produced malformed JSON (${e.message}). Operator _extractDecision will attempt NL recovery.`);
-  }
-}
+// Section 36 contract: model communication is plain English. JSON may appear
+// only as inert project content or transport payloads, not as a response schema.
 
 function wrapHardState(hardState) {
   if (!hardState || Object.keys(hardState).length === 0) return '';
@@ -645,9 +621,6 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
       rawCostEstimate
     });
   }
-
-  // Section 10: Structural validation
-  validateOutputSchema(role, response, options);
 
   // Section 10: Injection heuristic check
   if (checkInjectionHeuristic(response)) {
