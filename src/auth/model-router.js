@@ -148,6 +148,11 @@ async function routeModels(classification = {}, blastRadius = []) {
     if (opConfig.streaming) {
       validateStreamingConfig(opConfig.streaming);
     }
+    // BUG-143: alias 'planner' key → architecturePlanner + componentPlanner.
+    // Setup writes 'planner' but router expects role-specific keys.
+    if (opConfig.planner && !opConfig.architecturePlanner) opConfig.architecturePlanner = opConfig.planner;
+    if (opConfig.planner && !opConfig.componentPlanner) opConfig.componentPlanner = opConfig.planner;
+
     roles.forEach(role => {
       if (opConfig[role]) {
         routingMap[role] = harmonizeConfiguredEntry(normalizeConfiguredEntry(opConfig[role]), cli, local, or);
@@ -191,6 +196,9 @@ async function routeModels(classification = {}, blastRadius = []) {
       entry = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
     } else if (or.detected) {
       entry = { provider: 'openrouter', model: 'anthropic/claude-3.7-sonnet' };
+    } else if (cli.gemini.authenticated) {
+      // BUG-143 fallback: gemini is available and already handles classifier/operator
+      entry = { provider: 'cli', model: 'gemini', binary: cli.gemini.binary };
     } else if (local.ollama.detected) {
       entry = { provider: 'local', model: 'ollama', url: local.ollama.url };
     }

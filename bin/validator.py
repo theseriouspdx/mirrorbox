@@ -182,20 +182,8 @@ def validate_workflow_consistency():
             if rec["task"] not in task_ids:
                 errs.append(f"{rec['header']}: task '{rec['task']}' not found in projecttracking.md")
 
-    if NEXT_SESSION.exists():
-        next_mtime = NEXT_SESSION.stat().st_mtime
-        if PROJECTTRACKING.stat().st_mtime > next_mtime or BUGS.stat().st_mtime > next_mtime:
-            errs.append("NEXT_SESSION.md is stale: regenerate via scripts/mbo-session-close.sh")
-
-        if next_task:
-            ns_text = NEXT_SESSION.read_text()
-            expected = f"**Task {next_task} —"
-            if expected not in ns_text:
-                errs.append(
-                    f"NEXT_SESSION.md does not match projecttracking Next Task '{next_task}'"
-                )
-    else:
-        errs.append(f"Missing generated handoff: {NEXT_SESSION}")
+    # NEXT_SESSION.md is an optional generated legacy handoff artifact.
+    # Validator enforcement stays anchored to the canonical ledger + bug registry.
 
     return errs
 
