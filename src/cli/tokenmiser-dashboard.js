@@ -6,6 +6,7 @@
 'use strict';
 
 const statsManager = require('../state/stats-manager');
+const db = require('../state/db-manager');
 
 const R = '\x1b[0m';
 const G = '\x1b[32m'; // Green
@@ -82,6 +83,31 @@ ${Object.entries(l.models).map(([m, data]) =>
 ${BOLD}Total Lifetime${R} | ${this._fmtInt(lTotal.optimized).padStart(14)} | ${this._fmtInt(lTotal.notOptimized).padStart(14)} | $${this._formatMoney(lTotal.costEst, 4)}
 
 ${BOLD}Project Carbon impact:${R} ${DIM}${this._formatMoney(carbon, 4)}g CO2 avoided${R}
+${BOLD}────────────────────────────────────────────────────────────────────────${R}
+
+${BOLD}ROUTING SAVINGS${R}
+${(() => {
+  try {
+    const rollup = db.getCostRollup();
+    if (rollup.totalCalls === 0) return `${DIM}No callModel data yet.${R}`;
+    const fmt = (v) => `$${this._formatMoney(v, 6)}`;
+    const rows = rollup.byModel.map(r =>
+      `${r.model.padEnd(36)} | ${String(r.calls).padStart(5)} calls | ${fmt(r.actualCost)}`
+    ).join('\n');
+    return [
+      `Model                                | Calls | Actual cost`,
+      `─────────────────────────────────────┼───────┼─────────────`,
+      rows,
+      `─────────────────────────────────────┼───────┼─────────────`,
+      `${'Actual total'.padEnd(36)}   ${String(rollup.totalCalls).padStart(5)}         ${fmt(rollup.actualCost)}`,
+      `${'Counterfactual (all → ' + rollup.maxRateModel + ')'}`,
+      `${''.padEnd(36)}                       ${fmt(rollup.counterfactualCost)}`,
+      `${G}${BOLD}Routing savings${R}${''.padEnd(22)}                       ${G}${fmt(rollup.routingSavings)}${R}`,
+    ].join('\n');
+  } catch (_) {
+    return `${DIM}Routing data unavailable.${R}`;
+  }
+})()}
 ${BOLD}────────────────────────────────────────────────────────────────────────${R}
 ${DIM}Press SHIFT+T to close this overlay.${R}
 `);

@@ -41,6 +41,7 @@ Milestone 1.1 focuses on expanding the Sovereign Loop's reach and hardening the 
 ### Milestone 1.2 — TUI Stability & Economics
 - [ ] Implement Independent Panel Gating for reliable layout math.
 - [ ] Implement Budget-Based Model Routing (The Economic Governor).
+- [ ] **Cross-Agent Cost Comparison (The Value Proof):** Per-task cost rollup by model tier — Flash tokens × Flash rate + Pro tokens × Pro rate + Sonnet tokens × Sonnet rate vs equivalent single-model cost. Surfaces routing savings as a first-class metric in `getStatus()` and the stats dashboard. Enables empirical comparison of MBO vs direct agent invocation for the same task. Data already exists in `token_log` (model + cost_usd per call, tied to run_id) — missing piece is the rollup query, counterfactual calculation, and dashboard surface. See BUG-150 for tool context token tracking prerequisite.
 
 ---
 

@@ -35,8 +35,10 @@ const {
   buildScanBriefing,
   validateVerificationCommands,
   validateDangerZones,
-  synthesizePrimeDirective,
 } = require('../src/cli/onboarding');
+
+// synthesizePrimeDirective removed in BUG-146 rewrite (LLM now synthesizes in conversation)
+// AC-06 test updated to verify sentinel + Accept/Edit/Regenerate pattern in source instead
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

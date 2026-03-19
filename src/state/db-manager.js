@@ -310,6 +310,59 @@ class DBManager {
     ).all();
   }
 
+  /**
+   * v0.12.01: Cross-agent cost rollup and counterfactual routing savings.
+   * Groups token_log by model, computes actual total cost, then calculates a
+   * counterfactual cost (what this run would have cost if every callModel
+   * invocation used the most expensive model present in the set).
+   *
+   * @returns {{ byModel, actualCost, counterfactualCost, routingSavings, maxRateModel, totalCalls }}
+   */
+  getCostRollup() {
+    const rows = this.db.prepare(`
+      SELECT
+        model,
+        SUM(input_tokens)        AS total_input,
+        SUM(output_tokens)       AS total_output,
+        SUM(cost_usd)            AS actual_cost,
+        SUM(raw_cost_estimate)   AS raw_cost,
+        COUNT(*)                 AS calls
+      FROM token_log
+      GROUP BY model
+      ORDER BY actual_cost DESC
+    `).all();
+
+    const byModel = rows.map(r => ({
+      model:       r.model,
+      totalInput:  r.total_input  || 0,
+      totalOutput: r.total_output || 0,
+      actualCost:  r.actual_cost  || 0,
+      rawCost:     r.raw_cost     || 0,
+      calls:       r.calls        || 0,
+    }));
+
+    const actualCost = byModel.reduce((s, r) => s + r.actualCost, 0);
+    const totalCalls = byModel.reduce((s, r) => s + r.calls, 0);
+
+    // Counterfactual: project the highest per-call rate across all calls.
+    let maxRatePerCall = 0;
+    let maxRateModel   = 'unknown';
+    for (const r of byModel) {
+      if (r.calls > 0) {
+        const rate = r.actualCost / r.calls;
+        if (rate > maxRatePerCall) {
+          maxRatePerCall = rate;
+          maxRateModel   = r.model;
+        }
+      }
+    }
+
+    const counterfactualCost = maxRatePerCall * totalCalls;
+    const routingSavings     = Math.max(0, counterfactualCost - actualCost);
+
+    return { byModel, actualCost, counterfactualCost, routingSavings, maxRateModel, totalCalls };
+  }
+
   // ─── Server Meta (Task 1.1-10: Graph Trust Contract) ──────────────────────
 
   getServerMeta(key, defaultValue = null) {

@@ -1364,12 +1364,38 @@ The output will be used as the new system context.`;
       knowledge_update: 'Updating intelligence graph.',
     };
     const description = descriptions[stage] || `Running: ${stage}.`;
+
+    // v0.12.01: Routing savings summary
+    let costBlock = '';
+    try {
+      const rollup = db.getCostRollup();
+      if (rollup.totalCalls > 0) {
+        const fmt = (v) => `$${v.toFixed(6)}`;
+        const modelLines = rollup.byModel
+          .map(r => `  ${r.model.padEnd(38)} ${String(r.calls).padStart(4)} calls  ${fmt(r.actualCost)}`)
+          .join('\n');
+        costBlock = [
+          '',
+          '─── Routing Cost ────────────────────────────────────────',
+          modelLines,
+          `  ${'Actual total'.padEnd(38)} ${String(rollup.totalCalls).padStart(4)} calls  ${fmt(rollup.actualCost)}`,
+          `  Counterfactual (all → ${rollup.maxRateModel})`,
+          `  ${''.padEnd(38)}               ${fmt(rollup.counterfactualCost)}`,
+          `  ${'Routing savings'.padEnd(38)}        ${fmt(rollup.routingSavings)}`,
+          '─────────────────────────────────────────────────────────',
+        ].join('\n');
+      }
+    } catch (_) {
+      // Non-fatal — db may be unavailable in test contexts
+    }
+
     return [
       `Status: ${description}`,
       `Task:   ${task}`,
       `Files:  ${files}`,
-      `Hints:  ${this.userHintBuffer.length > 0 ? this.userHintBuffer.length + ' queued' : 'none'}`
-    ].join('\n');
+      `Hints:  ${this.userHintBuffer.length > 0 ? this.userHintBuffer.length + ' queued' : 'none'}`,
+      costBlock,
+    ].filter(Boolean).join('\n');
   }
 
   requestAbort() {
