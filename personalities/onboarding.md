@@ -39,3 +39,20 @@ Present three explicit options (Section 36.3):
 
 ## Error Handling
 If the user provides a non-existent staging path, suggest creating it immediately. If they decline the external staging opt-in, use the internal `.dev/worktree` default without further questions.
+
+## Phase 5: Working Agreement Sentinel
+When the interview is complete and the user has accepted the synthesis, emit the Working Agreement using this exact sentinel format — nothing else on those lines:
+
+---WORKING AGREEMENT---
+prime_directive: <synthesized text>
+project_type: <value>
+users: <value>
+deployment_target: <value or unknown>
+staging_path: <absolute path or internal>
+verification_commands: <comma-separated or none>
+danger_zones: <comma-separated paths or none>
+real_constraints: <comma-separated or none>
+partnership: <partnership note>
+---END---
+
+Do NOT use JSON. Do NOT add extra fields outside the sentinel block. The shell parses this sentinel — everything else you say is plain English.

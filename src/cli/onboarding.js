@@ -581,4 +581,5 @@ module.exports = {
   runOnboarding,
   scanProject,
   buildScanBriefing,
+  renderPlanAsText,
 };

@@ -12,6 +12,7 @@ const {
   validateSubjectRoot,
   validateVerificationCommands,
   validateDangerZones,
+  renderPlanAsText,
 } = require('../cli/onboarding');
 
 const RUNTIME_ROOT = path.resolve(process.env.MBO_PROJECT_ROOT || process.cwd());
@@ -1761,7 +1762,7 @@ DIFF:
 
     while (this.stateSummary.blockCounter < 3) {
       // Stage 4A: Architecture Planner
-      const plannerPrompt = `Write the implementation code for the agreed plan in plain English.\nPlan: ${JSON.stringify(plan)}\nTask: ${classification.rationale}\nFiles: ${classification.files.join(', ')}\n\nRespond in these sections:\nRATIONALE:\n<Why this implementation matches the plan>\n\nFILES:\n<One file path per line, or 'none'>\n\nDIFF:\n<Unified diff or code patch>\n\nINVARIANTS:\n<Constraints preserved>.`;
+      const plannerPrompt = `Write the implementation code for the agreed plan in plain English.\nPlan:\n${renderPlanAsText(plan)}\nTask: ${classification.rationale}\nFiles: ${classification.files.join(', ')}\n\nRespond in these sections:\nRATIONALE:\n<Why this implementation matches the plan>\n\nFILES:\n<One file path per line, or 'none'>\n\nDIFF:\n<Unified diff or code patch>\n\nINVARIANTS:\n<Constraints preserved>.`;
       const codeA = await callModel('architecturePlanner', plannerPrompt, { plan, classification }, hardState, [], null, { ...options, expectJson: false });
 
       // Invariant 7: Compute Planner hashes for blindness enforcement
@@ -1862,7 +1863,7 @@ DIFF:
   }
 
   async evaluateCodeConsensus(codeA, plan, reviewerOutput, hardState, options = {}) {
-    const auditPrompt = `Audit the Planner's code against the agreed plan and Reviewer's independent derivation.\nPlan: ${JSON.stringify(plan)}\nPlanner Code: ${codeA}\nReviewer Code: ${reviewerOutput.independentCode}\nReviewer Concerns: ${JSON.stringify(reviewerOutput.concerns)}\n\nRespond in plain English using these sections:\nVERDICT:\n<PASS or BLOCK>\n\nREASON:\n<Why>\n\nCITATION:\n<Relevant evidence>\n\nCONSENSUS INTENT:\n<One line summary>.`;
+    const auditPrompt = `Audit the Planner's code against the agreed plan and Reviewer's independent derivation.\nPlan:\n${renderPlanAsText(plan)}\nPlanner Code: ${codeA}\nReviewer Code: ${reviewerOutput.independentCode}\nReviewer Concerns:\n${Array.isArray(reviewerOutput.concerns) ? reviewerOutput.concerns.map((c, i) => `${i + 1}. ${c}`).join('\n') : String(reviewerOutput.concerns || 'none')}\n\nRespond in plain English using these sections:\nVERDICT:\n<PASS or BLOCK>\n\nREASON:\n<Why>\n\nCITATION:\n<Relevant evidence>\n\nCONSENSUS INTENT:\n<One line summary>.`;
     const result = await callModel('reviewer', auditPrompt, {}, hardState, [], null, { ...options, expectJson: false });
     if (process.env.MBO_DEBUG) console.error(`[DEBUG] evaluateCodeConsensus response: ${result}`);
     const parsed = this._safeParseJSON(result, { verdict: 'block', reason: 'NL audit extraction failure' }, 'reviewer');
@@ -1883,7 +1884,7 @@ DIFF:
     let retries = 0;
 
     while (retries < 3) {
-      const prompt = `Tiebreaker: Produce the final arbitrated code draft based on competing derivations in plain English.\nPlan: ${JSON.stringify(plan)}\nTask: ${classification.rationale}\n\nRespond in these sections:\nRATIONALE:\n<Why this final code wins>\n\nFINAL DIFF:\n<The final code or diff>\n\nVERDICT:\n<GO or ESCALATE_TO_HUMAN>.`;
+      const prompt = `Tiebreaker: Produce the final arbitrated code draft based on competing derivations in plain English.\nPlan:\n${renderPlanAsText(plan)}\nTask: ${classification.rationale}\n\nRespond in these sections:\nRATIONALE:\n<Why this final code wins>\n\nFINAL DIFF:\n<The final code or diff>\n\nVERDICT:\n<GO or ESCALATE_TO_HUMAN>.`;
       const codeTied = await callModel('tiebreaker', prompt, { classification, routing }, hardState, [], null, { ...options, expectJson: false });
 
       // Spec Note (BUG-010): One final audit for Tiebreaker code.
@@ -1929,8 +1930,11 @@ DIFF:
   async evaluateSpecAdherence(planA, planB, hardState) {
     const auditPrompt = `Audit these independent plans against the Prime Directive.
 Prime Directive: ${hardState.primeDirective}
-Plan A: ${JSON.stringify(planA)}
-Plan B: ${JSON.stringify(planB)}
+Plan A:
+${renderPlanAsText(planA)}
+
+Plan B:
+${renderPlanAsText(planB)}
 
 Do both plans fulfill the same qualitative intent without violating project invariants?
 Respond in plain English using these sections:

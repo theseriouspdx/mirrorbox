@@ -398,18 +398,14 @@ graph_search("${NEXT_TASK_TITLE}")
 - Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 EOF
 
-# Update symlink to latest
-ln -sf "$HANDOFF_BASENAME" "$SESSIONS_DIR/LATEST.md"
-
 # Cleanup legacy fixed-path files
-rm -f "$ROOT_DIR/NEXT_SESSION.md" "$ROOT_DIR/data/NEXT_SESSION.md" "$SESSIONS_DIR/NEXT_SESSION.md"
+rm -f "$ROOT_DIR/NEXT_SESSION.md" "$ROOT_DIR/data/NEXT_SESSION.md" "$SESSIONS_DIR/NEXT_SESSION.md" "$SESSIONS_DIR/LATEST.md"
 
 # 4. nhash Seed Calculation (Section 8)
 # X: AGENTS.md NUMBERED sections (e.g. ## Section 1)
 # Y: BUGS.md NUMBERED sections
 echo "----------------------------------------------------"
 echo "Session Handoff Generated: $HANDOFF_PATH"
-echo "Latest Symlink: $SESSIONS_DIR/LATEST.md"
 echo "Backup Created: $BACKUP_FILE"
 echo "PRAGMA integrity_check: $INTEGRITY_RESULT"
 echo "SHA-256: $SHA256"

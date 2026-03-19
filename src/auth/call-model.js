@@ -200,7 +200,10 @@ function verifyContextIntegrity(fullPrompt, role) {
  */
 function validateOutputSchema(role, response, options = {}) {
   if (options.expectJson !== true) return;
-  const mustBeJson = new Set(['classifier', 'operator', 'patchGenerator']);
+  // Only roles that are explicitly instructed to return structured deliverables
+  // (e.g. patchGenerator producing a code patch object) remain here.
+  // classifier and operator use plain-English labeled sections — DDR-001.
+  const mustBeJson = new Set(['patchGenerator']);
   if (!mustBeJson.has(role)) return;
   
   const jsonMatch = response && response.match(/\{[\s\S]*\}/);

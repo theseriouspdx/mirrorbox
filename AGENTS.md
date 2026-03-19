@@ -12,7 +12,6 @@ Every development session begins in this order. No exceptions.
 1. Read this file (`AGENTS.md`)
 2. Read `.dev/governance/projecttracking.md` — identify current milestone and active task (single source of truth)
 3. Read `.dev/governance/BUGS.md` — check linked P0/P1 blockers for the active task
-4. Optionally read `.dev/sessions/LATEST.md` when present — generated timestamped handoff only (do not hand-edit)
 
 No code is written before this sequence completes.
 
@@ -185,7 +184,7 @@ Explicitly state your **Hard State Anchor** at the beginning of every internal `
 
 ## Section 11 — Graph-Assisted Context
 
-Run only the queries listed in the active task record, explicit human runbook, or other current canonical instructions. If `.dev/sessions/LATEST.md` exists, treat it as supplemental handoff only.
+Run only the queries listed in the active task record, explicit human runbook, or other current canonical instructions.
 
 **MCP connection (as of 2026-03-13):**
 The graph server is a launchd system daemon at project-scoped dynamic endpoint.
