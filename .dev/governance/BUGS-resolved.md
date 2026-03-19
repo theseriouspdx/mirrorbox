@@ -195,7 +195,7 @@
 - **Severity:** P2
 - **Status:** SUPERSEDED — 2026-03-13 — eliminated by Task 1.1-H23. Server binds loopback only (127.0.0.1), no proxy layer. SSE keepalive not required in this topology.
 
-### BUG-061: Merkle scope drift + MCP query path drift can cause false mismatch and wrong-server access | Milestone: 1.1 | OPEN
+### BUG-061: Merkle scope drift + MCP query path drift can cause false mismatch and wrong-server access | Milestone: 1.1 | RESOLVED
 - **Location:** `bin/handshake.py`, `src/relay/pile.js`, `mcp_query.js`, `src/utils/resolve-manifest.js`
 - **Severity:** P0
 - **Status:** COMPLETED — 2026-03-17 (Synthesized fix) FIXED — 2026-03-13
@@ -225,7 +225,7 @@
   6. Replaced env-sentinel auth gating with macOS Keychain-backed user-presence checks for grant/revoke/toggle paths.
   7. Added explicit fail-closed non-interactive contract with CI-only approval policy (`CI=1`, `MBO_CI_AUTH_APPROVED=1`, optional action/scope allowlists).
 
-### BUG-063: macOS auth fallback path may pass via unlocked keychain without explicit biometric/password prompt | Milestone: 1.1 | OPEN
+### BUG-063: macOS auth fallback path may pass via unlocked keychain without explicit biometric/password prompt | Milestone: 1.1 | RESOLVED
 - **Location:** `bin/handshake.py` (`_macos_keychain_presence_check`)
 - **Severity:** P2
 - **Status:** COMPLETED — 2026-03-17 (Synthesized fix) — 2026-03-13

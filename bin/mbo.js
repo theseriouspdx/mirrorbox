@@ -94,7 +94,9 @@ function runSetupCommand() {
 
       // Keep setup non-blocking in restricted environments where ~/.mbo is not writable.
       try {
-        setup.persistInstallMetadata(HOME_CONFIG_PATH, PACKAGE_ROOT, { force: true });
+        // BUG-145: setup in a target runtime must not overwrite the canonical
+        // controllerRoot once it has been established.
+        setup.persistInstallMetadata(HOME_CONFIG_PATH, PACKAGE_ROOT, { force: false });
       } catch (err) {
         process.stderr.write(`[MBO] Warning: unable to write ${HOME_CONFIG_PATH}: ${err.message}\n`);
       }
@@ -123,21 +125,9 @@ function runTeardownCommand() {
 function persistInstallMetadataBestEffort() {
   try {
     const setup = require('../src/cli/setup');
-    let force = false;
-    try {
-      const raw = fs.existsSync(setup.CONFIG_PATH)
-        ? fs.readFileSync(setup.CONFIG_PATH, 'utf8')
-        : '';
-      const cfg = raw ? JSON.parse(raw) : {};
-      const existing = typeof cfg.controllerRoot === 'string' ? path.resolve(cfg.controllerRoot) : null;
-      const pkgRoot = path.resolve(PACKAGE_ROOT);
-      const invCwd = path.resolve(INVOCATION_CWD);
-      // Self-heal stale config when controllerRoot drifted away from the actual controller.
-      force = !existing || (invCwd === pkgRoot && existing !== pkgRoot) || (existing === invCwd && existing !== pkgRoot);
-    } catch {
-      force = true;
-    }
-    setup.persistInstallMetadata(setup.CONFIG_PATH, PACKAGE_ROOT, { force });
+    // BUG-145: metadata updates here should be non-destructive.
+    // Preserve existing controllerRoot and only backfill when absent.
+    setup.persistInstallMetadata(setup.CONFIG_PATH, PACKAGE_ROOT, { force: false });
   } catch {}
 }
 
