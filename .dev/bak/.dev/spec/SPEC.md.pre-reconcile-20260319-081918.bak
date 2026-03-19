@@ -491,7 +491,7 @@ The Intelligence Graph exposes an MCP (Model Context Protocol) server. Any model
 - **Extensibility:** Provides a clean path to add `resources` (e.g., raw file views) and `prompts` (e.g., graph-aware planning templates) in future milestones.
 - **Tooling Support:** Enables the use of the MCP Inspector and other ecosystem tools for debugging.
 
-**Transport:** The server uses `StreamableHTTP` for communication with pipeline agents.
+**Transport:** The server uses `StdioServerTransport` for communication with pipeline agents.
 
 **MCP tools exposed:**
 
@@ -2637,110 +2637,6 @@ session produces a transcript that satisfies all of the following:
 
 ---
 
-## Section 37 — API-Native Trust Model
-
-Three zones. Hard boundaries between them.
-
-**Zone 1 — Text Corridor:** All agent calls are API calls over the wire. Agents are stateless text generators. No filesystem access. No tool calls. No side effects. Text in, text out. Stateless, reversible, cheap to retry.
-
-**Zone 2 — Validation:** Structural check (output is well-formed, matches declared output contract for this task type). Scope check (output stays within task boundaries, no undeclared side effects). Diff check (resulting write is within declared change surface — file paths, line count delta, affected modules). All three checks must pass. Gate failure mode is reject and log, never pass and hope.
-
-**Zone 3 — Write Gate:** The only moment where irreversible actions occur. Git commit, file write, DB update. Human go required. Logged. Reversible via rollback. Cannot be bypassed under any circumstance.
-
-The gate has two modes declared per task type in `projecttracking.md`:
-- **Auto-pass:** all checks pass, change surface within declared bounds, no ambiguity. Gate passes automatically, logged with evidence.
-- **Human-review:** any check fails, scope ambiguous, or change surface exceeds threshold. Pipeline pauses, surfaces specific question to human, waits for explicit go.
-
-### 37.1 Acceptance Criteria
-1. No agent call has filesystem access or tool calling ability.
-2. Every write is preceded by all three gate checks passing.
-3. Human go is logged as an event with timestamp and task context.
-4. Failed gate checks produce explicit rejection events, never silent pass-through.
-
----
-
-## Section 38 — .mbo/ Footprint Contract
-
-All MBO-authored files in client projects live under `.mbo/`. Nothing MBO-authored at project root. The project root belongs to the project owner.
-
-**Generated** (produced by `mbo setup` from onboarding profile):
-- `.mbo/AGENTS.md`
-- `.mbo/sessions/NEXT_SESSION.md`
-
-**Runtime** (produced during operation):
-- `.mbo/mirrorbox.db`
-- `.mbo/config.json`
-- `.mbo/onboarding.json`
-
-**Personas** (shipped with MBO, project-scoped):
-- `.mbo/personalities/`
-
-**Logs and run artifacts:**
-- `.mbo/logs/`
-- `.mbo/run/`
-- `.mbo/sessions/`
-
-Nothing else belongs in `.mbo/` unless explicitly added to this contract.
-
----
-
-## Section 39 — Generated Governance Contract
-
-`.mbo/AGENTS.md` is a generated artifact produced by `mbo setup` from the onboarding profile. It is not a copy of `.dev/governance/AGENTS.md`. It is a different document with a different job.
-
-**Contents of generated `.mbo/AGENTS.md`:**
-- Project name and prime directive
-- Authorized agents and their roles
-- Danger zones
-- Verification commands
-- Write scope policy
-- Pointer to MBO dev governance docs for operators
-
-Regenerated on re-onboard. Versioned in `mirrorbox.db`. The source of truth for client-project agent behavior.
-
----
-
-## Section 40 — Conversational Agent Output Layer (DDR-001)
-
-All agent-facing output in MBO operates as natural language constrained by persona. Internal structure — state, parsing, config, graph writes — is invisible to the user unless explicitly requested.
-
-### Rules
-1. No stage IDs, pipeline labels, or internal identifiers in primary display.
-2. Every status line contains user-relevant state.
-3. Every error contains a recommended action.
-4. Inter-agent communication is natural language with structured extraction done internally.
-5. JSON contracts exist internally for storage and tools but do not define the user-facing interaction model.
-
----
-
-## Section 41 — Persona System (DDR-002)
-
-MBO agents operate under declared personas stored in `.mbo/personalities/`. Personas define reasoning style, communication register, and role behavior — not just tone.
-
-Persona assignment is per role per task. The orchestrator assigns personas before issuing agent calls. Agents receive their persona in the system prompt alongside task context.
-
-**Core persona roles:**
-- **Implementer:** generates candidate output, optimistic, capable, eager.
-- **Reviewer:** finds every reason the candidate output fails before accepting it.
-- **Auditor:** validates output against spec contract, reports pass/fail only.
-
-Persona store is sovereign. Agents cannot modify their own persona definition.
-
----
-
-## Section 42 — Dev Workflow Alignment (DDR-003)
-
-MBO development follows the same governance protocol MBO enforces on client projects. The dev workflow is not a special case.
-
-### Rules
-1. All MBO development tasks go through `projecttracking.md`.
-2. All agent writes require Gate 0 and the write gate.
-3. DID is required for Tier 2 and Tier 3 tasks.
-4. Session-close runs at the end of every session without exception.
-5. The operator cannot bypass approval gates on their own codebase.
-
----
-
 ## Appendix D — Task-to-Spec Traceability Matrix (Project Tracking Alignment)
 
 This matrix ensures every task listed in `.dev/governance/projecttracking.md` maps to an explicit spec contract section.
@@ -2792,17 +2688,6 @@ This matrix ensures every task listed in `.dev/governance/projecttracking.md` ma
 | 1.1-H28 | Section 34 |
 | 1.1-H29 | Section 35 |
 | ONBOARD-01 | Section 36 |
-| COLLAPSE-01 | Section 17 + AGENTS.md collapse contract |
-| COLLAPSE-02 | STATE.md creation + session-close contract (deprecated) |
-| COLLAPSE-03 | .mbo/ footprint migration (Section 38) |
-| COLLAPSE-04 | NEXT_SESSION.md path consolidation |
-| COLLAPSE-05 | Invariant renumber cross-reference scope |
-| DDR-001 | Section 40 |
-| DDR-002 | Section 41 |
-| DDR-003 | Section 42 |
-| 1.1-H13 | Repository hygiene and structure governance |
-| TECH_DEBT-01 | Section 3 Auth Model — OpenAI CLI |
-| TECH_DEBT-02 | Section 3 Auth Model — Ollama |
 
 ### Notes
 - Where a task is explicitly governance-only, source-of-truth may be split between SPEC and AGENTS/governance documents.
