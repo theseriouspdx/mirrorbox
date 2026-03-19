@@ -825,6 +825,9 @@ async function main() {
       // Atomic symlink: tmp symlink -> rename
       const tmpSymlink = `${symlinkPath}.tmp`;
       try { if (fs.existsSync(tmpSymlink)) fs.unlinkSync(tmpSymlink); } catch (_) {}
+      // BUG-165: Remove dangling symlink if target file is gone (prior crashed instance).
+      // existsSync follows symlinks (returns false for dangling); lstatSync does not.
+      try { if (!fs.existsSync(symlinkPath)) fs.lstatSync(symlinkPath) && fs.unlinkSync(symlinkPath); } catch (_) {}
       fs.symlinkSync(path.basename(pidManifest), tmpSymlink);
       fs.renameSync(tmpSymlink, symlinkPath);
     } catch (err) {

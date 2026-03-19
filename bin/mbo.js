@@ -587,6 +587,10 @@ function ensureNodeModules() {
 ensureNodeModules();
 
 if (process.argv[2] === 'setup') {
+  if (path.basename(INVOCATION_CWD) === 'MBO') {
+    process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
+    process.exit(1);
+  }
   setSelfRunWarningEnv();
   runSetupCommand();
 } else if (process.argv[2] === 'teardown') {

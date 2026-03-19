@@ -182,7 +182,7 @@ No fixed port, manifest-based discovery required, no port negotiation, no sessio
 
 If the dev graph server is unavailable:
 - Check: `curl http://127.0.0.1:$(node -e 'console.log(require("./.dev/run/mcp.json").port)')/health`
-- Start: `mbo setup`
+- Start: `mbo mcp`
 - State: "Dev graph unavailable. Ran `curl /health` — [result]. Awaiting human instruction."
 
 MCP is available via dynamic manifest-resolved endpoint. Run `curl http://127.0.0.1:$(node -e 'console.log(require("./.dev/run/mcp.json").port)')/health` to verify before starting.
