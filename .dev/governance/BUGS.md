@@ -18,7 +18,6 @@
 - **Required re-fix:** Guard must handle absent `projectRoot` as a mismatch, not a pass. Treat missing field as foreign profile. Task v0.11.86 in progress.
 - **Acceptance:** `rm -rf MBO_Alpha && cp -r MBO/. MBO_Alpha/ && node bin/mbo.js setup` triggers `[SYSTEM]` root-mismatch warning and re-runs interview.
 
-
 ### BUG-144: Onboarding role exceeds token budget during re-onboarding loop, exposing stack trace and blocking runtime | Milestone: 1.1 | OPEN
 - **Location:** `src/cli/onboarding.js` (`runOnboarding` callModel onboarding role), `src/index.js` startup onboarding gate
 - **Severity:** P1
