@@ -44,7 +44,7 @@ async function testInvariant1And2() {
 
 async function testInvariant4() {
   console.log('Testing Invariant 4: Event Store Reproducibility...');
-  const result = runCommand('python3 scripts/verify-chain.py');
+  const result = runCommand('node scripts/verify-chain.js');
   if (result.success) {
     console.log('  PASS: Chain integrity verified.');
   } else {

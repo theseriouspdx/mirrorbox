@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Canonical Task Ledger
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Task:** v0.11.165
+**Next Task:** v0.11.162
 **Policy:** This file is the single source of truth for work state.
 
 ---
@@ -22,6 +22,9 @@
 ## Recently Completed
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
+| v0.11.168 | bug | BUG-168 missing runtime config bootstrap (.mbo/config.json) | COMPLETED | codex | codex/e2e-alpha-loop | 2026-03-19 | BUG-168 | Startup validates/creates local runtime config with explicit remediation |
+| v0.11.167 | bug | BUG-167 non-TTY onboarding failure respawn loop | COMPLETED | codex | codex/e2e-alpha-loop | 2026-03-19 | BUG-167 | Non-TTY onboarding-required exits once without wrapper respawn loop |
+| v0.11.166 | bug | BUG-166 global install relay socket path EACCES crash loop | COMPLETED | codex | codex/e2e-alpha-loop | 2026-03-19 | BUG-166 | Global install resolves relay socket under runtime root and launches cleanly |
 | v0.11.163 | bug | BUG-163 Operator execution loop scope drift | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-163 | Sticky world/files and scope-loss hard-fail |
 | v0.11.160 | bug | BUG-160 Hint injection label mangling | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-160 | ALIVE ticker cleared to prevent TTY character bleed |
 | v0.11.159 | bug | BUG-159 Ledger generation failure | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-159 | Replaced JSON parser with resilient section extractor |

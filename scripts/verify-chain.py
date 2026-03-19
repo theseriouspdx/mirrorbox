@@ -4,7 +4,12 @@ import hashlib
 import sys
 import os
 
-DB_PATH = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), '../data/mirrorbox.db')
+DEFAULT_DB_CANDIDATES = [
+    os.path.join(os.path.dirname(__file__), '../.mbo/mirrorbox.db'),
+    os.path.join(os.path.dirname(__file__), '../data/mirrorbox.db'),
+]
+
+DB_PATH = sys.argv[1] if len(sys.argv) > 1 else next((p for p in DEFAULT_DB_CANDIDATES if os.path.exists(p)), DEFAULT_DB_CANDIDATES[0])
 
 def verify_chain():
     print(f"Auditing Mirror Box Chain of Custody: {DB_PATH}")
@@ -18,7 +23,7 @@ def verify_chain():
         conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
         cursor = conn.cursor()
 
-        cursor.execute("SELECT id, seq, stage, actor, timestamp, payload, hash, parent_event_id, prev_hash FROM events ORDER BY seq ASC")
+        cursor.execute("SELECT id, seq, stage, actor, timestamp, payload, hash, world_id, parent_event_id, prev_hash FROM events ORDER BY seq ASC")
         events = cursor.fetchall()
 
         if not events:
@@ -32,7 +37,7 @@ def verify_chain():
         last_hash = None
 
         for index, event in enumerate(events):
-            e_id, e_seq, e_stage, e_actor, e_timestamp, e_payload, e_hash, e_parent_id, e_prev_hash = event
+            e_id, e_seq, e_stage, e_actor, e_timestamp, e_payload, e_hash, e_world_id, e_parent_id, e_prev_hash = event
 
             # 1. Sequence continuity
             if e_seq != expected_seq:
@@ -58,6 +63,7 @@ def verify_chain():
                 "stage": e_stage,
                 "actor": e_actor,
                 "timestamp": e_timestamp,
+                "world_id": e_world_id,
                 "parent_event_id": e_parent_id if e_parent_id is not None else None,
                 "prev_hash": e_prev_hash if e_prev_hash is not None else None,
                 "payload": e_payload
