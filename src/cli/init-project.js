@@ -36,7 +36,8 @@ function initProject(projectRoot) {
   const dirs = [
     mboDir,
     path.join(mboDir, 'logs'),
-    path.join(mboDir, 'sessions')
+    path.join(mboDir, 'sessions'),
+    path.join(projectRoot, 'data')
   ];
 
   // Create directories

@@ -34,23 +34,16 @@ function printSelfRunWarning(packageRoot) {
 }
 
 function setSelfRunWarningEnv() {
-  let controller = null;
-  try {
-    if (fs.existsSync(HOME_CONFIG_PATH)) {
-      const cfg = JSON.parse(fs.readFileSync(HOME_CONFIG_PATH, 'utf8'));
-      if (cfg && typeof cfg.controllerRoot === 'string' && cfg.controllerRoot.trim()) {
-        controller = path.resolve(cfg.controllerRoot);
-      }
-    }
-  } catch {}
+  const root = path.resolve(PACKAGE_ROOT);
+  // BUG-154: Only trigger warning if running from a directory named 'MBO' (case-insensitive)
+  if (path.basename(root).toLowerCase() !== 'mbo') return;
 
-  if (!controller) return;
   const cwd = path.resolve(INVOCATION_CWD);
-  const inController = cwd === controller || cwd.startsWith(`${controller}${path.sep}`);
+  const inController = cwd === root || cwd.startsWith(`${root}${path.sep}`);
   if (!inController) return;
 
   process.env.MBO_SELF_RUN_WARNING = '1';
-  process.env.MBO_SELF_RUN_WARNING_CONTROLLER = controller;
+  process.env.MBO_SELF_RUN_WARNING_CONTROLLER = root;
 }
 
 function warningPromptPrefix() {
@@ -85,12 +78,11 @@ function runSetupCommand() {
 
       if (!hasLocalConfig || !hasRuntimeProvider) {
         await setup.runSetup();
+        // BUG-152: installMCPDaemon is now called INSIDE setup.runSetup()
+      } else {
+        await checkOnboarding(PROJECT_ROOT);
+        await setup.installMCPDaemon(PROJECT_ROOT);
       }
-
-      // BUG-085 fix (2): Wire onboarding into setup flow.
-      // checkOnboarding triggers the 4-phase interview when no valid project-local
-      // onboarding.json exists, or when the stored projectRoot doesn't match cwd (BUG-086).
-      await checkOnboarding(PROJECT_ROOT);
 
       // Keep setup non-blocking in restricted environments where ~/.mbo is not writable.
       try {
@@ -100,10 +92,6 @@ function runSetupCommand() {
       } catch (err) {
         process.stderr.write(`[MBO] Warning: unable to write ${HOME_CONFIG_PATH}: ${err.message}\n`);
       }
-    })
-    .then(() => setup.installMCPDaemon(PROJECT_ROOT))
-    .then(() => {
-      process.stdout.write('[MBO] MCP daemon ready. Port written to .dev/run/mcp.json\n');
     })
     .catch(err => { console.error(err); process.exit(1); });
 

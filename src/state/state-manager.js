@@ -4,9 +4,17 @@ const db = require('./db-manager');
 const eventStore = require('./event-store');
 const { randomUUID } = require('crypto');
 
-const RUNTIME_ROOT = path.resolve(process.env.MBO_PROJECT_ROOT || process.cwd());
-const CONTROLLER_ROOT = path.resolve(__dirname, '../..');
-const STATE_JSON_PATH = path.join(RUNTIME_ROOT, 'data/state.json');
+function getRuntimeRoot() {
+  return path.resolve(process.env.MBO_PROJECT_ROOT || process.cwd());
+}
+
+function getControllerRoot() {
+  return path.resolve(__dirname, '../..');
+}
+
+function getStatePath() {
+  return path.join(getRuntimeRoot(), 'data/state.json');
+}
 
 class StateManager {
   /**
@@ -44,7 +52,7 @@ class StateManager {
     const row = db.get('SELECT snapshot FROM checkpoints WHERE id = ?', [checkpointId]);
     if (!row) throw new Error(`Checkpoint ${checkpointId} not found.`);
     const state = JSON.parse(row.snapshot);
-    fs.writeFileSync(STATE_JSON_PATH, JSON.stringify(state, null, 2));
+    fs.writeFileSync(getStatePath(), JSON.stringify(state, null, 2));
     eventStore.append('ROLLBACK', 'state-manager', { checkpointId }, 'mirror');
   }
 
@@ -56,7 +64,11 @@ class StateManager {
     if (worldId !== 'mirror' && worldId !== 'subject') {
       throw new Error(`[INVARIANT VIOLATION] Invalid world_id: ${worldId}. Must be 'mirror' or 'subject'.`);
     }
-    fs.writeFileSync(STATE_JSON_PATH, JSON.stringify(summary, null, 2));
+    const statePath = getStatePath();
+    const dir = path.dirname(statePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    fs.writeFileSync(statePath, JSON.stringify(summary, null, 2));
     eventStore.append(summary.currentStage || 'STATE', summary.activeModel || 'ORCHESTRATOR', summary, worldId);
   }
 
@@ -66,10 +78,10 @@ class StateManager {
    */
   generateHandoff() {
     const { spawnSync } = require('child_process');
-    const scriptPath = path.join(CONTROLLER_ROOT, 'scripts/mbo-session-close.sh');
+    const scriptPath = path.join(getControllerRoot(), 'scripts/mbo-session-close.sh');
     const result = spawnSync('bash', [scriptPath], {
       stdio: 'inherit',
-      env: { ...process.env, MBO_PROJECT_ROOT: RUNTIME_ROOT }
+      env: { ...process.env, MBO_PROJECT_ROOT: getRuntimeRoot() }
     });
     if (result.error || result.status !== 0) {
       console.error(`[StateManager] Handoff failed: ${result.error || result.status}`);

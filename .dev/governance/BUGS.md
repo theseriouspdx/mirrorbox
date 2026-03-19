@@ -16,30 +16,6 @@
 - **Required fix:** Enforce sticky execution scope from accepted refinement intent through derivation: preserve selected world/files, reject transitions to empty file scope, and hard-fail with explicit operator message instead of looping.
 - **Acceptance:** In TTY, a scoped bug-fix prompt results in (1) stable non-empty file scope, (2) concrete diff attempt, (3) requested verification commands run, and (4) audit package emitted exactly once awaiting approval.
 
-### BUG-152: `mbo setup` finishes onboarding but fails to start MCP daemon | Milestone: 1.1 | OPEN
-- **Location:** `bin/mbo.js`, `src/cli/setup.js` (`installMCPDaemon`)
-- **Severity:** P0
-- **Status:** OPEN
-- **Task:** v0.11.152
-- **Description:** During Alpha E2E, `mbo setup` completed the onboarding interview but failed to start the graph server. No `.dev/run/mcp.json` was generated, leaving the project unbootable.
-- **Acceptance:** `mbo setup` reliably starts the MCP daemon and writes the manifest for fresh installs.
-
-### BUG-153: Operator crashes with ENOENT: `data/state.json` on fresh install | Milestone: 1.1 | OPEN
-- **Location:** `src/state/state-manager.js`, `src/cli/init-project.js`
-- **Severity:** P0
-- **Status:** OPEN
-- **Task:** v0.11.153
-- **Description:** Fresh Alpha install crashes immediately because the `data/` directory does not exist. `initProject` creates `.mbo/` and `.dev/` but misses the `data/` directory required by the `StateManager`.
-- **Acceptance:** `initProject` ensures `data/` exists; `StateManager` handles missing directories gracefully.
-
-### BUG-154: False-positive "Self-Run" warning in Alpha runtime | Milestone: 1.1 | OPEN
-- **Location:** `bin/mbo.js` (`setSelfRunWarningEnv`), `~/.mbo/config.json` metadata stamping
-- **Severity:** P1
-- **Status:** OPEN
-- **Absorbs:** BUG-145 (same root cause, same fix — merged 2026-03-19)
-- **Task:** v0.11.154
-- **Description:** Warning `MBO SHOULD NOT BE RUN FROM THE MBO DIRECTORY` fires incorrectly in Alpha runtime because the installer flow stamps `controllerRoot` to the install target in the global config (`~/.mbo/config.json`). Root cause: `setSelfRunWarningEnv` compares `cwd` against `controllerRoot` from config rather than the hardcoded source repo path.
-- **Acceptance:** `cd /Users/johnserious/MBO_Alpha && npx mbo` runs without controller-directory warning. `cd /Users/johnserious/MBO && npx mbo` still warns. Warning logic uses source repo path constant, not config-stamped `controllerRoot`.
 
 ### BUG-155: TM dashboard shows routed path costing MORE than unrouted | Milestone: 1.1 | OPEN
 - **Location:** `src/state/stats-manager.js`, TM dashboard display
