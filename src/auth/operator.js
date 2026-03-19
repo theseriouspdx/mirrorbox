@@ -243,7 +243,9 @@ class Operator {
     }
 
     if (question.key === 'dangerZones') {
+      if (raw.toLowerCase() === 'none') return { ok: true, value: '' };
       const list = raw.split(',').map((v) => v.trim()).filter(Boolean);
+      if (list.length === 0) return { ok: false, reason: 'Please enter at least one path, or type "none" to skip.' };
       const checked = validateDangerZones(list);
       if (!checked.ok) return { ok: false, reason: checked.reason };
       return { ok: true, value: list.join(',') };
