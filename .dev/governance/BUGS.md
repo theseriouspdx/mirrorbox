@@ -2,36 +2,20 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-164
+**Next bug number:** BUG-166
 
 ---
 
-### BUG-163: Operator execution loop drifts to `WORLD: mirror` + `FILES: none`, never reaches actionable audit gate | Milestone: 1.1 | OPEN
-- **Location:** `src/auth/operator.js` (routing/state transitions around refinement/derivation loop), runtime pipeline stage control
-- **Severity:** P1
-- **Status:** OPEN — observed in repeated TTY runs on 2026-03-19 after valid scoped requests
-- **Task:** v0.11.36
-- **Description:** Even with explicit scoped instructions (target bug + allowed files + required tests + audit stop), runtime repeatedly re-enters refinement and/or code derivation with `FILES: none`, drifts world routing (`subject` -> `mirror`), and fails to produce actionable diff/test/audit outputs.
-- **Impact:** Blocks end-to-end workflow completion, causes non-productive long loops, and prevents audit-gate decisions on real changes.
-- **Required fix:** Enforce sticky execution scope from accepted refinement intent through derivation: preserve selected world/files, reject transitions to empty file scope, and hard-fail with explicit operator message instead of looping.
-- **Acceptance:** In TTY, a scoped bug-fix prompt results in (1) stable non-empty file scope, (2) concrete diff attempt, (3) requested verification commands run, and (4) audit package emitted exactly once awaiting approval.
-
-
-### BUG-155: TM dashboard shows routed path costing MORE than unrouted | Milestone: 1.1 | OPEN
-- **Location:** `src/state/stats-manager.js`, TM dashboard display
-- **Severity:** P1
+### BUG-165: MCP symlink not updated on new server startup; AGENTS.md Section 11 documents wrong recovery command | Milestone: 1.1 | OPEN
+- **Location:** `src/graph/mcp-server.js` (startup symlink logic, line ~826–830), `.dev/governance/AGENTS.md` (Section 11)
+- **Severity:** P2
 - **Status:** OPEN — observed 2026-03-19
-- **Task:** v0.11.155
-- **Description:** TM line shows `[32797] / $0.573070 | [50188] / $0.187499` — the routed path used more tokens AND cost more than the unrouted path. Header simultaneously claims `Routing savings $0.081491`. Either the columns are reversed, the savings calculation is wrong, or the routing decision itself is bad.
-- **Acceptance:** TM display accurately reflects which path is cheaper; savings header matches the delta between columns; routing decisions provably reduce cost.
-
-### BUG-156: Spec refinement gate fires on read-only query — blocks answer entirely | Milestone: 1.1 | OPEN
-- **Location:** `src/auth/operator.js` (gate logic), entropy/complexity scoring
-- **Severity:** P1
-- **Status:** OPEN — observed 2026-03-19
-- **Task:** v0.11.156
-- **Description:** Query "what bugs are outstanding" is a pure read/lookup against existing state. The gate fired anyway — ran entropy scoring, requested intent confirmation, ran context pinning loops — and returned nothing. A read-only retrieval query should never hit the autonomous-write governance gate. Entropy/complexity scoring is miscalibrated for retrieval queries, treating them like autonomous write operations.
-- **Acceptance:** Read-only queries (lookups, status checks, summaries of known state) bypass the spec refinement gate entirely and return an answer directly.
+- **Task:** v0.11.165
+- **Description:** Two related issues:
+  1. When a new `mbo mcp` instance starts after a prior instance crashed, the startup symlink creation silently fails. The stale dangling `mcp.json → mcp-<id>-<dead-pid>.json` symlink is never removed before the new one is written. The failure is swallowed by `try/catch` (line 830), leaving `mcp.json` broken even though the new server is live and healthy. Confirmed: two live servers running (PIDs 49161, 69899) but `mcp.json` still points to dead PID 52653.
+  2. AGENTS.md Section 11 documents `mbo setup` as the command to start the dev graph server. This is incorrect — `mbo setup` enters the onboarding/workflow prompt. The correct restart command is `mbo mcp`.
+- **Root cause:** (1) No dangling-symlink detection before new symlink creation; error swallowed silently. (2) AGENTS.md Section 11 was authored with the wrong command.
+- **Acceptance:** (1) On `mbo mcp` startup, if `mcp.json` is a broken symlink (target file absent), it is removed before the new pidManifest symlink is written. `mcp.json` always points to a live manifest after startup. (2) AGENTS.md Section 11 start command reads `mbo mcp`, not `mbo setup`.
 
 ### BUG-157: Operator did not answer the question | Milestone: 1.1 | OPEN
 - **Location:** `src/auth/operator.js`, gate exit behavior
@@ -40,22 +24,6 @@
 - **Task:** v0.11.157
 - **Description:** After the gate fired and ran entropy scoring, the operator returned only scaffolding output with no answer. Even if the gate correctly fires, it should either (a) answer from known state before presenting the gate, or (b) ask one targeted clarifying question — not block entirely and return nothing useful.
 - **Acceptance:** Every operator response includes either a direct answer or a single targeted clarifying question. Returning only gate scaffolding with no answer is a failure mode.
-
-### BUG-158: WORLD context drifts mid context_pinning loop without user input | Milestone: 1.1 | OPEN
-- **Location:** `src/auth/operator.js` (context_pinning loop), WORLD state management
-- **Severity:** P1
-- **Status:** OPEN — observed 2026-03-19
-- **Task:** v0.11.158
-- **Description:** context_pinning loop ran 5 passes for `ROUTE: analysis`. First two passes show `WORLD: subject`, last three show `WORLD: mirror` — with no user input between them. State is mutating mid-loop from an unknown source.
-- **Acceptance:** WORLD value is stable across all passes of a context_pinning loop unless the user explicitly changes it.
-
-### BUG-159: Ledger generation fails during operator run | Milestone: 1.1 | OPEN
-- **Location:** `src/auth/operator.js` (ledger generation)
-- **Severity:** P1
-- **Status:** OPEN — observed 2026-03-19
-- **Task:** v0.11.159
-- **Description:** `[Operator] Ledger generation error: [Operator] Ledger generation failed or malformed` — operator ledger failing entirely during a run. Hard failure in a core governance component. May be a symptom of BUG-156 (gate misfiring on a retrieval query producing a malformed ledger context) but surfaced as a standalone error.
-- **Acceptance:** Ledger generates successfully on every operator run. If ledger fails, operator surfaces the specific cause, not a generic malformed error.
 
 ### BUG-150: Tool context token consumption is invisible to MBO cost tracking — affects all agents | Milestone: 1.1 | OPEN
 - **Location:** `src/state/stats-manager.js`, `src/auth/call-model.js`, `token_log` schema
@@ -78,14 +46,6 @@
 - **Known unknowns:** Gemini codebase explorer's exact expansion algorithm is not documented in MBO governance. Before fix can be fully specified, need to instrument a Gemini session and measure actual tool output token counts. Add to BUG-149 validator scope: warn when `graph_search` result exceeds 2000 tokens with no explicit budget set.
 - **Acceptance:** `getStatus()` reports total session token cost including tool context. Cross-agent sessions for the same task show comparable and auditable token breakdowns. `tool_token_log` populated for at least DC and graph query tool calls.
 
-### BUG-160: `Y: 1COMPLEXIT` — hint injection mangles COMPLEXITY field name | Milestone: 1.1 | OPEN
-- **Location:** `src/auth/operator.js` or `src/cli/` (hint injection / prompt variable assembly)
-- **Severity:** P2
-- **Status:** OPEN — observed 2026-03-19
-- **Task:** v0.11.160
-- **Description:** User entered `1` at the COMPLEXITY prompt. System echoed `Y: 1COMPLEXIT` instead of `COMPLEXITY: 1`. The trailing `Y` of `COMPLEXITY` is being consumed by the prompt variable, and the field label is being dropped. Looks like a string concatenation bug in hint injection where the prompt variable boundary is off by one.
-- **Acceptance:** COMPLEXITY hint echoes as `COMPLEXITY: <value>` with no mangling.
-
 ### BUG-161: context_pinning runs 5 passes for COMPLEXITY:1 no-file analysis route | Milestone: 1.1 | OPEN
 - **Location:** `src/auth/operator.js` (context_pinning loop exit condition)
 - **Severity:** P2
@@ -101,3 +61,11 @@
 - **Task:** v0.11.162
 - **Description:** FILES prompt fired and accepted empty input with no validation. If certain route types require files, the gate should block empty file lists. If FILES is optional for this route, the prompt should not fire at all.
 - **Acceptance:** FILES prompt either (a) does not fire when files are not required for the route, or (b) validates that required file lists are non-empty before proceeding.
+### BUG-164: `mbo setup` from controller root falls through to runtime prompt instead of hard-stop | Milestone: 1.1 | OPEN
+- **Location:** `bin/mbo.js`, `src/cli/startup-checks.js`, setup/runtime handoff
+- **Severity:** P1
+- **Status:** OPEN — observed 2026-03-19
+- **Task:** v0.11.164
+- **Description:** Running setup from `/Users/johnserious/MBO` (controller repo) while targeting `/Users/johnserious/MBO_Alpha` triggers root-mismatch re-onboarding output, then drops directly into `MBO 0.11.24 >` interactive prompt without an explicit blocking error. This bypasses the expected hard-stop behavior for controller-root execution and creates ambiguous root ownership during onboarding/runtime entry.
+- **Impact:** Operators can enter live runtime from the wrong root context, causing unstable onboarding state, cross-root confusion, and potential unsafe mutations against the wrong project.
+- **Acceptance:** Controller-root invocation is fail-closed with explicit error + required action (`cd /Users/johnserious/MBO_Alpha` or run from target root). Runtime prompt must never open when self-run/root-mismatch guard fails.

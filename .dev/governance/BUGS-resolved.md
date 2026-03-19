@@ -4,6 +4,50 @@
 
 ---
 
+### BUG-163: Operator execution loop drifts to `WORLD: mirror` + `FILES: none` | Milestone: 1.1 | COMPLETED
+- **Location:** `src/auth/operator.js`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** Runtime re-entered refinement/derivation with empty scope and drifted world.
+- **Fix:** Implemented immutable `worldId` and `files` locks across `runStage3`, `runStage4`, and `didOrchestrator`. Added hard-fail check in `handleApproval` if file scope is lost during derivation.
+
+### BUG-160: `Y: 1COMPLEXIT` — hint injection mangles COMPLEXITY field name | Milestone: 1.1 | COMPLETED
+- **Location:** `src/index.js`
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** ALIVE ticker overwrote status line without clearing, causing character bleed from previous updates.
+- **Fix:** Refactored `aliveTimer` to use `readline.clearLine` and `readline.cursorTo` before each write.
+
+### BUG-159: Ledger generation fails during operator run | Milestone: 1.1 | COMPLETED
+- **Location:** `src/auth/operator.js`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** JSON parser failed on plain-English ledger responses.
+- **Fix:** Replaced `_safeParseJSON` with a robust `_extractSection` based parser for the Assumption Ledger.
+
+### BUG-158: WORLD context drifts mid context_pinning loop | Milestone: 1.1 | COMPLETED
+- **Location:** `src/auth/operator.js`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** World mutated from `subject` to `mirror` mid-loop.
+- **Fix:** Implemented sticky world lock via `lockedWorld` snapshot and threading through derivation stages.
+
+### BUG-156: Spec refinement gate fires on read-only query | Milestone: 1.1 | COMPLETED
+- **Location:** `src/auth/operator.js`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** Retrieval queries hit the entropy gate and returned no answer.
+- **Fix:** Expanded Tier 0 to include no-file `analysis` routes. Implemented read-only bypass in `processMessage` using the `operator` persona.
+
+### BUG-155: TM dashboard shows routed path costing MORE than unrouted | Milestone: 1.1 | COMPLETED
+- **Location:** `src/state/db-manager.js`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** Costing projected via per-call average, biasing towards large tasks.
+- **Fix:** Refactored `getCostRollup` to use unit rates (USD/1k tokens) for counterfactual projections.
+
+---
+
 ### BUG-009: Staleness Detection (Merkle Pulse Check) | Milestone: 1.0 | COMPLETED
 - **Location:** `bin/handshake.py`
 - **Severity:** High
@@ -363,7 +407,7 @@
   3. `src/cli/setup.js` — `installMCPDaemon` checks health first (2s timeout); skips restart if daemon already healthy. Replaces hardcoded client list with shared util. `mbo setup` populates `mcpClients` registry from detected providers.
   4. `bin/mbo.js` — `mbo mcp` checks daemon health before teardown; skips restart if healthy, refreshes configs in-place.
 - **Tests:** 97 passing (33 unit + 64 failure modes). `python3 bin/validator.py --all` passes.
-- **Install note:** `mbo setup` must be re-run on each project to populate `mcpClients` in `.mbo/config.json`. Until then, daemon logs "No mcpClients registered" and skips config refresh (no crash).
+- **Initial note:** `mbo setup` must be re-run on each project to populate `mcpClients` in `.mbo/config.json`. Until then, daemon logs "No mcpClients registered" and skips config refresh (no crash).
 
 ### BUG-079: `waitForHealth` in `mbo.js` lacks project_id validation | Milestone: 1.1 | FIXED
 - **Location:** `bin/mbo.js` (`runMcpRecoveryCommand` → `waitForHealth`)

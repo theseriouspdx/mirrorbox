@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Canonical Task Ledger
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Task:** v0.11.162
+**Next Task:** v0.11.165
 **Policy:** This file is the single source of truth for work state.
 
 ---
@@ -10,21 +10,24 @@
 ## Active Tasks
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
-| v0.11.155 | bug | BUG-155 TM dashboard costing drift | READY | unassigned | - | 2026-03-19 | BUG-155 | TM dashboard reflects accurate savings |
-| v0.11.156 | bug | BUG-156 Spec refinement gate on read-only | READY | unassigned | - | 2026-03-19 | BUG-156 | Read-only queries bypass spec refinement gate |
-| v0.11.157 | bug | BUG-157 Operator empty response failure | READY | unassigned | - | 2026-03-19 | BUG-157 | Operator always returns answer or clarifying question |
-| v0.11.158 | bug | BUG-158 WORLD context drift | READY | unassigned | - | 2026-03-19 | BUG-158 | WORLD value stable across pinning loop |
-| v0.11.159 | bug | BUG-159 Ledger generation failure | READY | unassigned | - | 2026-03-19 | BUG-159 | Ledger generates successfully on all runs |
-| v0.11.160 | bug | BUG-160 Hint injection label mangling | READY | unassigned | - | 2026-03-19 | BUG-160 | Hint labels echo correctly in prompts |
-| v0.11.161 | bug | BUG-161 context_pinning convergence delay | READY | unassigned | - | 2026-03-19 | BUG-161 | Low-complexity loops converge in < 2 passes |
+| v0.11.157 | bug | BUG-157 Operator empty response failure | DEFERRED | unassigned | - | 2026-03-19 | BUG-157 | Operator always returns answer or clarifying question |
+| v0.11.161 | bug | BUG-161 context_pinning convergence delay | DEFERRED | unassigned | - | 2026-03-19 | BUG-161 | Low-complexity loops converge in < 2 passes |
 | v0.11.162 | bug | BUG-162 FILES prompt empty validation | READY | unassigned | - | 2026-03-19 | BUG-162 | FILES prompt validates non-empty where required |
-| v0.11.36 | docs | Workflow canonicalization and validator enforcement | IN_PROGRESS | codex | codex/e2e-20260318-212502 | 2026-03-19 | BUG-152..162 | Alpha E2E run in progress; P0 blockers identified |
+| v0.11.165 | bug | BUG-165 MCP symlink stale + AGENTS.md Section 11 wrong command | READY | unassigned | - | 2026-03-19 | BUG-165 | mcp.json always live after startup; AGENTS.md Section 11 corrected |
+| v0.11.164 | bug | BUG-164 setup self-run/root guard bypass | READY | unassigned | - | 2026-03-19 | BUG-164 | Controller-root run fails closed and never opens runtime prompt |
+| v0.11.36 | docs | Workflow canonicalization and validator enforcement | COMPLETED | codex | - | 2026-03-19 | BUG-152..163 | Milestone 1.1 hardening cluster resolved |
 
 ---
 
 ## Recently Completed
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
+| v0.11.163 | bug | BUG-163 Operator execution loop scope drift | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-163 | Sticky world/files and scope-loss hard-fail |
+| v0.11.160 | bug | BUG-160 Hint injection label mangling | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-160 | ALIVE ticker cleared to prevent TTY character bleed |
+| v0.11.159 | bug | BUG-159 Ledger generation failure | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-159 | Replaced JSON parser with resilient section extractor |
+| v0.11.158 | bug | BUG-158 WORLD context drift | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-158 | Immutable World/File locks enforced across pipeline |
+| v0.11.156 | bug | BUG-156 Spec refinement gate on read-only | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-156 | Read-only bypass using operator persona implemented |
+| v0.11.155 | bug | BUG-155 TM dashboard costing drift | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-155 | Unit-rate counterfactual calculation implemented |
 | v0.11.152 | bug | BUG-152 MCP daemon start in setup flow | COMPLETED | gemini | gemini/v0.11.152-153 | 2026-03-19 | BUG-152 | `mbo setup` reliably starts daemon for fresh projects |
 | v0.11.153 | bug | BUG-153 State Manager `data/` directory init | COMPLETED | gemini | gemini/v0.11.152-153 | 2026-03-19 | BUG-153 | Fresh projects create `data/` via `initProject` |
 | v0.11.154 | bug | BUG-154 Controller drift false-positive warning | COMPLETED | gemini | gemini/v0.11.152-153 | 2026-03-19 | BUG-154 | Warning only triggers in source controller repo |
