@@ -691,6 +691,19 @@ system messages, operator, relay <and all other agents> all should be different 
 - **Dependency:** Fix BUG-129 first, then measure, then set this timeout.
 - **Acceptance:** Session-close graph rescan completes within curl timeout on a typical changeset (2-10 files). No "WARN: did not return expected MCP response" on normal sessions.
 
+### BUG-146: Hardcoded MCP port literals remain in legacy launch/runtime paths and docs | Milestone: 1.1 | RESOLVED
+- **Location:** `bin/mbo_server.py`, `scripts/com.mbo.mcp.plist.template`, `README.md`, `bin/validator.py`
+- **Severity:** P1
+- **Status:** RESOLVED — 2026-03-19 (codex/bug-3737-root-cause)
+- **Task:** v0.11.36
+- **Description:** Fixed-port literals survived in multiple paths after dynamic manifest migration. `bin/mbo_server.py` defaulted to `3737/3738`, legacy launchd template forced `--port=7337`, and README health command silently fell back to `7337` when manifests were missing. This reintroduced drift and masked endpoint discovery failures.
+- **Fix:**
+  1. Removed hardcoded defaults from `bin/mbo_server.py`; now requires explicit `MBO_PORT`/`MBO_PORT_ALPHA` and fails fast when missing.
+  2. Updated `scripts/com.mbo.mcp.plist.template` to `--port=0` (ephemeral).
+  3. Updated README health command to fail if no manifest exists instead of falling back to `7337`.
+  4. Added validator guard in `bin/validator.py` to fail on newly introduced hardcoded MCP-style port literals in `bin/`, `src/`, `scripts/`, and `README.md` (with allowlist for non-MCP provider ports).
+- **Acceptance:** `python3 bin/validator.py --all` passes after fixes and fails when a new hardcoded MCP port literal is introduced in covered paths.
+
 
 
 ### BUG-044: MCP server stuck state not detected by supervisor | Milestone: 0.7.x | COMPLETED
