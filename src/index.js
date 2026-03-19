@@ -64,6 +64,8 @@ function formatOperatorResult(result) {
   return 'Operator update received.';
 }
 async function main() {
+  const SAFE_EXIT_COMMANDS = new Set(['end session', 'exit', 'quit']);
+
   // §28.5 Step 2 & 28.8: Validate machine config + non-TTY guard
   if (!validateConfig()) {
     if (!process.stdout.isTTY) {
@@ -85,23 +87,15 @@ async function main() {
   initProject(PROJECT_ROOT);
 
   // §28.5 Step 5 & 6: Run/check onboarding and version re-onboard
-  const onboardingStatus = await checkOnboarding(PROJECT_ROOT, { autoRun: false, returnStatus: true });
-  const needsOnboarding = onboardingStatus.needsOnboarding;
+  const needsOnboarding = await checkOnboarding(PROJECT_ROOT);
   if (needsOnboarding && !process.stdout.isTTY) {
     process.stderr.write('ERROR: Non-TTY launch requires onboarding but no onboarding.json found.\n');
     process.exit(1);
   }
 
   // §28.5 Step 7: Start operator
-  const operator = new Operator('runtime', { onboardingStatus });
+  const operator = new Operator('runtime');
   await operator.startMCP();
-
-  if (needsOnboarding) {
-    const onboardingGreeting = operator.startOnboardingDialogue();
-    if (onboardingGreeting && onboardingGreeting.prompt) {
-      console.log(onboardingGreeting.prompt);
-    }
-  }
 
   // §24.7: Start Relay listener for Subject → Mirror telemetry
   relay.start();
@@ -172,6 +166,50 @@ async function main() {
   };
 
   let _auditRunning = false;
+  let _spinnerTimer = null;
+  let _spinnerFrame = 0;
+  let _lastSpinnerText = '';
+  const _spinnerGlyphs = ['|', '/', '-', '\\'];
+
+  const stageLabel = () => {
+    const s = String(operator.stateSummary.currentStage || 'working').toLowerCase();
+    if (s === 'classification') return 'classifying request';
+    if (s === 'context_pinning') return 'checking assumptions';
+    if (s === 'planning') return 'deriving plan';
+    if (s === 'tiebreaker_plan') return 'resolving plan conflict';
+    if (s === 'code_derivation') return 'deriving code';
+    if (s === 'tiebreaker_code') return 'resolving code conflict';
+    if (s === 'dry_run') return 'running dry run';
+    if (s === 'implement') return 'applying changes';
+    if (s === 'audit_gate') return 'awaiting audit decision';
+    if (s === 'state_sync') return 'syncing state';
+    if (s === 'knowledge_update') return 'updating graph';
+    return 'working';
+  };
+
+  const startSpinner = () => {
+    if (_spinnerTimer) return;
+    _spinnerFrame = 0;
+    _spinnerTimer = setInterval(() => {
+      if (!operator._pipelineRunning) return;
+      const glyph = _spinnerGlyphs[_spinnerFrame % _spinnerGlyphs.length];
+      _spinnerFrame += 1;
+      const text = `[OPERATOR] ${glyph} ${stageLabel()}...`;
+      _lastSpinnerText = text;
+      process.stdout.write(`\r${text}`);
+    }, 220);
+  };
+
+  const stopSpinner = () => {
+    if (_spinnerTimer) {
+      clearInterval(_spinnerTimer);
+      _spinnerTimer = null;
+    }
+    if (_lastSpinnerText) {
+      process.stdout.write('\r' + ' '.repeat(_lastSpinnerText.length) + '\r');
+      _lastSpinnerText = '';
+    }
+  };
 
   rl.on('line', (line) => {
     const trimmed = line.trim();
@@ -246,8 +284,12 @@ async function main() {
     }
 
     // §34: Fire pipeline as background task — input loop remains unblocked.
+    operator._pipelineRunning = true;
+    startSpinner();
+
     operator.processMessage(trimmed)
       .then(result => {
+        stopSpinner();
         operator._pipelineRunning = false;
         if (result && result.status !== 'started') {
           if (lastStreamingRole) process.stdout.write('\n');
@@ -255,9 +297,14 @@ async function main() {
         }
       })
       .catch(err => {
+        stopSpinner();
         operator._pipelineRunning = false;
-        write(`[OPERATOR] ${err.message}`);
+        write(`[OPERATOR] I hit an error and kept session control.\nIssue: ${err.message}\n[RECOMMENDED ACTION]: Fix the issue above, then type 'go' to continue.`);
       });
+
+    if (SAFE_EXIT_COMMANDS.has(lower)) {
+      stopSpinner();
+    }
   });
 
   rl.on('close', async () => {
