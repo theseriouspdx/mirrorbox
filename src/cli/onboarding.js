@@ -176,7 +176,7 @@ function scanProject(projectRoot, onProgress = null) {
 
 // ─── UX-022: Scan Briefing ────────────────────────────────────────────────────
 
-function buildScanBriefing(projectRoot, scan) {
+function buildScanBriefing(projectRoot, scan, inferredConstraints = []) {
   const confirmed = [];
   const inferred = [];
   const unknown = [];
@@ -192,6 +192,18 @@ function buildScanBriefing(projectRoot, scan) {
 
   if (scan.hasCI) confirmed.push('CI: detected');
   else inferred.push('CI: not found — treating as intentional until confirmed');
+
+  if (scan.canonicalConfigPath) {
+    confirmed.push(`Canonical config: ${scan.canonicalConfigPath}`);
+  }
+
+  if (typeof scan.testCoverage === 'number' && scan.testCoverage < 0.2) {
+    inferred.push(`Test coverage appears low (${Math.round(scan.testCoverage * 100)}%)`);
+  }
+
+  for (const c of inferredConstraints) {
+    if (c && String(c).trim()) inferred.push(String(c).trim());
+  }
 
   confirmed.push(`Files scanned: ${scan.fileCount} (~${scan.tokenCountRaw} tokens)`);
   if (scan.fileCount === 0) {

@@ -6,8 +6,13 @@ const fs = require('fs');
 const eventStore = require('../state/event-store');
 const guard = require('./guard');
 
-const RELAY_SOCK = path.join(__dirname, '../../.dev/run/relay.sock');
-const INCIDENT_FLAG = path.join(__dirname, '../../.dev/run/incident.flag');
+const RUNTIME_ROOT = path.resolve(process.env.MBO_PROJECT_ROOT || process.cwd());
+const RELAY_SOCK = path.join(RUNTIME_ROOT, '.dev/run/relay.sock');
+const INCIDENT_FLAG = path.join(RUNTIME_ROOT, '.dev/run/incident.flag');
+
+function ensureRelayPaths() {
+  fs.mkdirSync(path.dirname(RELAY_SOCK), { recursive: true });
+}
 
 class RelayListener {
   constructor() {
@@ -17,6 +22,8 @@ class RelayListener {
   }
 
   start(taskId, approvedFiles, merkleRoot) {
+    ensureRelayPaths();
+
     // §24.7: unlink stale socket before binding
     if (fs.existsSync(RELAY_SOCK)) fs.unlinkSync(RELAY_SOCK);
 

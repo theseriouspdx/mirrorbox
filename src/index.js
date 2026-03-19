@@ -25,6 +25,24 @@ process.env.MBO_PROJECT_ROOT = PROJECT_ROOT;
 const { Operator } = require('./auth/operator');
 const relay = require('./relay/relay-listener');
 
+const EXIT_CODES = {
+  MISSING_GLOBAL_CONFIG_NON_TTY: 10,
+  NO_PROVIDER: 11,
+  ONBOARDING_REQUIRED_NON_TTY: 12,
+  INVALID_LOCAL_CONFIG: 13,
+};
+
+function hasValidLocalRuntimeConfig(projectRoot) {
+  const localConfigPath = path.join(projectRoot, '.mbo', 'config.json');
+  if (!fs.existsSync(localConfigPath)) return false;
+  try {
+    JSON.parse(fs.readFileSync(localConfigPath, 'utf8'));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function formatOperatorResult(result) {
   if (!result || typeof result !== 'object') {
     return String(result || 'No response.');
@@ -71,7 +89,7 @@ async function main() {
     if (!process.stdout.isTTY) {
       process.stderr.write('ERROR: Non-TTY launch with missing/corrupt ~/.mbo/config.json\n');
       process.stderr.write('Run `mbo setup` in an interactive shell first.\n');
-      process.exit(1);
+      process.exit(EXIT_CODES.MISSING_GLOBAL_CONFIG_NON_TTY);
     }
     await runSetup();
   }
@@ -80,17 +98,23 @@ async function main() {
   const providers = await detectProviders();
   if (!providers.claudeCLI && !providers.geminiCLI && !providers.codexCLI && !providers.openrouterKey && !providers.anthropicKey) {
     process.stderr.write('ERROR: No model providers or API keys detected. Run "mbo setup" or set environment variables.\n');
-    process.exit(1);
+    process.exit(EXIT_CODES.NO_PROVIDER);
   }
 
   // §28.5 Step 4: Initialize .mbo/ scaffolding and .gitignore
   initProject(PROJECT_ROOT);
 
+  if (!hasValidLocalRuntimeConfig(PROJECT_ROOT)) {
+    process.stderr.write(`ERROR: Missing or invalid local runtime config at ${path.join(PROJECT_ROOT, '.mbo', 'config.json')}\n`);
+    process.stderr.write('Run `mbo setup` from this project root to regenerate local config.\n');
+    process.exit(EXIT_CODES.INVALID_LOCAL_CONFIG);
+  }
+
   // §28.5 Step 5 & 6: Run/check onboarding and version re-onboard
   const needsOnboarding = await checkOnboarding(PROJECT_ROOT);
   if (needsOnboarding && !process.stdout.isTTY) {
     process.stderr.write('ERROR: Non-TTY launch requires onboarding but no onboarding.json found.\n');
-    process.exit(1);
+    process.exit(EXIT_CODES.ONBOARDING_REQUIRED_NON_TTY);
   }
 
   // §28.5 Step 7: Start operator

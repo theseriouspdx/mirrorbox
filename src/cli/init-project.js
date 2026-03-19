@@ -33,6 +33,8 @@ const NEGATION_LINES = [
  */
 function initProject(projectRoot) {
   const mboDir = path.join(projectRoot, '.mbo');
+  const homeConfigPath = path.join(require('os').homedir(), '.mbo', 'config.json');
+  const localConfigPath = path.join(mboDir, 'config.json');
   const dirs = [
     mboDir,
     path.join(mboDir, 'logs'),
@@ -60,6 +62,29 @@ function initProject(projectRoot) {
       fs.writeFileSync(filePath, content, 'utf8');
     }
   });
+
+  // BUG-168: ensure a local runtime config exists so startup paths are deterministic.
+  if (!fs.existsSync(localConfigPath)) {
+    let seeded = {};
+    try {
+      if (fs.existsSync(homeConfigPath)) {
+        seeded = JSON.parse(fs.readFileSync(homeConfigPath, 'utf8'));
+      }
+    } catch {
+      seeded = {};
+    }
+
+    if (!Array.isArray(seeded.scanRoots) || seeded.scanRoots.length === 0) {
+      seeded.scanRoots = ['src'];
+    }
+
+    if (!Array.isArray(seeded.mcpClients) || seeded.mcpClients.length === 0) {
+      seeded.mcpClients = [{ name: 'claude', configPath: '.mcp.json' }];
+    }
+
+    seeded.updatedAt = new Date().toISOString();
+    fs.writeFileSync(localConfigPath, JSON.stringify(seeded, null, 2), 'utf8');
+  }
 
   // .gitignore automation and stale DB guard
   applyGitPolicy(projectRoot);
