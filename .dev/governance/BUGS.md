@@ -2,9 +2,19 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-163
+**Next bug number:** BUG-164
 
 ---
+
+### BUG-163: Operator execution loop drifts to `WORLD: mirror` + `FILES: none`, never reaches actionable audit gate | Milestone: 1.1 | OPEN
+- **Location:** `src/auth/operator.js` (routing/state transitions around refinement/derivation loop), runtime pipeline stage control
+- **Severity:** P1
+- **Status:** OPEN — observed in repeated TTY runs on 2026-03-19 after valid scoped requests
+- **Task:** v0.11.36
+- **Description:** Even with explicit scoped instructions (target bug + allowed files + required tests + audit stop), runtime repeatedly re-enters refinement and/or code derivation with `FILES: none`, drifts world routing (`subject` -> `mirror`), and fails to produce actionable diff/test/audit outputs.
+- **Impact:** Blocks end-to-end workflow completion, causes non-productive long loops, and prevents audit-gate decisions on real changes.
+- **Required fix:** Enforce sticky execution scope from accepted refinement intent through derivation: preserve selected world/files, reject transitions to empty file scope, and hard-fail with explicit operator message instead of looping.
+- **Acceptance:** In TTY, a scoped bug-fix prompt results in (1) stable non-empty file scope, (2) concrete diff attempt, (3) requested verification commands run, and (4) audit package emitted exactly once awaiting approval.
 
 ### BUG-152: `mbo setup` finishes onboarding but fails to start MCP daemon | Milestone: 1.1 | OPEN
 - **Location:** `bin/mbo.js`, `src/cli/setup.js` (`installMCPDaemon`)
