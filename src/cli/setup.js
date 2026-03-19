@@ -584,10 +584,20 @@ async function runSetup() {
     localCfg.scanRoots = scanRoots;
     localCfg.mcpClients = require('../utils/update-client-configs').buildClientRegistry(d);
     if (!fs.existsSync(localConfigDir)) fs.mkdirSync(localConfigDir, { recursive: true });
+    const projectDataDir = path.join(projectRoot, 'data');
+    if (!fs.existsSync(projectDataDir)) fs.mkdirSync(projectDataDir, { recursive: true });
     fs.writeFileSync(localConfigPath, JSON.stringify(localCfg, null, 2), 'utf8');
 
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
+
+    // BUG-152: Proactively start daemon in setup flow.
+    try {
+      process.stdout.write(dim('\nStarting graph server...\n'));
+      await installMCPDaemon(projectRoot);
+    } catch (e) {
+      process.stderr.write(red(`\n[WARN] Could not start MCP daemon: ${e.message}\n`));
+    }
 
     console.log('');
     console.log(cy(`✓ Config saved to ${CONFIG_PATH}`));

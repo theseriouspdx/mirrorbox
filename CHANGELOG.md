@@ -3,6 +3,10 @@
 
 ### [0.11.24] — 2026-03-19
 #### Fixed
+- **BUG-152, 153, 154 — P0/P1 Portability & Hardening:**
+  - `src/cli/setup.js`, `bin/mbo.js`: Centralized `installMCPDaemon` startup in the `mbo setup` flow to ensure graph server availability immediately after configuration.
+  - `src/cli/init-project.js`, `src/state/state-manager.js`: Fixed `ENOENT data/state.json` crash by proactively creating the `data/` directory during project initialization and adding auto-creation in `StateManager.snapshot()`.
+  - `bin/mbo.js`, `src/cli/startup-checks.js`: Resolved false-positive self-run warnings in Alpha runtimes by isolating the self-run guard to the source repository only (case-insensitive `MBO` basename check on `PACKAGE_ROOT`).
 - **Governance alignment — NEXT_SESSION de-emphasized:**
   - `AGENTS.md`, `.dev/governance/AGENTS.md`: session start, affirmation, graph-context, and canonical-workflow rules now treat `projecttracking.md` + `BUGS.md` as required sources of truth and `NEXT_SESSION.md` as optional generated legacy handoff.
   - `bin/validator.py`: workflow validation no longer fails solely because `NEXT_SESSION.md` is stale or absent.

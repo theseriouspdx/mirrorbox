@@ -48,17 +48,10 @@ function isManagedControllerInstall(invocationCwd) {
 }
 
 function isSelfRunDisallowed(invocationCwd, packageRoot) {
-  // setup can run anywhere; this check is for runtime/init only.
-  if (isManagedControllerInstall(invocationCwd)) return true;
-
-  const nearestPkgDir = findNearestPackageDir(invocationCwd);
-  if (!nearestPkgDir) return false;
-
-  const pkgName = readPackageName(nearestPkgDir);
-  if (pkgName !== 'mbo') return false;
-
-  // If user is in the installed package/controller tree, block.
   const root = path.resolve(packageRoot);
+  // BUG-154: Only block if the running package is literally named 'MBO' (case-insensitive)
+  if (path.basename(root).toLowerCase() !== 'mbo') return false;
+
   const cwd = path.resolve(invocationCwd);
   return cwd === root || cwd.startsWith(`${root}${path.sep}`);
 }
