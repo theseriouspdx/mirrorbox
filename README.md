@@ -32,7 +32,7 @@ MCP is launchd-owned on macOS and binds a project-scoped dynamic port.
 
 ```bash
 mbo setup
-curl http://127.0.0.1:$(node -e 'const fs=require("fs");const f=[".dev/run/mcp.json",".mbo/run/mcp.json"].find(x=>fs.existsSync(x));console.log(f?require("./"+f).port:7337)')/health
+curl http://127.0.0.1:$(node -e 'const fs=require("fs");const f=[".dev/run/mcp.json",".mbo/run/mcp.json"].find(x=>fs.existsSync(x));if(!f){console.error("MCP manifest missing (.dev/run/mcp.json or .mbo/run/mcp.json)");process.exit(1)};console.log(require("./"+f).port)')/health
 ```
 
 Recovery shortcut:

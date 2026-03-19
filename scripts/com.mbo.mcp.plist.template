@@ -9,7 +9,7 @@
     <array>
         <string>%%NVM_NODE_BIN%%/node</string>
         <string>%%MBO_ROOT%%/src/graph/mcp-server.js</string>
-        <string>--port=7337</string>
+        <string>--port=0</string>
         <string>--mode=dev</string>
     </array>
 

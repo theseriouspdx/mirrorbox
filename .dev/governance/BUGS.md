@@ -2,7 +2,7 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-143
+**Next bug number:** BUG-147
 
 ---
 
@@ -39,7 +39,7 @@
 
 ---
 
-*Last updated: 2026-03-19 — split performed. 76 resolved bugs archived to BUGS-resolved.md. 3 outstanding (BUG-086 partial, BUG-141 fixed/verify pending, BUG-142 fixed/verify pending).*
+*Last updated: 2026-03-19 — BUG-146 moved to BUGS-resolved.md after hardcoded MCP port eradication and validator guardrail landed. Current outstanding set remains active-only.*
 
 ### BUG-143: `~/.mbo/config.json` `planner` key not recognized — architecturePlanner/componentPlanner left unrouted | Milestone: 1.1 | FIXED
 - **Location:** `src/auth/model-router.js` → `routeModels()`, `~/.mbo/config.json`
