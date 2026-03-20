@@ -27,6 +27,7 @@
 ## Recently Completed
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
+| v0.11.171 | feature | BUG-150: Tool context token consumption tracking | COMPLETED | claude | claude/v0.11.171 | 2026-03-20 | BUG-150 | `getStatus()` reports total tokens including tool context. `tool_token_log` populated. |
 | v0.11.174 | bug | BUG-174 _computeScanInputSignal sync fs scan blocks event loop | COMPLETED | claude | claude/mcp-server-hardening | 2026-03-20 | BUG-174 | Scan signal computation is async; no synchronous fs calls in hot path |
 | v0.11.173 | bug | BUG-173 keepAliveTimeout exceeds launchd exit timeout causes dirty SIGKILL | COMPLETED | claude | claude/mcp-server-hardening | 2026-03-20 | BUG-173 | SIGTERM completes clean shutdown within 5s; no dangling PID/symlink state |
 | v0.11.172 | bug | BUG-172 enqueueWrite permanently poisons write queue after error | COMPLETED | claude | claude/mcp-server-hardening | 2026-03-20 | BUG-172 | Single write error does not block future enqueueWrite calls |

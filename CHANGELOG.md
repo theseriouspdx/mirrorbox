@@ -1,6 +1,10 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [0.11.26] — 2026-03-20
+#### Fixed
+- **BUG-150 (P2) — Tool context token consumption invisible to cost tracking:** Added `tool_token_log` table (`id, session_id, agent, tool_name, estimated_tokens, timestamp`) to `mirrorbox.db` with `IF NOT EXISTS` for safe migration on existing DBs. Added `estimateToolTokens()` helper (length/4 heuristic). Instrumented `callMCPTool()` in `operator.js` — sole choke point for all MBO-managed graph tool calls — to write to both `tool_token_log` (durable audit trail) and `statsManager.recordToolCall()` (in-memory, persisted). `getStatus()` now surfaces a Token Budget block showing callModel tokens, tool ctx tokens, and session total. SHIFT+T overlay gains TOOL CONTEXT TOKENS row. `_normalizeStatsShape` back-fills `toolTokens: 0` on existing stats files. (`src/state/db-manager.js`, `src/state/stats-manager.js`, `src/auth/operator.js`, `src/cli/tokenmiser-dashboard.js`)
+
 ### [0.11.25] — 2026-03-20
 #### Fixed
 - **BUG-171 (P0) — `execSync` no timeout in `graph_rescan_changed`:** Added `timeout: 5000` to `execSync('git diff --name-only HEAD')`. Confirmed root cause of 1-hour event loop freeze (production log gap 00:48–01:48 UTC, `runs=2`). On timeout, existing `catch` block falls back to full rescan; HTTP server stays responsive throughout. (`src/graph/mcp-server.js`)

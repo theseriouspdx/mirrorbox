@@ -20,11 +20,13 @@ class StatsManager {
     return {
       session: {
         models: {},
-        cache: { hits: 0, misses: 0 }
+        cache: { hits: 0, misses: 0 },
+        toolTokens: 0
       },
       lifetime: {
         models: {},
-        cache: { hits: 0, misses: 0 }
+        cache: { hits: 0, misses: 0 },
+        toolTokens: 0
       },
       sessions: 0,
       largestSessionDelta: 0,
@@ -54,6 +56,9 @@ class StatsManager {
     if (!loaded.lifetime.cache || typeof loaded.lifetime.cache !== 'object') {
       loaded.lifetime.cache = { hits: 0, misses: 0 };
     }
+
+    if (typeof loaded.session.toolTokens  !== 'number') loaded.session.toolTokens  = 0;
+    if (typeof loaded.lifetime.toolTokens !== 'number') loaded.lifetime.toolTokens = 0;
 
     if (typeof loaded.sessions !== 'number') loaded.sessions = 0;
     if (typeof loaded.largestSessionDelta !== 'number') loaded.largestSessionDelta = 0;
@@ -160,7 +165,15 @@ class StatsManager {
       rawCostEst += (m.rawCostEst || 0);
     });
 
-    return { optimized, notOptimized, costEst, rawCostEst };
+    return { optimized, notOptimized, costEst, rawCostEst, toolTokens: data.toolTokens || 0 };
+  }
+
+  recordToolCall({ toolName, estimatedTokens }) {
+    const t = estimatedTokens || 0;
+    this.stats.session.toolTokens  = (this.stats.session.toolTokens  || 0) + t;
+    this.stats.lifetime.toolTokens = (this.stats.lifetime.toolTokens || 0) + t;
+    this.stats.lastUpdate = new Date().toISOString();
+    this.save();
   }
 
   getLifetimeSavings() {

@@ -82,27 +82,6 @@
 - **Description:** After the gate fired and ran entropy scoring, the operator returned only scaffolding output with no answer. Even if the gate correctly fires, it should either (a) answer from known state before presenting the gate, or (b) ask one targeted clarifying question — not block entirely and return nothing useful.
 - **Acceptance:** Every operator response includes either a direct answer or a single targeted clarifying question. Returning only gate scaffolding with no answer is a failure mode.
 
-### BUG-150: Tool context token consumption is invisible to MBO cost tracking — affects all agents | Milestone: 1.1 | OPEN
-- **Location:** `src/state/stats-manager.js`, `src/auth/call-model.js`, `token_log` schema
-- **Severity:** P2
-- **Status:** OPEN
-- **Task:** unassigned
-- **Description:** `token_log` and `stats-manager` track tokens consumed by `callModel` invocations only. Every token burned outside `callModel` — tool output landing in agent context — is invisible to MBO's cost model. This affects all agents differently and unpredictably:
-  - **Gemini codebase explorer:** semantic expansion tool, proactively loads broad file context before any model call. Token cost per invocation is unknown and uncontrolled. Could load dozens of files and their dependency chains.
-  - **Codex:** opaque context management, unknown expansion behavior per session.
-  - **Claude (DC tools):** `read_multiple_files`, `read_file`, `list_directory` all land in context. Predictable per call but uncounted cumulatively.
-  - **All agents — graph queries:** `graph_search` and `graph_query_impact` MCP results land in agent context. Broad queries can return thousands of tokens of node/edge data with no budget guard.
-- **Root cause of discovery:** Async search tool returned partial results for BUG-146 lookup — led to analysis of why search tool behavior varies across agents and how token cost of that behavior is untracked.
-- **Impact:** MBO's savings dashboard (optimized vs raw) only reflects `callModel` optimization. Actual total session cost per agent is unknown. Gemini sessions with codebase explorer active may be dramatically more expensive than token_log suggests. Cross-agent cost comparison is meaningless without this data.
-- **Required fix:**
-  1. Add `tool_token_log` table to `mirrorbox.db`: `(id, session_id, agent, tool_name, estimated_tokens, timestamp)`. Each agent logs tool invocations with estimated token cost of the result.
-  2. Add `estimateToolTokens(result)` utility — applies same `length/4` heuristic to tool output text before it's consumed.
-  3. For MBO-controlled tools (DC, MCP graph queries): instrument at the call site in `operator.js` and `callModel` context wrappers.
-  4. For agent-native tools (Gemini codebase explorer, Codex file search): governance rule — agents MUST log estimated token cost of any context-loading tool call to `tool_token_log` at session start via MCP `graph_update_task` or a dedicated `log_tool_usage` MCP endpoint.
-  5. `getStatus()` and the stats dashboard should surface: `callModel tokens` + `tool context tokens` = `total session tokens`, broken down by agent.
-- **Known unknowns:** Gemini codebase explorer's exact expansion algorithm is not documented in MBO governance. Before fix can be fully specified, need to instrument a Gemini session and measure actual tool output token counts. Add to BUG-149 validator scope: warn when `graph_search` result exceeds 2000 tokens with no explicit budget set.
-- **Acceptance:** `getStatus()` reports total session token cost including tool context. Cross-agent sessions for the same task show comparable and auditable token breakdowns. `tool_token_log` populated for at least DC and graph query tool calls.
-
 ### BUG-161: context_pinning runs 5 passes for COMPLEXITY:1 no-file analysis route | Milestone: 1.1 | OPEN
 - **Location:** `src/auth/operator.js` (context_pinning loop exit condition)
 - **Severity:** P2
