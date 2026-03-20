@@ -104,10 +104,16 @@ async function main() {
   // §28.5 Step 4: Initialize .mbo/ scaffolding and .gitignore
   initProject(PROJECT_ROOT);
 
+  // BUG-170: First-launch missing local config force-setup wizard (interactive)
   if (!hasValidLocalRuntimeConfig(PROJECT_ROOT)) {
-    process.stderr.write(`ERROR: Missing or invalid local runtime config at ${path.join(PROJECT_ROOT, '.mbo', 'config.json')}\n`);
-    process.stderr.write('Run `mbo setup` from this project root to regenerate local config.\n');
-    process.exit(EXIT_CODES.INVALID_LOCAL_CONFIG);
+    if (process.stdout.isTTY) {
+      process.stdout.write(`\n[SYSTEM] Missing local runtime config for ${PROJECT_ROOT}. Starting setup wizard...\n`);
+      await runSetup();
+    } else {
+      process.stderr.write(`ERROR: Missing or invalid local runtime config at ${path.join(PROJECT_ROOT, '.mbo', 'config.json')}\n`);
+      process.stderr.write('Run `mbo setup` from this project root to regenerate local config.\n');
+      process.exit(EXIT_CODES.INVALID_LOCAL_CONFIG);
+    }
   }
 
   // §28.5 Step 5 & 6: Run/check onboarding and version re-onboard

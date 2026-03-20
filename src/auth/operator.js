@@ -954,6 +954,17 @@ User request: "${userMessage}"`;
           confidence: classification ? classification.confidence : 0
         };
       }
+
+      // BUG-162: Validate non-empty FILES where the route implies mutation
+      const mutationRoutes = new Set(['standard', 'complex']);
+      if (mutationRoutes.has(classification.route) && (!classification.files || classification.files.length === 0)) {
+        return {
+          needsClarification: true,
+          rationale: `The ${classification.route} route requires at least one file path to proceed. Please specify which files should be modified.`,
+          confidence: 0.9
+        };
+      }
+
       return classification;
     } catch (e) {
       console.error(`[Operator] Model classification failure: ${e.message}. Falling back to heuristic.`);
@@ -998,11 +1009,12 @@ User request: "${userMessage}"`;
 
     // Check Graph Completeness (Milestone 0.4A invariant)
     const graphCompleteness = this.getGraphCompleteness();
-    if (graphCompleteness === 'skeleton') {
-      return { tier: 1, blastRadius: [], rationale: 'Skeleton graph forces Tier 1 minimum.' };
+    const hasFiles = classification.files && classification.files.length > 0;
+    if (graphCompleteness === 'skeleton' && hasFiles) {
+      return { tier: 1, blastRadius: [], rationale: 'Skeleton graph forces Tier 1 minimum for file-based tasks.' };
     }
 
-    if (classification.files && classification.files.length > 0) {
+    if (hasFiles) {
       for (const file of classification.files) {
         try {
           const impactResult = await this._graphQueryImpact(file, worldId);
@@ -1341,7 +1353,9 @@ The output will be used as the new system context.`;
 
     if (classification.route === 'analysis' && classification.risk === 'low' && lockedFiles.length === 0) {
       const answer = await callModel('operator', `User is asking for information. Answer based on current state: ${userMessage}`, { classification }, this.getHardState());
-      return { status: 'ready', prompt: answer };
+      // BUG-157: Fallback for empty or purely conversational model answers
+      const finalPrompt = (answer && answer.trim()) ? answer : "I have reviewed the current project state but do not have a specific answer. Could you clarify your request?";
+      return { status: 'ready', prompt: finalPrompt };
     }
 
     this.stateSummary.executorLogs = null;
