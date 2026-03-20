@@ -27,6 +27,10 @@
 ## Recently Completed
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
+| v0.11.174 | bug | BUG-174 Task label stuck as heuristic placeholder after fallback cycle | COMPLETED | claude | claude/e2e-bugfix | 2026-03-20 | BUG-174 | `status` after any completed cycle shows real task or null; heuristic placeholder never surfaced |
+| v0.11.173 | bug | BUG-173 generateAssumptionLedger context too wide — ledger generation failure | COMPLETED | claude | claude/e2e-bugfix | 2026-03-20 | BUG-173 | Ledger call scoped to `{ classification, routing }` only; no ledger generation error in E2E |
+| v0.11.172 | bug | BUG-172 Classifier BUDGET_EXCEEDED post-BUG-141 fix | COMPLETED | claude | claude/e2e-bugfix | 2026-03-20 | BUG-172 | Classifier input budget raised to 5000; no BUDGET_EXCEEDED on standard messages |
+| v0.11.171 | bug | BUG-171 malformed JSON vocabulary in reasoning role paths | COMPLETED | claude | claude/e2e-bugfix | 2026-03-20 | BUG-171 | Strings absent from codebase; confirmed pre-existing on master |
 | v0.11.171 | feature | BUG-150: Tool context token consumption tracking | COMPLETED | claude | claude/v0.11.171 | 2026-03-20 | BUG-150 | `getStatus()` reports total tokens including tool context. `tool_token_log` populated. |
 | v0.11.174 | bug | BUG-174 _computeScanInputSignal sync fs scan blocks event loop | COMPLETED | claude | claude/mcp-server-hardening | 2026-03-20 | BUG-174 | Scan signal computation is async; no synchronous fs calls in hot path |
 | v0.11.173 | bug | BUG-173 keepAliveTimeout exceeds launchd exit timeout causes dirty SIGKILL | COMPLETED | claude | claude/mcp-server-hardening | 2026-03-20 | BUG-173 | SIGTERM completes clean shutdown within 5s; no dangling PID/symlink state |
