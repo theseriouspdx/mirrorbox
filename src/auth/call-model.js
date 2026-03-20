@@ -44,7 +44,7 @@ const INJECTION_PHRASES = [
  * Defaults for Tier 2/3 tasks.
  */
 const DEFAULT_TOKEN_BUDGETS = {
-  classifier: { input: 1500, output: 500 },
+  classifier: { input: 5000, output: 500 }, // BUG-172: raised from 1500; observed 1649 on standard message. Tune when stable.
   operator: { input: 3000, output: 2000 },
   architecturePlanner: { input: 5000, output: 4000 },
   componentPlanner: { input: 5000, output: 4000 },

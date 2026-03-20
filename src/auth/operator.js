@@ -1222,6 +1222,7 @@ User request: "${userMessage}"`;
     await this.runStage11();
 
     this.stateSummary.currentStage = 'idle';
+    this.stateSummary.currentTask = null; // BUG-174: clear placeholder; never surface heuristic label after cycle completion
   }
 
   getPrimeDirective() {
@@ -1658,7 +1659,8 @@ The output will be used as the new system context.`;
   Calculate entropy score as: (Critical × 3) + (High × 1.5) + (Low × 0.5).`;
 
     try {
-      const response = await callModel('classifier', prompt, { classification, routing, context }, hardState, [], null, { ...options, expectJson: false });
+      // BUG-173: strip `context` (unbounded session history) — ledger only needs classification + routing.
+      const response = await callModel('classifier', prompt, { classification, routing }, hardState, [], null, { ...options, expectJson: false });
       
       // BUG-159: Parse plain-English sections instead of forcing JSON.
       const assumptionsRaw = this._extractSection(response, 'ASSUMPTIONS') || '';
