@@ -48,3 +48,14 @@ node_modules/
 $CODEX_HOME/
 letsgo.md
 Dockerfile
+
+# Recovery temp artifacts
+.npmignore.*
+*.prepromote*
+
+# Build/runtime cache artifacts
+**/__pycache__/
+*.pyc
+
+# Local scratch
+test-lock.txt
