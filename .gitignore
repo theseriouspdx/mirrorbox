@@ -44,6 +44,5 @@ scripts/scratch/
 # MBO — per-user data (not committed)
 .mbo/
 !.mbo/onboarding.json
-!.mbo/AGENTS.md
 !.mbo/BUGS.md
 !.mbo/CHANGELOG.md

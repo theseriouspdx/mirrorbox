@@ -102,15 +102,16 @@ class GraphService {
     this.lastScanInputMtimeMs = parseInt(this.db.getServerMeta('last_scan_input_mtime_ms', '0'), 10) || 0;
   }
 
-  _computeScanInputSignal(maxFiles = 5000) {
+  // BUG-174: async to avoid blocking the event loop with synchronous fs calls over up to 5000 files.
+  async _computeScanInputSignal(maxFiles = 5000) {
     const specPath = path.join(this.root, '.dev/spec/SPEC.md');
     let latestInputMtimeMs = 0;
     let scannedFiles = 0;
     let truncated = false;
 
-    const statMtime = (targetPath) => {
+    const statMtime = async (targetPath) => {
       try {
-        return fs.statSync(targetPath).mtimeMs || 0;
+        return (await fs.promises.stat(targetPath)).mtimeMs || 0;
       } catch (_) {
         return 0;
       }
@@ -122,14 +123,14 @@ class GraphService {
       const dirPath = stack.pop();
       let entries = [];
       try {
-        const stat = fs.statSync(dirPath);
+        const stat = await fs.promises.stat(dirPath);
         if (!stat.isDirectory()) {
           scannedFiles += 1;
           const m = stat.mtimeMs || 0;
           if (m > latestInputMtimeMs) latestInputMtimeMs = m;
           continue;
         }
-        entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
       } catch (_) {
         continue;
       }
@@ -148,14 +149,14 @@ class GraphService {
           break;
         }
 
-        const mtime = statMtime(path.join(dirPath, entry.name));
+        const mtime = await statMtime(path.join(dirPath, entry.name));
         if (mtime > latestInputMtimeMs) latestInputMtimeMs = mtime;
       }
 
       if (truncated) break;
     }
 
-    const specMtimeMs = statMtime(specPath);
+    const specMtimeMs = await statMtime(specPath);
     if (specMtimeMs > latestInputMtimeMs) {
       latestInputMtimeMs = specMtimeMs;
     }
@@ -167,7 +168,7 @@ class GraphService {
     };
   }
 
-  _summarizeAndPersistScan(diagnostics, trigger) {
+  async _summarizeAndPersistScan(diagnostics, trigger) {
     const failedFiles = diagnostics.failedFiles || [];
     // BUG-072: Enrich failures are best-effort warnings, not critical failures.
     // failed_critical is reserved for static scan failures only.
@@ -175,7 +176,7 @@ class GraphService {
     const status = criticalFailures > 0
       ? 'failed_critical'
       : (failedFiles.length > 0 ? 'completed_with_warnings' : 'completed');
-    const inputSignal = this._computeScanInputSignal();
+    const inputSignal = await this._computeScanInputSignal();
 
     this.lastScanStatus = status;
     this.lastScanFailedFiles = failedFiles.length;
@@ -202,11 +203,13 @@ class GraphService {
   }
 
   enqueueWrite(fn) {
-    this._writeQueue = this._writeQueue.then(fn).catch((err) => {
+    // BUG-172: detach the queue tail from the rejection so one write failure does not
+    // permanently block all future operations. The caller still receives the rejecting promise.
+    const next = this._writeQueue.then(fn);
+    this._writeQueue = next.catch((err) => {
       console.error(`[GraphService] ${new Date().toISOString()} Write queue error: ${err.message}`);
-      throw err; // re-throw — callers must see failures; queue's job is serialization, not error suppression
     });
-    return this._writeQueue;
+    return next;
   }
 
   listTools() {
@@ -372,7 +375,8 @@ class GraphService {
             console.error(`[GraphService] ${new Date().toISOString()} Starting incremental rescan (git)...`);
             let changedFiles = [];
             try {
-              const diff = execSync('git diff --name-only HEAD', { cwd: this.root, encoding: 'utf8' });
+              // BUG-171: timeout prevents a hung git process from blocking the event loop indefinitely.
+              const diff = execSync('git diff --name-only HEAD', { cwd: this.root, encoding: 'utf8', timeout: 5000 });
               changedFiles = diff.split('\n').filter(Boolean);
             } catch (e) {
               console.error(`[GraphService] Git diff failed, falling back to full rescan: ${e.message}`);
@@ -400,7 +404,7 @@ class GraphService {
 
             this.indexRevision = this.db.incrementIndexRevision();
             this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
-            const summary = this._summarizeAndPersistScan(diagnostics, 'graph_rescan_changed');
+            const summary = await this._summarizeAndPersistScan(diagnostics, 'graph_rescan_changed');
             return { content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }] };
           } finally {
             this.isScanning = false;
@@ -457,7 +461,7 @@ class GraphService {
             this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
             console.error(`[GraphService] ${new Date().toISOString()} Rescan complete. index_revision=${this.indexRevision}`);
 
-            const summary = this._summarizeAndPersistScan(diagnostics, 'manual_rescan');
+            const summary = await this._summarizeAndPersistScan(diagnostics, 'manual_rescan');
 
             return { content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }] };
           } finally {
@@ -554,7 +558,7 @@ class GraphService {
       specMtimeMs = 0;
     }
 
-    const inputSignal = this._computeScanInputSignal();
+    const inputSignal = await this._computeScanInputSignal();
 
     const lastIndexedMs = Date.parse(this.lastIndexedAt || epoch);
     const needsRefresh =
@@ -612,7 +616,7 @@ class GraphService {
 
         this.indexRevision = this.db.incrementIndexRevision();
         this.lastIndexedAt = this.db.getServerMeta('last_indexed_at');
-        const summary = this._summarizeAndPersistScan(diagnostics, 'dev_auto_refresh');
+        const summary = await this._summarizeAndPersistScan(diagnostics, 'dev_auto_refresh');
         console.error(
           `[MCP] ${new Date().toISOString()} Dev auto-refresh complete. index_revision=${this.indexRevision}, status=${summary.status}, scanned=${summary.scanned_files}, failed=${summary.failed_files}, critical=${summary.critical_failures}`
         );
@@ -876,6 +880,10 @@ async function main() {
       try { await transport.close(); } catch (_) {}
     }
     await graphService.shutdown();
+    // BUG-173: force-close keep-alive connections so httpServer.close() resolves within
+    // launchd's 5s exit timeout. Without this, SIGKILL fires before shutdown() completes —
+    // WAL checkpoint skipped, PID manifest left dangling (root cause of BUG-165 persistence).
+    httpServer.closeAllConnections();
     httpServer.close(() => {
       console.error(`[MCP] ${new Date().toISOString()} HTTP server closed.`);
       process.exit(0);
