@@ -6,6 +6,38 @@
 
 ---
 
+### BUG-166: Global install runtime resolves relay socket under package root causing EACCES and crash loop | Milestone: 1.1 | OPEN
+- **Location:** `src/relay/relay-listener.js`, runtime bootstrap in `src/index.js`
+- **Severity:** P1
+- **Status:** OPEN — observed 2026-03-19
+- **Task:** v0.11.166
+- **Description:** In globally-installed execution (`npm install -g`), `relay-listener` binds `relay.sock` under `.../lib/node_modules/mbo/.dev/run/relay.sock` via `__dirname`-relative path resolution. That package path is not writable for runtime socket creation in normal user execution, producing `listen EACCES` and repeated operator crash/respawn loops.
+- **Impact:** Onboarding can complete but runtime cannot remain up. `mbo` repeatedly respawns and cannot enter stable interactive operation from a package install.
+- **Acceptance:** Relay socket and incident flag resolve against runtime project root (`MBO_PROJECT_ROOT`/`cwd`) instead of package source root; global install launches without `EACCES` and without crash loop.
+
+### BUG-167: Non-TTY onboarding failure enters uncontrolled respawn loop instead of fail-closed exit | Milestone: 1.1 | OPEN
+- **Location:** `bin/mbo.js` (respawn supervisor behavior), `src/index.js` non-TTY onboarding guard
+- **Severity:** P2
+- **Status:** OPEN — observed 2026-03-19
+- **Task:** v0.11.167
+- **Description:** When onboarding is required and `mbo` runs in non-TTY mode, `src/index.js` correctly emits `ERROR: Non-TTY launch requires onboarding...` and exits, but the CLI wrapper immediately respawns the operator repeatedly. This creates noisy infinite failure loops instead of a single terminal failure.
+- **Impact:** Automation and scripted checks cannot detect clean failure semantics; logs flood and process churn increases.
+- **Acceptance:** For deterministic startup failures (including non-TTY onboarding required), wrapper exits once with non-zero status and no respawn loop.
+
+---
+
+
+### BUG-168: Missing runtime config bootstrap (`.mbo/config.json`) causes startup ambiguity in fresh installs | Milestone: 1.1 | OPEN
+- **Location:** `bin/mbo.js`, `src/cli/setup.js`, `src/index.js`
+- **Severity:** P2
+- **Status:** OPEN — observed 2026-03-19
+- **Task:** v0.11.168
+- **Description:** Fresh package-installed runs can enter mixed startup states when local runtime config (`.mbo/config.json`) is absent or incomplete while global config exists. Error messaging and guard flow are inconsistent across setup/runtime paths, making failures look like a missing "config js/json" bootstrap issue.
+- **Impact:** Operators see confusing startup behavior during first-run automation and non-interactive checks; root-cause diagnosis is slowed.
+- **Acceptance:** Startup path deterministically creates or validates required local runtime config before operator launch, and failure messaging points to exact missing config file and remediation.
+
+---
+
 ### BUG-165: MCP symlink not updated on new server startup; AGENTS.md Section 11 documents wrong recovery command | Milestone: 1.1 | OPEN
 - **Location:** `src/graph/mcp-server.js` (startup symlink logic, line ~826–830), `.dev/governance/AGENTS.md` (Section 11)
 - **Severity:** P2

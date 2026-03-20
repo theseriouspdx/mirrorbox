@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Canonical Task Ledger
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Task:** v0.11.162
+**Next Task:** v0.11.166
 **Policy:** This file is the single source of truth for work state.
 
 ---
@@ -10,6 +10,9 @@
 ## Active Tasks
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
+| v0.11.166 | bug | BUG-166 global install relay socket path EACCES crash loop | READY | unassigned | - | 2026-03-19 | BUG-166 | Global install resolves relay socket under runtime root and launches cleanly |
+| v0.11.167 | bug | BUG-167 non-TTY onboarding failure respawn loop | READY | unassigned | - | 2026-03-19 | BUG-167 | Non-TTY onboarding-required exits once without wrapper respawn loop |
+| v0.11.168 | bug | BUG-168 missing runtime config bootstrap (.mbo/config.json) | READY | unassigned | - | 2026-03-19 | BUG-168 | Startup validates/creates local runtime config with explicit remediation |
 | v0.11.157 | bug | BUG-157 Operator empty response failure | DEFERRED | unassigned | - | 2026-03-19 | BUG-157 | Operator always returns answer or clarifying question |
 | v0.11.161 | bug | BUG-161 context_pinning convergence delay | DEFERRED | unassigned | - | 2026-03-19 | BUG-161 | Low-complexity loops converge in < 2 passes |
 | v0.11.162 | bug | BUG-162 FILES prompt empty validation | READY | unassigned | - | 2026-03-19 | BUG-162 | FILES prompt validates non-empty where required |
@@ -22,9 +25,6 @@
 ## Recently Completed
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
-| v0.11.168 | bug | BUG-168 missing runtime config bootstrap (.mbo/config.json) | COMPLETED | codex | codex/e2e-alpha-loop | 2026-03-19 | BUG-168 | Startup validates/creates local runtime config with explicit remediation |
-| v0.11.167 | bug | BUG-167 non-TTY onboarding failure respawn loop | COMPLETED | codex | codex/e2e-alpha-loop | 2026-03-19 | BUG-167 | Non-TTY onboarding-required exits once without wrapper respawn loop |
-| v0.11.166 | bug | BUG-166 global install relay socket path EACCES crash loop | COMPLETED | codex | codex/e2e-alpha-loop | 2026-03-19 | BUG-166 | Global install resolves relay socket under runtime root and launches cleanly |
 | v0.11.163 | bug | BUG-163 Operator execution loop scope drift | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-163 | Sticky world/files and scope-loss hard-fail |
 | v0.11.160 | bug | BUG-160 Hint injection label mangling | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-160 | ALIVE ticker cleared to prevent TTY character bleed |
 | v0.11.159 | bug | BUG-159 Ledger generation failure | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-159 | Replaced JSON parser with resilient section extractor |
