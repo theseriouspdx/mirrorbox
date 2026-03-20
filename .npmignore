@@ -1,0 +1,50 @@
+# Development artifacts
+.dev/
+.claude/
+backups/
+audit/
+data/
+logs/
+*.log
+
+# Git
+.git/
+.gitignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment and secrets
+.env
+.env.*
+
+# Temp databases
+*.db
+*.db-shm
+*.db-wal
+
+# Runtime state
+.mbo/
+.journal/
+.mcp.json
+.gemini/
+
+# Tarballs
+*.tgz
+
+# Test-only scripts
+scripts/test-*.js
+scripts/scratch/
+
+# Dependencies (reinstalled on install)
+node_modules/
+
+# Worktrees
+.dev/worktree/
+.dev/worktree_archive/
+
+# Misc
+$CODEX_HOME/
+letsgo.md
+Dockerfile

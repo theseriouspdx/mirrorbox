@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Canonical Task Ledger
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Task:** v0.11.170
+**Next Task:** v0.11.175
 **Policy:** This file is the single source of truth for work state.
 
 ---
@@ -10,6 +10,8 @@
 ## Active Tasks
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
+| v0.11.175 | bug | BUG-175 package artifact bloat from missing .npmignore in worktree | IN_PROGRESS | codex | codex/v0.11.171 | 2026-03-20 | BUG-175 | Packed artifact excludes .dev/backups/worktree archives; package size returns to expected range |
+| v0.11.176 | bug | BUG-176 onboarding interview hangs without timeout/progress recovery | READY | unassigned | - | 2026-03-20 | BUG-176 | Onboarding has bounded timeout + explicit retry/error path; no indefinite silent stall |
 | v0.11.170 | bug | BUG-170 first-launch missing-config should force setup before operator prompt | READY | unassigned | - | 2026-03-19 | BUG-170 | First launch with missing required config runs setup/fail-closed; never drops user to operator prompt |
 | v0.11.169 | bug | BUG-169 DID tiebreaker null-verdict silent convergence | COMPLETED | claude | - | 2026-03-19 | BUG-169 | Tiebreaker null-verdict escalates to needs_human; no convergent package emitted without finalDiff |
 | v0.11.166 | bug | BUG-166 global install relay socket path EACCES crash loop | READY | unassigned | - | 2026-03-19 | BUG-166 | Global install resolves relay socket under runtime root and launches cleanly |

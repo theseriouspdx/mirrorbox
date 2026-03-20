@@ -2,7 +2,29 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-175
+**Next bug number:** BUG-177
+
+---
+
+### BUG-175: Packaged install omitted `.npmignore`, bloating tarball and increasing onboarding latency/timeouts | Milestone: 1.1 | OPEN
+- **Location:** package release artifact (`mbo-0.11.24.tgz`), repository root ignore metadata
+- **Severity:** P1
+- **Status:** OPEN — observed 2026-03-20
+- **Task:** v0.11.175
+- **Description:** In the Alpha worktree, `.npmignore` was not present, so `npm pack` fell back to `.gitignore` and included `.dev/archive`, backups, worktree snapshots, and other heavy artifacts. The packed tarball expanded from expected lightweight package size to ~200MB+, dramatically increasing install churn and first-run startup overhead.
+- **Impact:** Package install/setup/onboarding becomes materially slower and less reliable; large artifact inclusion increases risk of transport/install failures and obscures runtime regressions behind packaging noise.
+- **Acceptance:** `npm pack` in worktree/controller includes only intended runtime files (no `.dev/**`, `backups/**`, worktree archives, or transient logs), with package size back in expected range.
+
+---
+
+### BUG-176: Onboarding interview can hang indefinitely after user response (no progress/no timeout surface) | Milestone: 1.1 | OPEN
+- **Location:** `src/cli/onboarding.js`, `src/auth/call-model.js` onboarding call path
+- **Severity:** P1
+- **Status:** OPEN — observed 2026-03-20
+- **Task:** v0.11.176
+- **Description:** During interactive onboarding in `mbo setup`, after responding to a model prompt, the flow can stall for minutes with no next question, no timeout/error surfaced, and no deterministic recovery signal to the user. Manual interruption is required.
+- **Impact:** First-run setup is non-deterministic and can deadlock unattended E2E workflows; operators cannot distinguish transient model delay from stuck state.
+- **Acceptance:** Onboarding always advances with bounded response time and explicit error/progress signaling (e.g., timeout surfaced and retry path), never silent indefinite hangs.
 
 ---
 
@@ -118,4 +140,3 @@
 - **Task:** v0.11.162
 - **Description:** FILES prompt fired and accepted empty input with no validation. If certain route types require files, the gate should block empty file lists. If FILES is optional for this route, the prompt should not fire at all.
 - **Acceptance:** FILES prompt either (a) does not fire when files are not required for the route, or (b) validates that required file lists are non-empty before proceeding.
-
