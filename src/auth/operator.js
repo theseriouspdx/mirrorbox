@@ -6,6 +6,8 @@ const { callModel, computeContentHashes } = require('./call-model');
 const { DIDOrchestrator } = require('./did-orchestrator');
 const stateManager = require('../state/state-manager');
 const db = require('../state/db-manager');
+const statsManager = require('../state/stats-manager');
+const { randomUUID } = require('crypto');
 const eventStore = require('../state/event-store');
 const {
   runOnboarding,
@@ -94,6 +96,20 @@ function isDevContext(projectRoot) {
   return normalizedRoot === controllerPath ||
          normalizedRoot.startsWith(path.join(controllerPath, '.dev', 'worktree')) ||
          normalizedRoot.startsWith(path.join(controllerPath, '.dev', 'worktrees'));
+}
+
+/**
+ * BUG-150: Estimate token cost of a tool result using the standard length/4 heuristic.
+ * @param {*} result - Raw tool result (string or object).
+ * @returns {number} Estimated token count.
+ */
+function estimateToolTokens(result) {
+  try {
+    const text = typeof result === 'string' ? result : JSON.stringify(result);
+    return Math.ceil(text.length / 4);
+  } catch (_) {
+    return 0;
+  }
 }
 
 /**
@@ -636,6 +652,16 @@ class Operator {
 
   async callMCPTool(name, args) {
     const result = await this.sendMCPRequest('tools/call', { name, arguments: args });
+    // BUG-150: Track tool context token consumption.
+    const estimated = estimateToolTokens(result);
+    statsManager.recordToolCall({ toolName: name, estimatedTokens: estimated });
+    db.logToolUsage({
+      id: randomUUID(),
+      sessionId: this.mcpSessionId,
+      agent: 'claude',
+      toolName: name,
+      estimatedTokens: estimated,
+    });
     return result;
   }
 
@@ -928,6 +954,17 @@ User request: "${userMessage}"`;
           confidence: classification ? classification.confidence : 0
         };
       }
+
+      // BUG-162: Validate non-empty FILES where the route implies mutation
+      const mutationRoutes = new Set(['standard', 'complex']);
+      if (mutationRoutes.has(classification.route) && (!classification.files || classification.files.length === 0)) {
+        return {
+          needsClarification: true,
+          rationale: `The ${classification.route} route requires at least one file path to proceed. Please specify which files should be modified.`,
+          confidence: 0.9
+        };
+      }
+
       return classification;
     } catch (e) {
       console.error(`[Operator] Model classification failure: ${e.message}. Falling back to heuristic.`);
@@ -972,11 +1009,12 @@ User request: "${userMessage}"`;
 
     // Check Graph Completeness (Milestone 0.4A invariant)
     const graphCompleteness = this.getGraphCompleteness();
-    if (graphCompleteness === 'skeleton') {
-      return { tier: 1, blastRadius: [], rationale: 'Skeleton graph forces Tier 1 minimum.' };
+    const hasFiles = classification.files && classification.files.length > 0;
+    if (graphCompleteness === 'skeleton' && hasFiles) {
+      return { tier: 1, blastRadius: [], rationale: 'Skeleton graph forces Tier 1 minimum for file-based tasks.' };
     }
 
-    if (classification.files && classification.files.length > 0) {
+    if (hasFiles) {
       for (const file of classification.files) {
         try {
           const impactResult = await this._graphQueryImpact(file, worldId);
@@ -1315,7 +1353,9 @@ The output will be used as the new system context.`;
 
     if (classification.route === 'analysis' && classification.risk === 'low' && lockedFiles.length === 0) {
       const answer = await callModel('operator', `User is asking for information. Answer based on current state: ${userMessage}`, { classification }, this.getHardState());
-      return { status: 'ready', prompt: answer };
+      // BUG-157: Fallback for empty or purely conversational model answers
+      const finalPrompt = (answer && answer.trim()) ? answer : "I have reviewed the current project state but do not have a specific answer. Could you clarify your request?";
+      return { status: 'ready', prompt: finalPrompt };
     }
 
     this.stateSummary.executorLogs = null;
@@ -1401,12 +1441,35 @@ The output will be used as the new system context.`;
       // Non-fatal — db may be unavailable in test contexts
     }
 
+    // BUG-150: Token budget — callModel + tool context tokens.
+    let toolBlock = '';
+    try {
+      const sTotal = statsManager.getTotals('session');
+      const callModelTokens = sTotal.optimized || 0;
+      const toolTokens      = sTotal.toolTokens || 0;
+      const totalTokens     = callModelTokens + toolTokens;
+      if (totalTokens > 0) {
+        toolBlock = [
+          '',
+          '─── Token Budget ─────────────────────────────────────────',
+          `  callModel tokens  : ${callModelTokens}`,
+          `  tool ctx tokens   : ${toolTokens}`,
+          `  ${'─'.repeat(53)}`,
+          `  total session     : ${totalTokens}`,
+          '─────────────────────────────────────────────────────────',
+        ].join('\n');
+      }
+    } catch (_) {
+      // Non-fatal — stats may be unavailable in test contexts.
+    }
+
     return [
       `Status: ${description}`,
       `Task:   ${task}`,
       `Files:  ${files}`,
       `Hints:  ${this.userHintBuffer.length > 0 ? this.userHintBuffer.length + ' queued' : 'none'}`,
       costBlock,
+      toolBlock,
     ].filter(Boolean).join('\n');
   }
 

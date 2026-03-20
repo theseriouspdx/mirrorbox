@@ -242,13 +242,11 @@ async function routeModels(classification = {}, blastRadius = []) {
   }
 
   // 6. Onboarding
-  // Prefer authenticated local CLI first to avoid network-key drift during
-  // first-run interactive setup and onboarding.
   if (!routingMap.onboarding) {
-    if (cli.claude.authenticated) {
-      routingMap.onboarding = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
-    } else if (or.detected) {
+    if (or.detected) {
       routingMap.onboarding = { provider: 'openrouter', model: 'anthropic/claude-3.7-sonnet' };
+    } else if (cli.claude.authenticated) {
+      routingMap.onboarding = { provider: 'cli', model: 'claude', binary: cli.claude.binary };
     } else if (local.ollama.detected) {
       routingMap.onboarding = { provider: 'local', model: 'ollama', url: local.ollama.url };
     }

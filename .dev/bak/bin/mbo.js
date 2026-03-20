@@ -24,9 +24,39 @@ const entry = path.join(__dirname, '..', 'src', 'index.js');
 const HOME_CONFIG_DIR = path.join(require('os').homedir(), '.mbo');
 const HOME_CONFIG_PATH = path.join(HOME_CONFIG_DIR, 'config.json');
 
+function printSelfRunWarning(packageRoot) {
+  const red = '\x1b[31m';
+  const reset = '\x1b[0m';
+  process.stderr.write(
+    `${red}[MBO WARNING] MBO SHOULD NOT BE RUN FROM THE MBO DIRECTORY.\n` +
+    `[MBO WARNING] Controller: ${path.resolve(packageRoot)}${reset}\n`
+  );
+}
+
+function setSelfRunWarningEnv() {
+  const root = path.resolve(PACKAGE_ROOT);
+  // BUG-154: Only trigger warning if running from a directory named 'MBO' (case-insensitive)
+  if (path.basename(root).toLowerCase() !== 'mbo') return;
+
+  const cwd = path.resolve(INVOCATION_CWD);
+  const inController = cwd === root || cwd.startsWith(`${root}${path.sep}`);
+  if (!inController) return;
+
+  process.env.MBO_SELF_RUN_WARNING = '1';
+  process.env.MBO_SELF_RUN_WARNING_CONTROLLER = root;
+}
+
+function warningPromptPrefix() {
+  if (process.env.MBO_SELF_RUN_WARNING !== '1') return '';
+  return '\x1b[31m[MBO WARNING] MBO SHOULD NOT BE RUN FROM THE MBO DIRECTORY.\n[MBO WARNING] Controller: '
+    + `${process.env.MBO_SELF_RUN_WARNING_CONTROLLER || path.resolve(PACKAGE_ROOT)}\x1b[0m\n`;
+}
+
 function runSetupCommand() {
   const setup = require('../src/cli/setup');
   const { checkOnboarding } = require('../src/cli/onboarding');
+  const { detectProviders } = require('../src/cli/detect-providers');
+  const warnedPrompt = warningPromptPrefix();
   Promise.resolve()
     .then(async () => {
       // BUG-085 fix (1): Gate on project-local .mbo/config.json, not global ~/.mbo/config.json.
@@ -37,27 +67,37 @@ function runSetupCommand() {
         try { JSON.parse(fs.readFileSync(localConfigPath, 'utf8')); return true; } catch { return false; }
       })();
 
-      if (!hasLocalConfig) {
-        await setup.runSetup();
-      }
+      const providers = await detectProviders();
+      const hasRuntimeProvider = !!(
+        providers.claudeCLI ||
+        providers.geminiCLI ||
+        providers.codexCLI ||
+        providers.openrouterKey ||
+        providers.anthropicKey
+      );
 
-      // BUG-085 fix (2): Wire onboarding into setup flow.
-      // checkOnboarding triggers the 4-phase interview when no valid project-local
-      // onboarding.json exists, or when the stored projectRoot doesn't match cwd (BUG-086).
-      await checkOnboarding(PROJECT_ROOT);
+      if (!hasLocalConfig || !hasRuntimeProvider) {
+        await setup.runSetup();
+        // BUG-152: installMCPDaemon is now called INSIDE setup.runSetup()
+      } else {
+        await checkOnboarding(PROJECT_ROOT);
+        await setup.installMCPDaemon(PROJECT_ROOT);
+      }
 
       // Keep setup non-blocking in restricted environments where ~/.mbo is not writable.
       try {
-        setup.persistInstallMetadata(HOME_CONFIG_PATH, PACKAGE_ROOT, { force: true });
+        // BUG-145: setup in a target runtime must not overwrite the canonical
+        // controllerRoot once it has been established.
+        setup.persistInstallMetadata(HOME_CONFIG_PATH, PACKAGE_ROOT, { force: false });
       } catch (err) {
         process.stderr.write(`[MBO] Warning: unable to write ${HOME_CONFIG_PATH}: ${err.message}\n`);
       }
     })
-    .then(() => setup.installMCPDaemon(PROJECT_ROOT))
-    .then(() => {
-      process.stdout.write('[MBO] MCP daemon ready. Port written to .dev/run/mcp.json\n');
-    })
     .catch(err => { console.error(err); process.exit(1); });
+
+  if (warnedPrompt) {
+    process.stderr.write(warnedPrompt);
+  }
 }
 
 function runTeardownCommand() {
@@ -73,21 +113,9 @@ function runTeardownCommand() {
 function persistInstallMetadataBestEffort() {
   try {
     const setup = require('../src/cli/setup');
-    let force = false;
-    try {
-      const raw = fs.existsSync(setup.CONFIG_PATH)
-        ? fs.readFileSync(setup.CONFIG_PATH, 'utf8')
-        : '';
-      const cfg = raw ? JSON.parse(raw) : {};
-      const existing = typeof cfg.controllerRoot === 'string' ? path.resolve(cfg.controllerRoot) : null;
-      const pkgRoot = path.resolve(PACKAGE_ROOT);
-      const invCwd = path.resolve(INVOCATION_CWD);
-      // Self-heal stale config when controllerRoot drifted away from the actual controller.
-      force = !existing || (invCwd === pkgRoot && existing !== pkgRoot) || (existing === invCwd && existing !== pkgRoot);
-    } catch {
-      force = true;
-    }
-    setup.persistInstallMetadata(setup.CONFIG_PATH, PACKAGE_ROOT, { force });
+    // BUG-145: metadata updates here should be non-destructive.
+    // Preserve existing controllerRoot and only backfill when absent.
+    setup.persistInstallMetadata(setup.CONFIG_PATH, PACKAGE_ROOT, { force: false });
   } catch {}
 }
 
@@ -279,11 +307,10 @@ async function runMcpRecoveryCommand() {
     timeoutMs: 180000,
     acceptFailure: (res) => {
       const out = `${res.stdout || ''}\n${res.stderr || ''}`;
-      return /completed_with_warnings/.test(out);
+      return /completed_with_warnings/.test(out) || /"status"\s*:\s*"completed"/.test(out) || /"result"\s*:\s*\{/.test(out);
     },
   });
   process.stdout.write(`[MBO MCP] graph_rescan: ${String(rescan.stdout || '').trim()}\n`);
-
   const info = runChecked('graph_server_info', process.execPath, [path.join(PACKAGE_ROOT, 'scripts', 'mcp_query.js'), 'graph_server_info'], {
     capture: true,
     cwd: PROJECT_ROOT,
@@ -336,9 +363,11 @@ function runAuthCommand(argv) {
   // Runtime/init remain guarded by isSelfRunDisallowed.
   const args = argv.slice(3);
   const handshakePath = path.join(PACKAGE_ROOT, 'bin', 'handshake.py');
+  const authRoot = path.resolve(PROJECT_ROOT || INVOCATION_CWD);
+  const authEnv = { ...process.env, MBO_PROJECT_ROOT: authRoot };
 
   const normalizeScope = (value) => {
-    if (!value || value === '.' || value === '/' || value === 'src') return 'src';
+    if (!value || value === '.' || value === '/' || value === 'src') return '.';
     return value;
   };
 
@@ -349,7 +378,7 @@ function runAuthCommand(argv) {
 
   const printStatusAndGetScope = () => {
     const status = spawnSync('python3', [handshakePath, '--status'], {
-      env: process.env,
+      env: authEnv,
       encoding: 'utf8',
     });
     if (status.stdout) process.stdout.write(status.stdout);
@@ -393,7 +422,7 @@ function runAuthCommand(argv) {
     process.stderr.write(`[MBO] Active session for '${activeScope}' detected; ending session.\n`);
     const revoke = spawnSync('python3', [handshakePath, '--revoke'], {
       stdio: 'inherit',
-      env: process.env,
+      env: authEnv,
     });
     if ((revoke.status ?? 1) !== 0) {
       process.exit(revoke.status ?? 1);
@@ -404,7 +433,7 @@ function runAuthCommand(argv) {
 
   const auth = spawnSync('python3', [handshakePath, scope, ...passthroughFlags], {
     stdio: 'inherit',
-    env: process.env,
+    env: authEnv,
   });
 
   if ((auth.status ?? 1) !== 0) {
@@ -432,6 +461,16 @@ function getSessionScopedPids(packageRoot) {
   return pids;
 }
 
+function shouldRespawn(code) {
+  if (code === 0 || code === null || code === undefined) return false;
+
+  // BUG-167: deterministic startup/guard failures should fail closed and exit once.
+  const nonRespawnCodes = new Set([10, 11, 12, 13]);
+  if (nonRespawnCodes.has(Number(code))) return false;
+
+  return true;
+}
+
 function reapStaleHelpers(packageRoot) {
   const graceMs = parseInt(process.env.MBO_STALE_GRACE_MS || '120000', 10);
   const protectedPids = getSessionScopedPids(packageRoot);
@@ -446,7 +485,10 @@ function reapStaleHelpers(packageRoot) {
   let table = '';
   let parser = null;
   try {
-    table = execSync('ps -axo pid=,etimes=,command=', { encoding: 'utf8' });
+    table = execSync('ps -axo pid=,etimes=,command=', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    });
     parser = (line) => {
       const m = line.match(/^(\d+)\s+(\d+)\s+(.*)$/);
       if (!m) return null;
@@ -555,6 +597,11 @@ function ensureNodeModules() {
 ensureNodeModules();
 
 if (process.argv[2] === 'setup') {
+  if (path.basename(INVOCATION_CWD) === 'MBO') {
+    process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
+    process.exit(1);
+  }
+  setSelfRunWarningEnv();
   runSetupCommand();
 } else if (process.argv[2] === 'teardown') {
   runTeardownCommand();
@@ -565,8 +612,7 @@ if (process.argv[2] === 'setup') {
   runAuthCommand(process.argv);
 } else if (process.argv[2] === 'init') {
   if (isSelfRunDisallowed(INVOCATION_CWD, PACKAGE_ROOT)) {
-    process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
-    process.exit(2);
+    setSelfRunWarningEnv();
   }
   const { initProject } = require('../src/cli/init-project');
   initProject(INVOCATION_CWD);
@@ -574,8 +620,12 @@ if (process.argv[2] === 'setup') {
   persistInstallMetadataBestEffort();
   reapStaleHelpers(PACKAGE_ROOT);
   if (isSelfRunDisallowed(INVOCATION_CWD, PACKAGE_ROOT)) {
-    process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
-    process.exit(2);
+    // Invariants 1 & 2: Proactively lock src/ in managed projects (including worktrees)
+    // to prevent unauthorized writes when no session is active.
+    spawnSync('python3', [path.join(PACKAGE_ROOT, 'bin', 'handshake.py'), '--revoke'], {
+      env: { ...process.env, MBO_PROJECT_ROOT: PROJECT_ROOT },
+    });
+    setSelfRunWarningEnv();
   }
   // Task 1.1-H28: Persistent Operator Loop
   function spawnOperator() {
@@ -585,11 +635,11 @@ if (process.argv[2] === 'setup') {
       cwd: PROJECT_ROOT,
     });
     child.on('exit', (code) => {
-      if (code !== 0 && code !== null) {
+      if (shouldRespawn(code)) {
         process.stderr.write(`[MBO] Operator exited with code ${code}. Respawning...\n`);
         setTimeout(spawnOperator, 1000);
       } else {
-        process.exit(0);
+        process.exit(code || 0);
       }
     });
   }

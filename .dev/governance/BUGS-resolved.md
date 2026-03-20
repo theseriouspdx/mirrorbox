@@ -30,6 +30,69 @@
 
 ---
 
+### BUG-170: First-launch missing-config path drops into operator prompt instead of forcing setup-first UX contract | Milestone: 1.1 | COMPLETED
+- **Location:** `bin/mbo.js`, `src/index.js`, onboarding/setup handoff
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** On first launch from a package install, when required runtime configuration is not fully established, the user can still be dropped into the interactive `MBO ... >` operator prompt path instead of being forced through `mbo setup` first.
+- **Fix:** Added missing-config force-setup guard in `src/index.js` (Step 4) that calls `runSetup()` automatically for interactive TTY sessions.
+
+### BUG-169: DID tiebreaker null-verdict — unparseable tiebreaker response silently declares convergence with null finalDiff | Milestone: 1.1 | COMPLETED
+- **Location:** `src/auth/did-orchestrator.js` — Stage 5 tiebreaker exit path and `_package()`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** When the tiebreaker model response lacks a parseable `VERDICT:` section and `FINAL DIFF:` section, `tbVerdict` collapses to `''` and `finalDiff` is `null`. The code fell through to `_package(..., 'convergent')` with a null diff, falsely signalling plan convergence.
+- **Fix:** Added explicit null-verdict guards in Stage 5 exit path and `_package()` to promote null-diff convergence to `needs_human` escalation.
+
+### BUG-166: Global install runtime resolves relay socket under package root causing EACCES and crash loop | Milestone: 1.1 | COMPLETED
+- **Location:** `src/relay/relay-listener.js`, runtime bootstrap in `src/index.js`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** In globally-installed execution, `relay-listener` binds `relay.sock` under package root via `__dirname`-relative path resolution, causing permission errors in non-root execution.
+- **Fix:** Relay socket and `PILE_LOCK` path now resolve under project-local `.dev/run/` or runtime project root.
+
+### BUG-167: Non-TTY onboarding failure enters uncontrolled respawn loop instead of fail-closed exit | Milestone: 1.1 | COMPLETED
+- **Location:** `bin/mbo.js` (respawn supervisor behavior), `src/index.js` non-TTY onboarding guard
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** Non-TTY onboarding-required exits triggered infinite respawn loops.
+- **Fix:** Added deterministic startup exit codes and `shouldRespawn()` gate in `bin/mbo.js` to fail once for startup guard exits.
+
+### BUG-168: Missing runtime config bootstrap (`.mbo/config.json`) causes startup ambiguity in fresh installs | Milestone: 1.1 | COMPLETED
+- **Location:** `bin/mbo.js`, `src/cli/setup.js`, `src/index.js`
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** Fresh package-installed runs can enter mixed startup states when local runtime config is absent while global config exists.
+- **Fix:** `initProject()` now seeds `.mbo/config.json` when absent and startup emits deterministic remediation paths.
+
+### BUG-165: MCP symlink not updated on new server startup; AGENTS.md Section 11 documents wrong recovery command | Milestone: 1.1 | COMPLETED
+- **Location:** `src/graph/mcp-server.js`, `.dev/governance/AGENTS.md`, root `.gitignore`
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** (1) Broken symlink `mcp.json` prevented startup. (2) `AGENTS.md` documented wrong recovery command. (3) Stale `.mbo/AGENTS.md` stub misled agents.
+- **Fix:** (1) Added dangling-symlink detection in `mcp-server.js`. (2) Corrected `AGENTS.md` restart command to `mbo mcp`. (3) Removed orphaned `.mbo/AGENTS.md` stub and its `.gitignore` negation entry.
+
+### BUG-157: Operator did not answer the question | Milestone: 1.1 | COMPLETED
+- **Location:** `src/auth/operator.js`, gate exit behavior
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** After the gate fired, the operator returned only scaffolding output with no answer for analysis/Tier 0 routes.
+- **Fix:** Added fallback answer in `processMessage` analysis bypass to ensure the operator always provides a human-readable response.
+
+### BUG-161: context_pinning runs 5 passes for COMPLEXITY:1 no-file analysis route | Milestone: 1.1 | COMPLETED
+- **Location:** `src/auth/operator.js` (context_pinning loop exit condition)
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** Low-complexity no-file tasks were hitting Tier 1 context pinning unnecessarily on skeleton graphs.
+- **Fix:** Allowed Tier 0 bypass for no-file tasks even on skeleton graphs.
+
+### BUG-162: FILES prompt accepts empty input without validation | Milestone: 1.1 | COMPLETED
+- **Location:** `src/auth/operator.js` or `src/cli/` (FILES prompt validation)
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** FILES prompt accepted empty input for mutation-based routes.
+- **Fix:** Added non-empty validation for `FILES` in `classifyRequest` for `standard` and `complex` routes.
+
 ### BUG-164: `mbo setup` from controller root falls through to runtime prompt instead of hard-stop | Milestone: 1.1 | COMPLETED
 - **Location:** `bin/mbo.js`, `src/cli/startup-checks.js`, setup/runtime handoff
 - **Severity:** P1
@@ -725,3 +788,11 @@
 - **Task:** v0.11.166
 - **Description:** Relay socket path was package-root relative under global installs and often unwritable, causing startup failure and crash loops.
 - **Fix:** Relay socket/incident paths now resolve under runtime project root and ensure the relay directory exists before listen.
+
+### BUG-150: Tool context token consumption is invisible to MBO cost tracking — affects all agents | Milestone: 1.1 | RESOLVED
+- **Location:** `src/state/stats-manager.js`, `src/auth/operator.js`, `src/state/db-manager.js`, `src/cli/tokenmiser-dashboard.js`
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-20
+- **Task:** v0.11.171
+- **Fix:** Added `tool_token_log` table to `mirrorbox.db` (`id, session_id, agent, tool_name, estimated_tokens, timestamp`). Added `estimateToolTokens()` helper (`length/4` heuristic). Instrumented `callMCPTool()` in `operator.js` — the sole choke point for all MBO-managed graph tool calls — to write to both `tool_token_log` (durable) and `statsManager.recordToolCall()` (in-memory). `getStatus()` now surfaces a Token Budget block: `callModel tokens + tool ctx tokens = total session tokens`. SHIFT+T overlay updated with TOOL CONTEXT TOKENS section. Agent-native tools (Gemini codebase explorer, Codex) remain out of scope per governance rule.
+- **Acceptance:** ✅ `getStatus()` reports total session tokens including tool context. `tool_token_log` populated for all `callMCPTool` invocations. `validator.py --all` passes.

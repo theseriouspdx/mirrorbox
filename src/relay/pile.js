@@ -7,7 +7,8 @@ const eventStore = require('../state/event-store');
 const stateManager = require('../state/state-manager');
 const db = require('../state/db-manager');
 
-const PILE_LOCK = path.join(__dirname, '../../.dev/run/pile.lock');
+const RUNTIME_ROOT = path.resolve(process.env.MBO_PROJECT_ROOT || process.cwd());
+const PILE_LOCK = path.join(RUNTIME_ROOT, '.dev/run/pile.lock');
 const MBO_ROOT = path.resolve(__dirname, '../..');
 const HANDSHAKE = path.join(MBO_ROOT, 'bin/handshake.py');
 

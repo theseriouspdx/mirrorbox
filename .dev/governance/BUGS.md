@@ -2,29 +2,7 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-177
-
----
-
-### BUG-175: Packaged install omitted `.npmignore`, bloating tarball and increasing onboarding latency/timeouts | Milestone: 1.1 | OPEN
-- **Location:** package release artifact (`mbo-0.11.24.tgz`), repository root ignore metadata
-- **Severity:** P1
-- **Status:** OPEN — observed 2026-03-20
-- **Task:** v0.11.175
-- **Description:** In the Alpha worktree, `.npmignore` was not present, so `npm pack` fell back to `.gitignore` and included `.dev/archive`, backups, worktree snapshots, and other heavy artifacts. The packed tarball expanded from expected lightweight package size to ~200MB+, dramatically increasing install churn and first-run startup overhead.
-- **Impact:** Package install/setup/onboarding becomes materially slower and less reliable; large artifact inclusion increases risk of transport/install failures and obscures runtime regressions behind packaging noise.
-- **Acceptance:** `npm pack` in worktree/controller includes only intended runtime files (no `.dev/**`, `backups/**`, worktree archives, or transient logs), with package size back in expected range.
-
----
-
-### BUG-176: Onboarding interview can hang indefinitely after user response (no progress/no timeout surface) | Milestone: 1.1 | OPEN
-- **Location:** `src/cli/onboarding.js`, `src/auth/call-model.js` onboarding call path
-- **Severity:** P1
-- **Status:** OPEN — observed 2026-03-20
-- **Task:** v0.11.176
-- **Description:** During interactive onboarding in `mbo setup`, after responding to a model prompt, the flow can stall for minutes with no next question, no timeout/error surfaced, and no deterministic recovery signal to the user. Manual interruption is required.
-- **Impact:** First-run setup is non-deterministic and can deadlock unattended E2E workflows; operators cannot distinguish transient model delay from stuck state.
-- **Acceptance:** Onboarding always advances with bounded response time and explicit error/progress signaling (e.g., timeout surfaced and retry path), never silent indefinite hangs.
+**Next bug number:** BUG-175
 
 ---
 
@@ -104,27 +82,6 @@
 - **Description:** After the gate fired and ran entropy scoring, the operator returned only scaffolding output with no answer. Even if the gate correctly fires, it should either (a) answer from known state before presenting the gate, or (b) ask one targeted clarifying question — not block entirely and return nothing useful.
 - **Acceptance:** Every operator response includes either a direct answer or a single targeted clarifying question. Returning only gate scaffolding with no answer is a failure mode.
 
-### BUG-150: Tool context token consumption is invisible to MBO cost tracking — affects all agents | Milestone: 1.1 | OPEN
-- **Location:** `src/state/stats-manager.js`, `src/auth/call-model.js`, `token_log` schema
-- **Severity:** P2
-- **Status:** OPEN
-- **Task:** unassigned
-- **Description:** `token_log` and `stats-manager` track tokens consumed by `callModel` invocations only. Every token burned outside `callModel` — tool output landing in agent context — is invisible to MBO's cost model. This affects all agents differently and unpredictably:
-  - **Gemini codebase explorer:** semantic expansion tool, proactively loads broad file context before any model call. Token cost per invocation is unknown and uncontrolled. Could load dozens of files and their dependency chains.
-  - **Codex:** opaque context management, unknown expansion behavior per session.
-  - **Claude (DC tools):** `read_multiple_files`, `read_file`, `list_directory` all land in context. Predictable per call but uncounted cumulatively.
-  - **All agents — graph queries:** `graph_search` and `graph_query_impact` MCP results land in agent context. Broad queries can return thousands of tokens of node/edge data with no budget guard.
-- **Root cause of discovery:** Async search tool returned partial results for BUG-146 lookup — led to analysis of why search tool behavior varies across agents and how token cost of that behavior is untracked.
-- **Impact:** MBO's savings dashboard (optimized vs raw) only reflects `callModel` optimization. Actual total session cost per agent is unknown. Gemini sessions with codebase explorer active may be dramatically more expensive than token_log suggests. Cross-agent cost comparison is meaningless without this data.
-- **Required fix:**
-  1. Add `tool_token_log` table to `mirrorbox.db`: `(id, session_id, agent, tool_name, estimated_tokens, timestamp)`. Each agent logs tool invocations with estimated token cost of the result.
-  2. Add `estimateToolTokens(result)` utility — applies same `length/4` heuristic to tool output text before it's consumed.
-  3. For MBO-controlled tools (DC, MCP graph queries): instrument at the call site in `operator.js` and `callModel` context wrappers.
-  4. For agent-native tools (Gemini codebase explorer, Codex file search): governance rule — agents MUST log estimated token cost of any context-loading tool call to `tool_token_log` at session start via MCP `graph_update_task` or a dedicated `log_tool_usage` MCP endpoint.
-  5. `getStatus()` and the stats dashboard should surface: `callModel tokens` + `tool context tokens` = `total session tokens`, broken down by agent.
-- **Known unknowns:** Gemini codebase explorer's exact expansion algorithm is not documented in MBO governance. Before fix can be fully specified, need to instrument a Gemini session and measure actual tool output token counts. Add to BUG-149 validator scope: warn when `graph_search` result exceeds 2000 tokens with no explicit budget set.
-- **Acceptance:** `getStatus()` reports total session token cost including tool context. Cross-agent sessions for the same task show comparable and auditable token breakdowns. `tool_token_log` populated for at least DC and graph query tool calls.
-
 ### BUG-161: context_pinning runs 5 passes for COMPLEXITY:1 no-file analysis route | Milestone: 1.1 | OPEN
 - **Location:** `src/auth/operator.js` (context_pinning loop exit condition)
 - **Severity:** P2
@@ -140,3 +97,47 @@
 - **Task:** v0.11.162
 - **Description:** FILES prompt fired and accepted empty input with no validation. If certain route types require files, the gate should block empty file lists. If FILES is optional for this route, the prompt should not fire at all.
 - **Acceptance:** FILES prompt either (a) does not fire when files are not required for the route, or (b) validates that required file lists are non-empty before proceeding.
+
+### BUG-171: "Malformed JSON" / "returned non-JSON" warning vocabulary still present in codebase | Milestone: 1.1 | OPEN
+- **Location:** `src/auth/call-model.js`, `src/auth/operator.js`
+- **Severity:** P1
+- **Status:** OPEN — observed 2026-03-19
+- **Task:** v0.11.171
+- **Description:** Warning strings referencing "malformed JSON", "returned non-JSON", "produced malformed JSON", and "Planner returned malformed output" still exist in the codebase and appear in live E2E transcripts. Reasoning roles (`architecturePlanner`, `componentPlanner`, `reviewer`, `tiebreaker`) have a labeled-prose contract — their output is not JSON and should never be validated against a JSON schema. These warning strings should not exist at any code path. Their presence indicates the prose contract is not fully enforced and the JSON-first validation path has not been fully removed for reasoning roles.
+- **Impact:** Transcripts are polluted with misleading error language. NL recovery is being triggered as a fallback where it should be the primary path. Audit logs are hostile to human review.
+- **Acceptance:** No E2E log contains the strings "malformed JSON", "returned non-JSON", "produced malformed JSON", or "Planner returned malformed output". Reasoning roles flow through labeled-section extraction as the first-class path with no JSON validation step.
+
+---
+
+### BUG-172: Classifier budget still exceeded post-BUG-141 fix — `BUDGET_EXCEEDED` appearing in Alpha E2E log | Milestone: 1.1 | OPEN
+- **Location:** `src/auth/operator.js` — `classifyRequest()`, `DEFAULT_TOKEN_BUDGETS.classifier.input`
+- **Severity:** P1
+- **Status:** OPEN — observed 2026-03-19
+- **Task:** v0.11.172
+- **Description:** `[BUDGET_EXCEEDED] Input tokens (1649) exceed budget (1500) for role classifier` appears in the Alpha E2E transcript dated 2026-03-19. BUG-141 was logged as fixed (context stripped to `{ userMessage }` only), but this run shows the same failure signature (1649 tokens vs the 1500 budget). Either the fix was not synced to Alpha, it regressed, or the stripped context still exceeds budget on longer initial messages.
+- **Impact:** Classifier falls back to heuristic on every run, bypassing model-driven classification. All downstream planning and routing decisions are degraded from the first turn.
+- **Acceptance:** No `BUDGET_EXCEEDED` in classifier path. `classifyRequest()` succeeds within budget on the standard readiness-check prompt and equivalent-length inputs.
+
+---
+
+### BUG-173: Ledger generation fails independently of classifier — `generateAssumptionLedger` context arg not fixed | Milestone: 1.1 | OPEN
+- **Location:** `src/auth/operator.js` — `generateAssumptionLedger()`, ~line 1608
+- **Severity:** P1
+- **Status:** OPEN — observed 2026-03-19
+- **Task:** v0.11.173
+- **Description:** `[Operator] Ledger generation error: Ledger generation failed or malformed` fires in the Alpha E2E transcript. The resume audit (e2e-audit-20260319-resume.md) flagged this as a distinct secondary blocker: `generateAssumptionLedger` passes `{ classification, routing, context }` to the model, and the `context` arg may include session history depending on the caller, pushing it over budget. This was explicitly deferred in the BUG-141 session and never addressed.
+- **Impact:** Audit ledger is not generated. The assumption ledger is a critical audit artifact; without it the workflow cannot be fully verified.
+- **Acceptance:** `generateAssumptionLedger` succeeds within budget. Context arg is scoped to the minimum required fields, not raw session history. No ledger generation error in E2E transcript.
+
+---
+
+### BUG-174: Task label stuck as "Heuristic classification" after completed fallback cycle — state not written on fallback path | Milestone: 1.1 | OPEN
+- **Location:** `src/auth/operator.js` — fallback plan exit path, `getStatus()` task label write
+- **Severity:** P2
+- **Status:** OPEN — observed 2026-03-19
+- **Task:** v0.11.174
+- **Description:** After a completed workflow cycle via the fallback/minimal-safe-plan path, `status` returns `Task: Heuristic classification (callModel fallback or placeholder).` This string is a placeholder set during the fallback classification and is never overwritten once the cycle completes. The fallback path does not write a real task label to state on completion.
+- **Impact:** `status` output is misleading after any fallback-path completion. Makes it impossible to distinguish "cycle completed via fallback" from "system is stuck in classification".
+- **Acceptance:** After any completed workflow cycle, including fallback paths, `Task:` in `status` reflects the actual completed task description or is explicitly cleared. The heuristic placeholder string is never surfaced after cycle completion.
+
+---
