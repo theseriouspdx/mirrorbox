@@ -83,6 +83,11 @@ ${Object.entries(l.models).map(([m, data]) =>
 ${BOLD}Total Lifetime${R} | ${this._fmtInt(lTotal.optimized).padStart(14)} | ${this._fmtInt(lTotal.notOptimized).padStart(14)} | $${this._formatMoney(lTotal.costEst, 4)}
 
 ${BOLD}Project Carbon impact:${R} ${DIM}${this._formatMoney(carbon, 4)}g CO2 avoided${R}
+
+${BOLD}TOOL CONTEXT TOKENS${R}
+Session tool ctx  : ${this._fmtInt(s.toolTokens || 0)}
+Lifetime tool ctx : ${this._fmtInt(l.toolTokens || 0)}
+Session total     : ${this._fmtInt((sTotal.optimized || 0) + (s.toolTokens || 0))} ${DIM}(callModel + tool)${R}
 ${BOLD}────────────────────────────────────────────────────────────────────────${R}
 
 ${BOLD}ROUTING SAVINGS${R}

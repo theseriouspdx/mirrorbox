@@ -123,6 +123,18 @@ class DBManager {
       CREATE INDEX IF NOT EXISTS idx_token_log_run ON token_log(run_id);
       CREATE INDEX IF NOT EXISTS idx_token_log_role ON token_log(role);
 
+      CREATE TABLE IF NOT EXISTS tool_token_log (
+        id               TEXT PRIMARY KEY,
+        session_id       TEXT,
+        agent            TEXT NOT NULL,
+        tool_name        TEXT NOT NULL,
+        estimated_tokens INTEGER NOT NULL DEFAULT 0,
+        timestamp        INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_tool_token_log_session ON tool_token_log(session_id);
+      CREATE INDEX IF NOT EXISTS idx_tool_token_log_agent  ON tool_token_log(agent);
+
       CREATE TABLE IF NOT EXISTS server_meta (
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL
@@ -308,6 +320,31 @@ class DBManager {
     return this.db.prepare(
       'SELECT role, model, SUM(input_tokens) as input, SUM(output_tokens) as output, SUM(cost_usd) as cost, SUM(raw_tokens_estimate) as raw_tokens, SUM(raw_cost_estimate) as raw_cost, COUNT(*) as calls FROM token_log GROUP BY role, model'
     ).all();
+  }
+
+  logToolUsage({ id, sessionId, agent, toolName, estimatedTokens }) {
+    try {
+      this.db.prepare(`
+        INSERT INTO tool_token_log (id, session_id, agent, tool_name, estimated_tokens, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(id, sessionId || null, agent, toolName, estimatedTokens || 0, Date.now());
+    } catch (e) {
+      console.error('[tool_token_log] Write failed (non-fatal):', e.message);
+    }
+  }
+
+  getToolTokenSummary({ sessionId } = {}) {
+    try {
+      const where = sessionId ? 'WHERE session_id = ?' : '';
+      const params = sessionId ? [sessionId] : [];
+      const rows = this.db.prepare(
+        `SELECT tool_name, agent, SUM(estimated_tokens) AS tokens, COUNT(*) AS calls
+         FROM tool_token_log ${where} GROUP BY tool_name, agent ORDER BY tokens DESC`
+      ).all(...params);
+      return { rows, total: rows.reduce((s, r) => s + (r.tokens || 0), 0) };
+    } catch (_) {
+      return { rows: [], total: 0 };
+    }
   }
 
   /**

@@ -725,3 +725,11 @@
 - **Task:** v0.11.166
 - **Description:** Relay socket path was package-root relative under global installs and often unwritable, causing startup failure and crash loops.
 - **Fix:** Relay socket/incident paths now resolve under runtime project root and ensure the relay directory exists before listen.
+
+### BUG-150: Tool context token consumption is invisible to MBO cost tracking — affects all agents | Milestone: 1.1 | RESOLVED
+- **Location:** `src/state/stats-manager.js`, `src/auth/operator.js`, `src/state/db-manager.js`, `src/cli/tokenmiser-dashboard.js`
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-20
+- **Task:** v0.11.171
+- **Fix:** Added `tool_token_log` table to `mirrorbox.db` (`id, session_id, agent, tool_name, estimated_tokens, timestamp`). Added `estimateToolTokens()` helper (`length/4` heuristic). Instrumented `callMCPTool()` in `operator.js` — the sole choke point for all MBO-managed graph tool calls — to write to both `tool_token_log` (durable) and `statsManager.recordToolCall()` (in-memory). `getStatus()` now surfaces a Token Budget block: `callModel tokens + tool ctx tokens = total session tokens`. SHIFT+T overlay updated with TOOL CONTEXT TOKENS section. Agent-native tools (Gemini codebase explorer, Codex) remain out of scope per governance rule.
+- **Acceptance:** ✅ `getStatus()` reports total session tokens including tool context. `tool_token_log` populated for all `callMCPTool` invocations. `validator.py --all` passes.
