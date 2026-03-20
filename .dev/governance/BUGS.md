@@ -2,7 +2,51 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-171
+**Next bug number:** BUG-175
+
+---
+
+### BUG-174: `_computeScanInputSignal` uses synchronous `fs.statSync`/`fs.readdirSync` — blocks event loop on every scan | Milestone: 1.1 | OPEN
+- **Location:** `src/graph/mcp-server.js` — `_computeScanInputSignal()` and `_summarizeAndPersistScan()`
+- **Severity:** P2
+- **Status:** OPEN — identified 2026-03-20
+- **Task:** v0.11.174
+- **Description:** `_computeScanInputSignal` walks up to 5000 files using synchronous `fs.statSync` and `fs.readdirSync`. Called twice per scan: once at the start of `autoRefreshDevIfStale` (staleness check) and once at the end of every scan in `_summarizeAndPersistScan`. On a project this size, this is hundreds of milliseconds of synchronous event loop blockage, during which the HTTP server cannot process incoming MCP client requests.
+- **Fix:** Convert `_computeScanInputSignal` to `async` using `fs.promises.stat` and `fs.promises.readdir`. Mark `_summarizeAndPersistScan` as `async` and `await` the signal. Add `await` at all three `_summarizeAndPersistScan` call sites (all already inside async `enqueueWrite` contexts) and the `autoRefreshDevIfStale` staleness check.
+- **Acceptance:** `_computeScanInputSignal` yields to the event loop during directory traversal. No synchronous fs calls in the scan hot path.
+
+---
+
+### BUG-173: `keepAliveTimeout` (30s) exceeds launchd `exit timeout` (5s) — SIGKILL fires before clean shutdown | Milestone: 1.1 | OPEN
+- **Location:** `src/graph/mcp-server.js` — `shutdown()` and `httpServer.keepAliveTimeout` setting
+- **Severity:** P1
+- **Status:** OPEN — identified 2026-03-20
+- **Task:** v0.11.173
+- **Description:** `httpServer.keepAliveTimeout = 30000`. launchd `exit timeout = 5`. When launchd sends SIGTERM, `shutdown()` calls `httpServer.close()` which waits for keep-alive connections to drain (up to 30s). launchd SIGKILLs after 5s — `shutdown()` never completes. WAL checkpoint skipped, PID manifest not cleaned, `mcp.json` symlink left dangling. This is the root cause of BUG-165's persistence across restarts.
+- **Fix:** Call `httpServer.closeAllConnections()` (Node.js 18+, available in Node 24) immediately before `httpServer.close()` in the shutdown path. Force-drains all keep-alive connections so `httpServer.close()` resolves within the 5s window.
+- **Acceptance:** SIGTERM completes clean shutdown within 5 seconds. WAL checkpoint runs. PID manifest removed. `mcp.json` symlink cleaned. No dangling state after restart.
+
+---
+
+### BUG-172: `enqueueWrite` re-throws into `_writeQueue` — permanently poisons write queue after any error | Milestone: 1.1 | OPEN
+- **Location:** `src/graph/mcp-server.js` — `enqueueWrite()` method
+- **Severity:** P1
+- **Status:** OPEN — identified 2026-03-20
+- **Task:** v0.11.172
+- **Description:** `this._writeQueue = this._writeQueue.then(fn).catch(err => { throw err; })`. After any write failure, `_writeQueue` holds a permanently rejected promise. All subsequent `enqueueWrite` calls chain off this rejection — `fn` is never called, no error is logged, and all future writes silently fail for the lifetime of the process. Server stays up with a broken write queue with no indication of failure.
+- **Fix:** `const next = this._writeQueue.then(fn); this._writeQueue = next.catch(err => console.error(...)); return next;` — caller still receives the rejecting promise, but `_writeQueue` tail is always resolved so future writes proceed.
+- **Acceptance:** A single write error does not block subsequent `enqueueWrite` calls. Error is logged. Future writes execute normally.
+
+---
+
+### BUG-171: `execSync('git diff --name-only HEAD')` has no timeout — blocks event loop indefinitely on hung git | Milestone: 1.1 | OPEN
+- **Location:** `src/graph/mcp-server.js` — `graph_rescan_changed` handler, line ~375
+- **Severity:** P0
+- **Status:** OPEN — confirmed 2026-03-20 (caused 1-hour event loop freeze in production logs)
+- **Task:** v0.11.171
+- **Description:** `execSync('git diff --name-only HEAD', { cwd: this.root, encoding: 'utf8' })` is called with no `timeout` option. If git hangs for any reason (lock file, credential prompt), the synchronous call blocks the Node.js event loop indefinitely. The HTTP server cannot process any requests — all MCP clients receive "fetch failed" until launchd kills and respawns. Confirmed: production log shows `graph_rescan_changed` at 00:48:15 UTC, then 1-hour gap, server respawned (`runs=2`).
+- **Fix:** Add `timeout: 5000` to `execSync` options. On timeout the existing `catch` block falls back to `graph_rescan` — no additional logic needed.
+- **Acceptance:** `graph_rescan_changed` with a hung git process times out within 5 seconds, falls back to full rescan, HTTP server stays responsive throughout.
 
 ---
 
@@ -72,7 +116,7 @@
   1. When a new `mbo mcp` instance starts after a prior instance crashed, the startup symlink creation silently fails. The stale dangling `mcp.json → mcp-<id>-<dead-pid>.json` symlink is never removed before the new one is written. The failure is swallowed by `try/catch` (line 830), leaving `mcp.json` broken even though the new server is live and healthy. Confirmed: two live servers running (PIDs 49161, 69899) but `mcp.json` still points to dead PID 52653.
   2. AGENTS.md Section 11 documents `mbo setup` as the command to start the dev graph server. This is incorrect — `mbo setup` enters the onboarding/workflow prompt. The correct restart command is `mbo mcp`.
 - **Root cause:** (1) No dangling-symlink detection before new symlink creation; error swallowed silently. (2) AGENTS.md Section 11 was authored with the wrong command.
-- **Acceptance:** (1) On `mbo mcp` startup, if `mcp.json` is a broken symlink (target file absent), it is removed before the new pidManifest symlink is written. `mcp.json` always points to a live manifest after startup. (2) AGENTS.md Section 11 start command reads `mbo mcp`, not `mbo setup`.
+- **Acceptance:** (1) On `mbo mcp` startup, if `mcp.json` is a broken symlink (target file absent), it is removed before the new pidManifest symlink is written. `mcp.json` always points to a live manifest after startup. (2) AGENTS.md Section 11 start command reads `mbo mcp`, not `mbo setup`. (3) Stale 2-line `.mbo/AGENTS.md` stub removed and corresponding `!.mbo/AGENTS.md` unignore entry removed from `.gitignore` — SPEC mandates one AGENTS.md per project at `.mbo/AGENTS.md`; the controller repo's stub is orphaned and misleads agents reading it.
 
 ### BUG-157: Operator did not answer the question | Milestone: 1.1 | OPEN
 - **Location:** `src/auth/operator.js`, gate exit behavior
