@@ -183,12 +183,20 @@ class DIDOrchestrator {
     if (tbVerdict.toUpperCase().includes('ESCALATE_TO_HUMAN')) {
       return this._package(taskId, plannerRaw, reviewerR2Raw, finalDiff, 'needs_human', tiebreakerRaw);
     }
+    // BUG-169: If the tiebreaker produced no parseable VERDICT and no FINAL DIFF,
+    // do not silently claim convergence — treat as needs_human to surface the failure.
+    if (!tbVerdict && !finalDiff) {
+      return this._package(taskId, plannerRaw, reviewerR2Raw, null, 'needs_human', tiebreakerRaw);
+    }
     return this._package(taskId, plannerRaw, reviewerR2Raw, finalDiff, 'convergent', tiebreakerRaw);
   }
 
   _package(taskId, plannerRaw, reviewerRaw, finalDiff, verdict, tiebreakerRaw = null) {
-    const pkg = { did: { enabled: true, taskId, verdict, plannerRaw, reviewerRaw, tiebreakerRaw, finalDiff } };
-    this.eventStore.append('DID_RECONCILIATION_PACKAGE', 'operator', { taskId, verdict }, 'mirror');
+    // BUG-169: A 'convergent' verdict with no extractable finalDiff is a null-verdict —
+    // escalate to needs_human rather than returning an empty plan downstream.
+    const resolvedVerdict = (verdict === 'convergent' && !finalDiff) ? 'needs_human' : verdict;
+    const pkg = { did: { enabled: true, taskId, verdict: resolvedVerdict, plannerRaw, reviewerRaw, tiebreakerRaw, finalDiff } };
+    this.eventStore.append('DID_RECONCILIATION_PACKAGE', 'operator', { taskId, verdict: resolvedVerdict }, 'mirror');
     return pkg;
   }
 }

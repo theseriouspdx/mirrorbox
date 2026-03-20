@@ -2,7 +2,20 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-169
+**Next bug number:** BUG-170
+
+---
+
+### BUG-169: DID tiebreaker null-verdict — unparseable tiebreaker response silently declares convergence with null finalDiff | Milestone: 1.1 | OPEN
+- **Location:** `src/auth/did-orchestrator.js` — Stage 5 tiebreaker exit path and `_package()`
+- **Severity:** P1
+- **Status:** OPEN — observed live 2026-03-19
+- **Task:** v0.11.169
+- **Description:** When the tiebreaker model response lacks a parseable `VERDICT:` section and `FINAL DIFF:` section (e.g. plain-English or malformed output), `tbVerdict` collapses to `''` and `finalDiff` is `null`. The code fell through to `_package(..., 'convergent')` with a null diff, falsely signalling plan convergence. The operator's `!didPackage.did.finalDiff` guard then returned `needsTiebreaker: true` — a meaningless state since the tiebreaker had already run — rather than surfacing a human escalation.
+- **Impact:** Live Tier 2/3 tasks silently returned a structureless "convergent" plan with no diff; operator entered an unrecoverable `needsTiebreaker` holding state with no user-facing escalation path.
+- **Root cause:** No explicit null-verdict guard in Stage 5 exit path; `_package()` had no defensive check preventing `convergent` + null `finalDiff` from being emitted.
+- **Fix:** (1) Explicit guard in Stage 5: if `!tbVerdict && !finalDiff`, return `needs_human` immediately. (2) Defensive guard in `_package()`: any `convergent` verdict with null `finalDiff` is promoted to `needs_human`. Both guards emit `DID_RECONCILIATION_PACKAGE` with the corrected verdict.
+- **Acceptance:** Live Tier 2/3 task with unparseable tiebreaker response surfaces `escalatedToHuman: true` to the operator, not `needsTiebreaker: true`. No `convergent` package is ever emitted without a non-null `finalDiff`.
 
 ---
 

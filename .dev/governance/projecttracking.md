@@ -10,6 +10,7 @@
 ## Active Tasks
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
+| v0.11.169 | bug | BUG-169 DID tiebreaker null-verdict silent convergence | COMPLETED | claude | - | 2026-03-19 | BUG-169 | Tiebreaker null-verdict escalates to needs_human; no convergent package emitted without finalDiff |
 | v0.11.166 | bug | BUG-166 global install relay socket path EACCES crash loop | READY | unassigned | - | 2026-03-19 | BUG-166 | Global install resolves relay socket under runtime root and launches cleanly |
 | v0.11.167 | bug | BUG-167 non-TTY onboarding failure respawn loop | READY | unassigned | - | 2026-03-19 | BUG-167 | Non-TTY onboarding-required exits once without wrapper respawn loop |
 | v0.11.168 | bug | BUG-168 missing runtime config bootstrap (.mbo/config.json) | READY | unassigned | - | 2026-03-19 | BUG-168 | Startup validates/creates local runtime config with explicit remediation |

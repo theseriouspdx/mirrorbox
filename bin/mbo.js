@@ -461,16 +461,6 @@ function getSessionScopedPids(packageRoot) {
   return pids;
 }
 
-function shouldRespawn(code) {
-  if (code === 0 || code === null || code === undefined) return false;
-
-  // BUG-167: deterministic startup/guard failures should fail closed and exit once.
-  const nonRespawnCodes = new Set([10, 11, 12, 13]);
-  if (nonRespawnCodes.has(Number(code))) return false;
-
-  return true;
-}
-
 function reapStaleHelpers(packageRoot) {
   const graceMs = parseInt(process.env.MBO_STALE_GRACE_MS || '120000', 10);
   const protectedPids = getSessionScopedPids(packageRoot);
@@ -635,11 +625,11 @@ if (process.argv[2] === 'setup') {
       cwd: PROJECT_ROOT,
     });
     child.on('exit', (code) => {
-      if (shouldRespawn(code)) {
+      if (code !== 0 && code !== null) {
         process.stderr.write(`[MBO] Operator exited with code ${code}. Respawning...\n`);
         setTimeout(spawnOperator, 1000);
       } else {
-        process.exit(code || 0);
+        process.exit(0);
       }
     });
   }

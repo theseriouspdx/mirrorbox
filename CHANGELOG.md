@@ -3,14 +3,6 @@
 
 ### [0.11.24] — 2026-03-19
 #### Fixed
-- **BUG-166, BUG-167, BUG-168 — Alpha package-install E2E hardening:**
-  - `src/relay/relay-listener.js`, `src/index.js`: runtime relay socket path now resolves under project runtime root (not package root), relay directory creation enforced, and global install `EACCES` crash-loop eliminated.
-  - `bin/mbo.js`, `src/index.js`: deterministic startup failure exit codes now fail closed without wrapper respawn loops in non-TTY onboarding/config guard paths.
-  - `src/cli/init-project.js`: local `.mbo/config.json` is seeded during bootstrap when missing, preventing first-run config ambiguity.
-  - `scripts/verify-chain.py`, `scripts/test-invariants.js`, `scripts/test-onboarding.js`, `src/cli/onboarding.js`: verifier/test/onboarding compatibility updates aligned with current event schema (`world_id`) and onboarding scan-briefing fields.
-
-### [0.11.24] — 2026-03-19
-#### Fixed
 - **BUG-152, 153, 154 — P0/P1 Portability & Hardening:**
   - `src/cli/setup.js`, `bin/mbo.js`: Centralized `installMCPDaemon` startup in the `mbo setup` flow to ensure graph server availability immediately after configuration.
   - `src/cli/init-project.js`, `src/state/state-manager.js`: Fixed `ENOENT data/state.json` crash by proactively creating the `data/` directory during project initialization and adding auto-creation in `StateManager.snapshot()`.

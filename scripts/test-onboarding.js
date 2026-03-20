@@ -5,65 +5,18 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const onboarding = require('../src/cli/onboarding');
-const checkOnboarding = onboarding.checkOnboarding;
-const runOnboarding = onboarding.runOnboarding;
-const buildScanBriefing = onboarding.buildScanBriefing;
-
-const expandHome = typeof onboarding.expandHome === 'function'
-  ? onboarding.expandHome
-  : (p) => {
-      if (!p) return p;
-      if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) {
-        return require('path').join(require('os').homedir(), p.slice(1));
-      }
-      return p;
-    };
-
-const validateVerificationCommands = (raw) => {
-  const list = Array.isArray(raw)
-    ? raw.map((s) => String(s || '').trim()).filter(Boolean)
-    : String(raw || '').split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
-
-  if (list.length === 0) return { ok: true, commands: [] };
-
-  const banned = new Set(['yes', 'no', 'ok', 'done', 'skip', 'n/a']);
-  const hasBanned = list.some((cmd) => banned.has(cmd.toLowerCase()));
-  if (hasBanned) return { ok: false, reason: 'Non-command token detected', commands: list };
-
-  return { ok: true, commands: list };
-};
-
-const validateDangerZones = (raw) => {
-  const zones = Array.isArray(raw)
-    ? raw.map((s) => String(s || '').trim()).filter(Boolean)
-    : String(raw || '').split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
-
-  if (zones.length === 0) return { ok: true, zones: [] };
-
-  const hasInvalid = zones.some((z) => !z.includes('/'));
-  if (hasInvalid) return { ok: false, reason: 'Danger zones must be path-like entries containing /', zones };
-
-  return { ok: true, zones };
-};
-
-const validateSubjectRoot = (raw, projectRoot, allowRootOverride = false) => {
-  if (!raw || !String(raw).trim()) return { ok: false, reason: 'Path is empty.' };
-  const expanded = expandHome(String(raw).trim());
-  const p = require('path');
-  const fs = require('fs');
-
-  if (!p.isAbsolute(expanded)) return { ok: false, reason: 'Path must be absolute (or start with ~).' };
-
-  const resolved = p.resolve(expanded);
-  if (resolved === '/' && !allowRootOverride) return { ok: false, reason: 'Cannot use filesystem root "/" as staging directory.' };
-  if (resolved === p.resolve(projectRoot)) return { ok: false, reason: 'Staging directory cannot be the same as the project root.' };
-
-  if (!fs.existsSync(resolved)) return { ok: false, reason: 'Path does not exist.', resolved };
-  if (!fs.statSync(resolved).isDirectory()) return { ok: false, reason: 'Path is not a directory.', resolved };
-
-  return { ok: true, resolved };
-};
+const {
+  checkOnboarding,
+  runOnboarding,
+  // UX-022
+  buildScanBriefing,
+  // UX-026
+  expandHome,
+  validateSubjectRoot,
+  // UX-028
+  validateVerificationCommands,
+  validateDangerZones,
+} = require('../src/cli/onboarding');
 
 // Stubs for functions removed in BUG-146 rewrite (deterministic wizard → LLM-native sentinel)
 // Tests that exercised these functions are superseded by test-section36.js AC tests
@@ -76,70 +29,9 @@ const readLatestDbProfile = (projectRoot) => {
     return row ? { profile: JSON.parse(row.profile_data) } : null;
   } catch { return null; }
 };
-const deriveFollowupQuestions = (scan, prior = {}, _constraints = [], fullRedo = false) => {
-  const q = [];
-  const has = (v) => Array.isArray(v) ? v.length > 0 : !!(v && String(v).trim());
-
-  const shouldAskTestCoverage = fullRedo ? (typeof scan.testCoverage === 'number' && scan.testCoverage < 0.2) : (!has(prior.testCoverageIntent) && typeof scan.testCoverage === 'number' && scan.testCoverage < 0.2);
-  const shouldAskCi = fullRedo ? (!scan.hasCI) : (!has(prior.ciIntent) && !scan.hasCI);
-  const shouldAskVerification = fullRedo ? true : !has(prior.verificationCommands);
-  const shouldAskDangerZones = fullRedo ? true : !has(prior.dangerZones);
-  const shouldAskSubjectRoot = fullRedo ? true : !has(prior.subjectRoot);
-
-  if (shouldAskTestCoverage) q.push({ key: 'testCoverageIntent' });
-  if (shouldAskCi) q.push({ key: 'ciIntent' });
-  if (shouldAskVerification) q.push({ key: 'verificationCommands' });
-  if (shouldAskDangerZones) q.push({ key: 'dangerZones' });
-  if (shouldAskSubjectRoot) q.push({ key: 'subjectRoot' });
-
-  return q;
-};
-const synthesizePrimeDirective = (q3Raw, q4Raw = '', realConstraints = [], deploymentTarget = null, canonicalConfigPath = null) => {
-  const parts = [];
-  const q3 = String(q3Raw || '').trim();
-  if (q3) parts.push(q3);
-  if (Array.isArray(realConstraints) && realConstraints.length) {
-    for (const c of realConstraints) {
-      const s = String(c || '').trim();
-      if (s) parts.push(s);
-    }
-  }
-  if (deploymentTarget && !parts.some((x) => x.toLowerCase().includes(String(deploymentTarget).toLowerCase()))) {
-    parts.push('Deployment target: ' + deploymentTarget);
-  }
-  if (canonicalConfigPath) parts.push('Canonical config: ' + canonicalConfigPath);
-  const q4 = String(q4Raw || '').trim();
-  if (q4) parts.push(q4.length > 80 ? (q4.slice(0, 79) + '…') : q4);
-  const out = parts.filter(Boolean).join(' | ').trim();
-  return out || 'No prime directive';
-};
-const inferRealConstraints = (projectRoot, scan = {}) => {
-  const out = [];
-  const p = require('path');
-  const fs = require('fs');
-  try {
-    const nvm = p.join(projectRoot, '.nvmrc');
-    if (fs.existsSync(nvm)) {
-      const v = String(fs.readFileSync(nvm, 'utf8')).trim();
-      if (v) out.push('Node pinned to ' + v + ' (.nvmrc)');
-    }
-  } catch {}
-  try {
-    if (fs.existsSync(p.join(projectRoot, 'vercel.json'))) out.push('Deployment target: Vercel');
-  } catch {}
-  try {
-    const envExample = p.join(projectRoot, '.env.example');
-    if (fs.existsSync(envExample)) {
-      const raw = String(fs.readFileSync(envExample, 'utf8'));
-      const vars = raw.split(/\r?\n/).map((l) => l.trim()).filter((l) => /^[A-Z0-9_]+\s*=/.test(l));
-      if (vars.length) out.push('Requires environment variable configuration (' + vars.length + ' vars in .env.example)');
-    }
-  } catch {}
-  if (scan && Array.isArray(scan.verificationCommands) && scan.verificationCommands.length === 0) {
-    out.push('No verification commands detected yet');
-  }
-  return out;
-};
+const deriveFollowupQuestions = () => [];
+const synthesizePrimeDirective = (q3) => q3 || 'No prime directive';
+const inferRealConstraints = () => [];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -450,12 +342,14 @@ function testSubjectRootValidation() {
 
 function testSemanticValidation() {
   // validateVerificationCommands
-  // Empty/null behavior depends on implementation contract; both are accepted if parser returns structured result.
-  let r = validateVerificationCommands([]);
-  assert(r && typeof r === 'object', 'empty commands should return structured result');
 
+  // Empty → ok (allowed)
+  let r = validateVerificationCommands([]);
+  assert(r.ok, 'empty commands should be ok');
+
+  // Null → ok
   r = validateVerificationCommands(null);
-  assert(r && typeof r === 'object', 'null commands should return structured result');
+  assert(r.ok, 'null commands should be ok');
 
   // Valid commands → ok
   r = validateVerificationCommands(['npm test', 'npm run lint']);
