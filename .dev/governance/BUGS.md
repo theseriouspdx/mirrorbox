@@ -2,7 +2,19 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-170
+**Next bug number:** BUG-171
+
+---
+
+### BUG-170: First-launch missing-config path drops into operator prompt instead of forcing setup-first UX contract | Milestone: 1.1 | OPEN
+- **Location:** `bin/mbo.js`, `src/index.js`, onboarding/setup handoff
+- **Severity:** P1
+- **Status:** OPEN — observed 2026-03-19
+- **Task:** v0.11.170
+- **Description:** On first launch from a package install, when required runtime configuration is not fully established, the user can still be dropped into the interactive `MBO ... >` operator prompt path instead of being forced through `mbo setup` first. This violates the setup-first UX requirement that the operator must not expose an unusable prompt state to end users.
+- **Spec linkage:** `.dev/spec/SPEC.md` Section 36.1 (predictive guided onboarding contract) and Milestone 1.1 acceptance criteria (setup/onboarding guard behavior).
+- **Impact:** New users can enter an ambiguous runtime state before setup is complete, causing confusion and recoverability friction.
+- **Acceptance:** Fresh first launch with missing required config must deterministically run setup flow (or fail closed with explicit remediation) and must not drop the user into the operator command prompt until setup prerequisites are satisfied.
 
 ---
 
