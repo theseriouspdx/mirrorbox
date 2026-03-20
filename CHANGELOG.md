@@ -1,6 +1,14 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [0.11.25] — 2026-03-20
+#### Fixed
+- **BUG-171 (P0) — `execSync` no timeout in `graph_rescan_changed`:** Added `timeout: 5000` to `execSync('git diff --name-only HEAD')`. Confirmed root cause of 1-hour event loop freeze (production log gap 00:48–01:48 UTC, `runs=2`). On timeout, existing `catch` block falls back to full rescan; HTTP server stays responsive throughout. (`src/graph/mcp-server.js`)
+- **BUG-172 (P1) — `enqueueWrite` permanently poisons write queue after error:** Detached queue tail from rejection — `const next = _writeQueue.then(fn); _writeQueue = next.catch(log)`. Caller still receives the rejecting promise; queue tail is always resolved so future writes proceed. Previously one DB error silently bricked all subsequent writes for the server's lifetime. (`src/graph/mcp-server.js`)
+- **BUG-173 (P1) — `keepAliveTimeout` (30s) exceeds launchd `exit timeout` (5s):** Added `httpServer.closeAllConnections()` before `httpServer.close()` in `shutdown()`. Force-drains keep-alive connections so clean shutdown completes within launchd's 5s window. Root cause of BUG-165 dangling symlink persistence across restarts. (`src/graph/mcp-server.js`)
+- **BUG-174 (P2) — `_computeScanInputSignal` sync fs scan blocks event loop:** Converted `_computeScanInputSignal` and `_summarizeAndPersistScan` to `async` using `fs.promises.stat`/`readdir`. Updated all 5 call sites with `await`. Removes synchronous fs traversal over up to 5000 files from the scan hot path (called twice per scan). (`src/graph/mcp-server.js`)
+- **BUG-165 partial — stale `.mbo/AGENTS.md` stub removed:** Removed 2-line orphaned stub and corresponding `!.mbo/AGENTS.md` unignore from `.gitignore` per SPEC Section 28.5. AGENTS.md Section 11 already correct (`mbo mcp`). Symlink fix (BUG-165 item 1) remains open.
+
 ### [0.11.24] — 2026-03-19
 #### Fixed
 - **BUG-166, BUG-167, BUG-168 — Alpha package-install E2E hardening:**

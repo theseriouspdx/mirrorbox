@@ -4,6 +4,39 @@
 
 ---
 
+### BUG-174: `_computeScanInputSignal` sync fs scan blocks event loop | Milestone: 1.1 | COMPLETED
+- **Location:** `src/graph/mcp-server.js`
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-20 (claude/mcp-server-hardening)
+- **Fix:** Converted `_computeScanInputSignal` and `_summarizeAndPersistScan` to `async` using `fs.promises.stat`/`readdir`. Updated all 5 call sites with `await`.
+
+### BUG-173: `keepAliveTimeout` (30s) exceeds launchd `exit timeout` (5s) | Milestone: 1.1 | COMPLETED
+- **Location:** `src/graph/mcp-server.js` — `shutdown()`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-20 (claude/mcp-server-hardening)
+- **Fix:** Added `httpServer.closeAllConnections()` before `httpServer.close()` in shutdown path. Root cause of BUG-165 dangling symlink persistence.
+
+### BUG-172: `enqueueWrite` permanently poisons write queue after error | Milestone: 1.1 | COMPLETED
+- **Location:** `src/graph/mcp-server.js` — `enqueueWrite()`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-20 (claude/mcp-server-hardening)
+- **Fix:** Detached queue tail from rejection: `const next = _writeQueue.then(fn); _writeQueue = next.catch(log); return next`.
+
+### BUG-171: `execSync` no timeout freezes event loop on hung git | Milestone: 1.1 | COMPLETED
+- **Location:** `src/graph/mcp-server.js` — `graph_rescan_changed`
+- **Severity:** P0
+- **Status:** COMPLETED — 2026-03-20 (claude/mcp-server-hardening)
+- **Fix:** Added `timeout: 5000` to `execSync('git diff --name-only HEAD')`. Confirmed root cause of 1-hour production freeze.
+
+---
+
+### BUG-164: `mbo setup` from controller root falls through to runtime prompt instead of hard-stop | Milestone: 1.1 | COMPLETED
+- **Location:** `bin/mbo.js`, `src/cli/startup-checks.js`, setup/runtime handoff
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-19
+- **Description:** Running setup from `/Users/johnserious/MBO` (controller repo) while targeting `/Users/johnserious/MBO_Alpha` triggers root-mismatch re-onboarding output, then drops directly into `MBO 0.11.24 >` interactive prompt without an explicit blocking error.
+- **Fix:** Architect decision (2026-03-19): preserve current self-run guard behavior as documented in BUG-154. No hard-stop required.
+
 ### BUG-163: Operator execution loop drifts to `WORLD: mirror` + `FILES: none` | Milestone: 1.1 | COMPLETED
 - **Location:** `src/auth/operator.js`
 - **Severity:** P1

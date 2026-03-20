@@ -46,3 +46,5 @@ scripts/scratch/
 !.mbo/onboarding.json
 !.mbo/BUGS.md
 !.mbo/CHANGELOG.md
+
+!.mbo/AGENTS.md
