@@ -2,23 +2,25 @@
 ## Mirror Box Orchestrator — Canonical Task Ledger
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Next Task:** v0.11.171
-**Policy:** This file is the single source of truth for work status. Statuses: READY, IN_PROGRESS, BLOCKED, COMPLETED.
+**Next Task:** v0.11.175
+**Policy:** This file is the single source of truth for work state.
 
 ---
 
 ## Active Tasks
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
-| v0.11.171 | feature | BUG-150: Tool context token consumption tracking | READY | unassigned | - | 2026-03-19 | BUG-150 | `getStatus()` reports total tokens including tool context. `tool_token_log` populated. |
-| v0.11.170 | bug | BUG-170 first-launch missing-config should force setup before operator prompt | COMPLETED | gemini | gemini/v0.11.170 | 2026-03-19 | BUG-170 | First launch with missing required config runs setup/fail-closed; never drops user to operator prompt |
-| v0.11.169 | bug | BUG-169 DID tiebreaker null-verdict silent convergence | COMPLETED | gemini | gemini/v0.11.170 | 2026-03-19 | BUG-169 | Tiebreaker null-verdict escalates to needs_human; no convergent package emitted without finalDiff |
-| v0.11.166 | bug | BUG-166 global install relay socket path EACCES crash loop | COMPLETED | gemini | gemini/v0.11.170 | 2026-03-19 | BUG-166 | Global install resolves relay socket under runtime root and launches cleanly |
-| v0.11.167 | bug | BUG-167 non-TTY onboarding failure respawn loop | COMPLETED | gemini | gemini/v0.11.170 | 2026-03-19 | BUG-167 | Non-TTY onboarding-required exits once without wrapper respawn loop |
-| v0.11.168 | bug | BUG-168 missing runtime config bootstrap (.mbo/config.json) | COMPLETED | gemini | gemini/v0.11.170 | 2026-03-19 | BUG-168 | Startup validates/creates local runtime config with explicit remediation |
-| v0.11.157 | bug | BUG-157 Operator empty response failure | COMPLETED | gemini | gemini/v0.11.170 | 2026-03-19 | BUG-157 | Operator always returns answer or clarifying question |
-| v0.11.161 | bug | BUG-161 context_pinning convergence delay | COMPLETED | gemini | gemini/v0.11.170 | 2026-03-19 | BUG-161 | Low-complexity loops converge in < 2 passes |
-| v0.11.162 | bug | BUG-162 FILES prompt empty validation | COMPLETED | gemini | gemini/v0.11.170 | 2026-03-19 | BUG-162 | FILES prompt validates non-empty where required |
+| v0.11.175 | bug | BUG-175 package artifact bloat from missing .npmignore in worktree | IN_PROGRESS | codex | codex/v0.11.171 | 2026-03-20 | BUG-175 | Packed artifact excludes .dev/backups/worktree archives; package size returns to expected range |
+| v0.11.176 | bug | BUG-176 onboarding interview hangs without timeout/progress recovery | READY | unassigned | - | 2026-03-20 | BUG-176 | Onboarding has bounded timeout + explicit retry/error path; no indefinite silent stall |
+| v0.11.170 | bug | BUG-170 first-launch missing-config should force setup before operator prompt | READY | unassigned | - | 2026-03-19 | BUG-170 | First launch with missing required config runs setup/fail-closed; never drops user to operator prompt |
+| v0.11.169 | bug | BUG-169 DID tiebreaker null-verdict silent convergence | COMPLETED | claude | - | 2026-03-19 | BUG-169 | Tiebreaker null-verdict escalates to needs_human; no convergent package emitted without finalDiff |
+| v0.11.166 | bug | BUG-166 global install relay socket path EACCES crash loop | READY | unassigned | - | 2026-03-19 | BUG-166 | Global install resolves relay socket under runtime root and launches cleanly |
+| v0.11.167 | bug | BUG-167 non-TTY onboarding failure respawn loop | READY | unassigned | - | 2026-03-19 | BUG-167 | Non-TTY onboarding-required exits once without wrapper respawn loop |
+| v0.11.168 | bug | BUG-168 missing runtime config bootstrap (.mbo/config.json) | READY | unassigned | - | 2026-03-19 | BUG-168 | Startup validates/creates local runtime config with explicit remediation |
+| v0.11.157 | bug | BUG-157 Operator empty response failure | DEFERRED | unassigned | - | 2026-03-19 | BUG-157 | Operator always returns answer or clarifying question |
+| v0.11.161 | bug | BUG-161 context_pinning convergence delay | DEFERRED | unassigned | - | 2026-03-19 | BUG-161 | Low-complexity loops converge in < 2 passes |
+| v0.11.162 | bug | BUG-162 FILES prompt empty validation | READY | unassigned | - | 2026-03-19 | BUG-162 | FILES prompt validates non-empty where required |
+
 | v0.11.164 | bug | BUG-164 setup self-run/root guard bypass | COMPLETED | unassigned | - | 2026-03-19 | BUG-164 | Controller-root run fails closed and never opens runtime prompt |
 | v0.11.36 | docs | Workflow canonicalization and validator enforcement | COMPLETED | codex | - | 2026-03-19 | BUG-152..163 | Milestone 1.1 hardening cluster resolved |
 
@@ -27,19 +29,14 @@
 ## Recently Completed
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
-| v0.11.174 | bug | BUG-174 Task label stuck as heuristic placeholder after fallback cycle | COMPLETED | claude | claude/e2e-bugfix | 2026-03-20 | BUG-174 | `status` after any completed cycle shows real task or null; heuristic placeholder never surfaced |
-| v0.11.173 | bug | BUG-173 generateAssumptionLedger context too wide — ledger generation failure | COMPLETED | claude | claude/e2e-bugfix | 2026-03-20 | BUG-173 | Ledger call scoped to `{ classification, routing }` only; no ledger generation error in E2E |
-| v0.11.172 | bug | BUG-172 Classifier BUDGET_EXCEEDED post-BUG-141 fix | COMPLETED | claude | claude/e2e-bugfix | 2026-03-20 | BUG-172 | Classifier input budget raised to 5000; no BUDGET_EXCEEDED on standard messages |
-| v0.11.171 | bug | BUG-171 malformed JSON vocabulary in reasoning role paths | COMPLETED | claude | claude/e2e-bugfix | 2026-03-20 | BUG-171 | Strings absent from codebase; confirmed pre-existing on master |
-| v0.11.171 | feature | BUG-150: Tool context token consumption tracking | COMPLETED | claude | claude/v0.11.171 | 2026-03-20 | BUG-150 | `getStatus()` reports total tokens including tool context. `tool_token_log` populated. |
 | v0.11.174 | bug | BUG-174 _computeScanInputSignal sync fs scan blocks event loop | COMPLETED | claude | claude/mcp-server-hardening | 2026-03-20 | BUG-174 | Scan signal computation is async; no synchronous fs calls in hot path |
 | v0.11.173 | bug | BUG-173 keepAliveTimeout exceeds launchd exit timeout causes dirty SIGKILL | COMPLETED | claude | claude/mcp-server-hardening | 2026-03-20 | BUG-173 | SIGTERM completes clean shutdown within 5s; no dangling PID/symlink state |
 | v0.11.172 | bug | BUG-172 enqueueWrite permanently poisons write queue after error | COMPLETED | claude | claude/mcp-server-hardening | 2026-03-20 | BUG-172 | Single write error does not block future enqueueWrite calls |
 | v0.11.171 | bug | BUG-171 execSync no timeout freezes event loop on hung git | COMPLETED | claude | claude/mcp-server-hardening | 2026-03-20 | BUG-171 | graph_rescan_changed with hung git times out in 5s; HTTP server stays responsive |
 | v0.11.165 | bug | BUG-165 MCP symlink stale + AGENTS.md Section 11 wrong command + stale .mbo/AGENTS.md stub | COMPLETED | claude | claude/mcp-server-hardening | 2026-03-20 | BUG-165 | mcp.json always live after startup; AGENTS.md Section 11 corrected to mbo mcp; stale .mbo/AGENTS.md stub and gitignore unignore removed |
-| v0.11.168-completed | bug | BUG-168 missing runtime config bootstrap (.mbo/config.json) | COMPLETED | codex | codex/e2e-alpha-loop | 2026-03-19 | BUG-168 | Startup validates/creates local runtime config with explicit remediation |
-| v0.11.167-completed | bug | BUG-167 non-TTY onboarding failure respawn loop | COMPLETED | codex | codex/e2e-alpha-loop | 2026-03-19 | BUG-167 | Non-TTY onboarding-required exits once without wrapper respawn loop |
-| v0.11.166-completed | bug | BUG-166 global install relay socket path EACCES crash loop | COMPLETED | codex | codex/e2e-alpha-loop | 2026-03-19 | BUG-166 | Global install resolves relay socket under runtime root and launches cleanly |
+| v0.11.168 | bug | BUG-168 missing runtime config bootstrap (.mbo/config.json) | COMPLETED | codex | codex/e2e-alpha-loop | 2026-03-19 | BUG-168 | Startup validates/creates local runtime config with explicit remediation |
+| v0.11.167 | bug | BUG-167 non-TTY onboarding failure respawn loop | COMPLETED | codex | codex/e2e-alpha-loop | 2026-03-19 | BUG-167 | Non-TTY onboarding-required exits once without wrapper respawn loop |
+| v0.11.166 | bug | BUG-166 global install relay socket path EACCES crash loop | COMPLETED | codex | codex/e2e-alpha-loop | 2026-03-19 | BUG-166 | Global install resolves relay socket under runtime root and launches cleanly |
 | v0.11.163 | bug | BUG-163 Operator execution loop scope drift | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-163 | Sticky world/files and scope-loss hard-fail |
 | v0.11.160 | bug | BUG-160 Hint injection label mangling | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-160 | ALIVE ticker cleared to prevent TTY character bleed |
 | v0.11.159 | bug | BUG-159 Ledger generation failure | COMPLETED | gemini | gemini/milestone-1.1-hardening-final | 2026-03-19 | BUG-159 | Replaced JSON parser with resilient section extractor |
