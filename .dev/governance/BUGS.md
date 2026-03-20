@@ -98,7 +98,7 @@
 - **Description:** FILES prompt fired and accepted empty input with no validation. If certain route types require files, the gate should block empty file lists. If FILES is optional for this route, the prompt should not fire at all.
 - **Acceptance:** FILES prompt either (a) does not fire when files are not required for the route, or (b) validates that required file lists are non-empty before proceeding.
 
-### BUG-171: "Malformed JSON" / "returned non-JSON" warning vocabulary still present in codebase | Milestone: 1.1 | OPEN
+### BUG-171: "Malformed JSON" / "returned non-JSON" warning vocabulary still present in codebase | Milestone: 1.1 | RESOLVED
 - **Location:** `src/auth/call-model.js`, `src/auth/operator.js`
 - **Severity:** P1
 - **Status:** OPEN — observed 2026-03-19
@@ -109,7 +109,7 @@
 
 ---
 
-### BUG-172: Classifier budget still exceeded post-BUG-141 fix — `BUDGET_EXCEEDED` appearing in Alpha E2E log | Milestone: 1.1 | OPEN
+### BUG-172: Classifier budget still exceeded post-BUG-141 fix — `BUDGET_EXCEEDED` appearing in Alpha E2E log | Milestone: 1.1 | RESOLVED
 - **Location:** `src/auth/operator.js` — `classifyRequest()`, `DEFAULT_TOKEN_BUDGETS.classifier.input`
 - **Severity:** P1
 - **Status:** OPEN — observed 2026-03-19
@@ -120,7 +120,7 @@
 
 ---
 
-### BUG-173: Ledger generation fails independently of classifier — `generateAssumptionLedger` context arg not fixed | Milestone: 1.1 | OPEN
+### BUG-173: Ledger generation fails independently of classifier — `generateAssumptionLedger` context arg not fixed | Milestone: 1.1 | RESOLVED
 - **Location:** `src/auth/operator.js` — `generateAssumptionLedger()`, ~line 1608
 - **Severity:** P1
 - **Status:** OPEN — observed 2026-03-19
@@ -131,7 +131,7 @@
 
 ---
 
-### BUG-174: Task label stuck as "Heuristic classification" after completed fallback cycle — state not written on fallback path | Milestone: 1.1 | OPEN
+### BUG-174: Task label stuck as "Heuristic classification" after completed fallback cycle — state not written on fallback path | Milestone: 1.1 | RESOLVED
 - **Location:** `src/auth/operator.js` — fallback plan exit path, `getStatus()` task label write
 - **Severity:** P2
 - **Status:** OPEN — observed 2026-03-19
