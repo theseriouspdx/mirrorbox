@@ -1,25 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import { createRequire } from 'module';
+import { C } from '../colors.js';
 const require = createRequire(import.meta.url);
 
-interface McpInfo { port: number | null; healthy: boolean; projectId: string | null }
+interface McpInfo { port: number | null; healthy: boolean; projectId: string | null; timestamp: string | null }
 interface Props { projectRoot: string; isActive: boolean }
 
 function readMcpInfo(projectRoot: string): McpInfo {
   const fs = require('fs');
   const path = require('path');
-  const http = require('http');
   for (const rel of ['.dev/run/mcp.json', '.mbo/run/mcp.json']) {
     const p = path.join(projectRoot, rel);
     try {
       if (fs.existsSync(p)) {
         const m = JSON.parse(fs.readFileSync(p, 'utf8'));
-        if (m && m.port) return { port: m.port, healthy: false, projectId: m.project_id ?? null };
+        if (m && m.port) return { port: m.port, healthy: false, projectId: m.project_id ?? null, timestamp: m.timestamp ?? null };
       }
     } catch { /* skip */ }
   }
-  return { port: null, healthy: false, projectId: null };
+  return { port: null, healthy: false, projectId: null, timestamp: null };
 }
 
 function readLocalConfig(projectRoot: string): Record<string, any> {
@@ -30,9 +30,9 @@ function readLocalConfig(projectRoot: string): Record<string, any> {
     if (fs.existsSync(p)) config = JSON.parse(fs.readFileSync(p, 'utf8'));
   } catch { /* skip */ }
 
-  // Merge with global config for routing map visibility
+  // Merge with global operator config for routing map (Section 35.4)
   try {
-    const gp = path.join(os.homedir(), '.orchestrator', 'config.json');
+    const gp = path.join(os.homedir(), '.mbo', 'config.json');
     if (fs.existsSync(gp)) {
       const g = JSON.parse(fs.readFileSync(gp, 'utf8'));
       config = { ...config, ...g };
@@ -41,23 +41,14 @@ function readLocalConfig(projectRoot: string): Record<string, any> {
   return config;
 }
 
-function formatUptime(startedAt: number | null): string {
-  if (!startedAt) return 'unknown';
-  const diff = Math.floor((Date.now() - startedAt) / 1000);
-  const h = Math.floor(diff / 3600);
-  const m = Math.floor((diff % 3600) / 60);
-  const s = diff % 60;
-  return `${h}h ${m}m ${s}s`;
-}
-
 export function SystemPanel({ projectRoot, isActive }: Props) {
-  const [mcpInfo, setMcpInfo] = useState<McpInfo>({ port: null, healthy: boolean, projectId: string | null, timestamp: string | null });
+  const [mcpInfo, setMcpInfo] = useState<McpInfo>({ port: null, healthy: false, projectId: null, timestamp: null });
   const [config, setConfig] = useState<Record<string, any>>({});
   const [tick, setTick] = useState(0);
   const http = require('http');
 
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 2000); // 2s polling
+    const id = setInterval(() => setTick((t) => t + 1), 5000);
     return () => clearInterval(id);
   }, []);
 
@@ -66,21 +57,13 @@ export function SystemPanel({ projectRoot, isActive }: Props) {
     setMcpInfo(info);
     setConfig(readLocalConfig(projectRoot));
     if (info.port) {
-      const options = { hostname: '127.0.0.1', port: info.port, path: '/health', timeout: 1000 };
-      const req = http.get(options, (res: any) => {
+      const req = http.get(`http://127.0.0.1:${info.port}/health`, { timeout: 2000 }, (res: any) => {
         let body = '';
         res.on('data', (d: any) => (body += d));
-        res.on('end', () => {
-          try {
-            const data = JSON.parse(body);
-            setMcpInfo((prev) => ({ ...prev, healthy: data.status === 'ok' }));
-          } catch {
-            setMcpInfo((prev) => ({ ...prev, healthy: false }));
-          }
-        });
+        res.on('end', () => setMcpInfo((prev) => ({ ...prev, healthy: body.includes('"status":"ok"') })));
       });
       req.on('error', () => setMcpInfo((prev) => ({ ...prev, healthy: false })));
-      req.on('timeout', () => { req.destroy(); setMcpInfo((prev) => ({ ...prev, healthy: false })); });
+      req.on('timeout', () => { req.destroy(); });
     }
   }, [tick, projectRoot]);
 
@@ -91,11 +74,11 @@ export function SystemPanel({ projectRoot, isActive }: Props) {
   const clients = (config.mcpClients ?? []).map((c: any) => c.name).join(', ') || 'none';
 
   // Extract routing assignments
-  const rolesList = ['classifier', 'operator', 'planner', 'reviewer', 'tiebreaker'];
-  const routes = rolesList.map(r => {
-    const c = config[r] || (config.routingMap ? config.routingMap[r] : null);
+  const roles = ['classifier', 'operator', 'planner', 'reviewer', 'tiebreaker'];
+  const routes = roles.map(r => {
+    const c = config[r];
     if (!c) return null;
-    const model = c.model || c.provider || c.cli || 'unknown';
+    const model = c.model || c.cli || 'unknown';
     return { role: r, model };
   }).filter(Boolean);
 
@@ -114,9 +97,9 @@ export function SystemPanel({ projectRoot, isActive }: Props) {
         {routes.length === 0 ? (
           <Text color="white">  (auto-detected)</Text>
         ) : (
-          routes.map((r: any) => (
-            <Text key={r.role} color="white">
-              {'  ' + r.role.padEnd(12)} <Text color="cyan">{r.model}</Text>
+          routes.map(r => (
+            <Text key={r!.role} color="white">
+              {'  ' + r!.role.padEnd(12)} <Text color="cyan">{r!.model}</Text>
             </Text>
           ))
         )}
