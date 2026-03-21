@@ -1,5 +1,37 @@
 # CHANGELOG.md
-## [0.12.01] — 2026-03-19
+## [0.3.01] — 2026-03-20 — TUI (v.3)
+### Added
+- Full Ink v5 + React TUI (`src/tui/`) replacing the readline operator interface.
+- 4-tab layout: OPERATOR, PIPELINE, EXECUTOR, SYSTEM — with 35% StatsPanel sidebar always visible.
+- StatusBar (top): stage, model, task, elapsed, version.
+- TabBar: tab indicators, audit border, help hints.
+- InputBar: context-aware prompt prefix (`❯` / `[AUDIT]`).
+- OperatorPanel (Tab 1): scrollable operator output + live Tokenmiser header (TM §30.3).
+- PipelinePanel (Tab 2): streaming agent chunks routed by role.
+- ExecutorPanel (Tab 3): diff-aware executor output.
+- SystemPanel (Tab 4): MCP health, project root display.
+- StatsPanel (right sidebar): pipeline stepper + session TM (actual vs raw cost, active model, files in scope).
+- StatsOverlay (SHIFT+T or `/token`): full SESSION + LIFETIME + BY MODEL Tokenmiser breakdown with CO₂ avoided.
+- TasksOverlay (`/tasks`): parses `.dev/governance/projecttracking.md` into a live task list.
+- `useScrollableLines` hook: auto-scroll + user-scroll-lock for all panels.
+- Canonical color palette (`colors.ts`): `C.pink`, `C.purple`, `C.teal`, `C.error`, `C.border.*`.
+- ESM island (`src/tui/package.json` `"type":"module"`) for Ink v5 / yoga-layout compatibility inside CJS root.
+- Entry point `bin/mbo-tui.js` + `mbo tui` subcommand with self-run guard.
+- `tsconfig.tui.json`: `ES2022`, `bundler` moduleResolution, `react-jsx`, `DOM` lib.
+
+### Governance
+- Added explicit version-lane assignment rules: `0.11.x` core/hardening/runtime, `0.2.x` scripting/audit/automation, `0.3.x` TUI/operator UX, `0.4.x` multithreading/concurrency.
+- Grandfathered legacy bugs `BUG-001` through `BUG-184`; starting with `BUG-185`, new bugs use dual identifiers: `BUG-### / vX.Y.ZZ`.
+- Added required pre-push/session-wrap governance reconciliation across `projecttracking.md`, `BUGS.md`, `BUGS-resolved.md`, `CHANGELOG.md`, and session handoff artifacts.
+
+## [0.2.02] — 2026-03-20 — Workflow Audit / Auto-Run Script (v.2)
+### Added
+- `scripts/mbo-workflow-audit.js` — automated end-to-end workflow audit runner; executes a task against the alpha runtime with configurable `--task`, `--world`, `--alpha-root`, `--alpha-timeout-sec`, `--push-alpha`, and `--human-input` flags.
+- `scripts/generate-run-artifacts.js` — generates and archives signed run artifacts (SHA-256, timestamps, git state) for each audit execution into `.dev/analysis/`.
+- Alpha execution option (`--push-alpha`) for running audits against `MBO_Alpha` target with full artifact retention.
+- `fix(audit)`: `auto-seed alpha onboarding` before e2e run to prevent onboarding-hang blocking automated runs.
+
+## [0.2.01] — 2026-03-19 — Tokenmiser Routing Savings
 ### Added
 - `getCostRollup()` in `src/state/db-manager.js` — per-model token_log rollup with counterfactual cost and routingSavings calculation.
 - Routing savings block in `operator.js` `getStatus()` — shows per-model cost, actual total, counterfactual, and savings inline.

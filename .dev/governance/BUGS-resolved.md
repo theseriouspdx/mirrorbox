@@ -1,31 +1,53 @@
 # BUGS-resolved.md — Mirror Box Orchestrator
 # Archive of resolved, completed, superseded, and fixed bugs.
 # Reference only. Do not edit or re-open here — log new bugs in BUGS.md.
+# Bug ID rule: `BUG-001`–`BUG-184` are legacy-format archive entries and remain unchanged. Starting with `BUG-185`, archived bug headings preserve dual identification: `BUG-### / vX.Y.ZZ`.
+# Version lane rule: `0.11.x` core/hardening/onboarding/runtime, `0.2.x` scripting/audit/automation, `0.3.x` TUI/operator UX, `0.4.x` multithreading/concurrency.
 
 ---
+
+### BUG-179: Version drift — `package.json` stale at `0.11.24` while CHANGELOG had advanced to `0.2.01` | Milestone: 1.1 | COMPLETED
+- **Location:** `package.json`, `src/tui/components/StatusBar.tsx` (reads `pkg.version` at startup)
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-20 (claude, TUI session)
+- **Task:** v0.3.02
+- **Description:** `package.json` version was never updated when CHANGELOG was bumped through the v2 auto-run script series. StatusBar displayed `v0.11.24` regardless of actual project state. Per Section 17F, `package.json` must always match the most recent CHANGELOG head.
+- **Fix:** Updated `package.json` `"version"` to `0.3.01` (current CHANGELOG head). Established versioning governance (AGENTS.md Section 17) to prevent recurrence.
+
+### BUG-178: Unknown `mbo` subcommand falls through to operator loop instead of erroring | Milestone: 1.1 | COMPLETED
+- **Location:** `bin/mbo.js` — final `else` branch (operator spawn)
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-20 (claude, TUI session)
+- **Task:** v0.3.01
+- **Description:** Any unrecognised argument to `mbo` (e.g. `mbo tur` as a typo of `mbo tui`) fell through the subcommand dispatch chain and silently launched the full MBO operator loop. The user had no indication the command was invalid.
+- **Fix:** Added `KNOWN_COMMANDS` guard at the top of the `else` block in `bin/mbo.js`. Unrecognised subcommands now exit immediately with `[MBO] Unknown command: "X"` and the list of valid commands.
 
 ### BUG-174: `_computeScanInputSignal` sync fs scan blocks event loop | Milestone: 1.1 | COMPLETED
 - **Location:** `src/graph/mcp-server.js`
 - **Severity:** P2
 - **Status:** COMPLETED — 2026-03-20 (claude/mcp-server-hardening)
+- **Task:** v0.11.174
 - **Fix:** Converted `_computeScanInputSignal` and `_summarizeAndPersistScan` to `async` using `fs.promises.stat`/`readdir`. Updated all 5 call sites with `await`.
 
 ### BUG-173: `keepAliveTimeout` (30s) exceeds launchd `exit timeout` (5s) | Milestone: 1.1 | COMPLETED
 - **Location:** `src/graph/mcp-server.js` — `shutdown()`
 - **Severity:** P1
 - **Status:** COMPLETED — 2026-03-20 (claude/mcp-server-hardening)
+- **Task:** v0.11.173
 - **Fix:** Added `httpServer.closeAllConnections()` before `httpServer.close()` in shutdown path. Root cause of BUG-165 dangling symlink persistence.
 
 ### BUG-172: `enqueueWrite` permanently poisons write queue after error | Milestone: 1.1 | COMPLETED
 - **Location:** `src/graph/mcp-server.js` — `enqueueWrite()`
 - **Severity:** P1
 - **Status:** COMPLETED — 2026-03-20 (claude/mcp-server-hardening)
+- **Task:** v0.11.172
 - **Fix:** Detached queue tail from rejection: `const next = _writeQueue.then(fn); _writeQueue = next.catch(log); return next`.
 
 ### BUG-171: `execSync` no timeout freezes event loop on hung git | Milestone: 1.1 | COMPLETED
 - **Location:** `src/graph/mcp-server.js` — `graph_rescan_changed`
 - **Severity:** P0
 - **Status:** COMPLETED — 2026-03-20 (claude/mcp-server-hardening)
+- **Task:** v0.11.171
 - **Fix:** Added `timeout: 5000` to `execSync('git diff --name-only HEAD')`. Confirmed root cause of 1-hour production freeze.
 
 ---
@@ -34,6 +56,7 @@
 - **Location:** `bin/mbo.js`, `src/index.js`, onboarding/setup handoff
 - **Severity:** P1
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.170
 - **Description:** On first launch from a package install, when required runtime configuration is not fully established, the user can still be dropped into the interactive `MBO ... >` operator prompt path instead of being forced through `mbo setup` first.
 - **Fix:** Added missing-config force-setup guard in `src/index.js` (Step 4) that calls `runSetup()` automatically for interactive TTY sessions.
 
@@ -41,6 +64,7 @@
 - **Location:** `src/auth/did-orchestrator.js` — Stage 5 tiebreaker exit path and `_package()`
 - **Severity:** P1
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.169
 - **Description:** When the tiebreaker model response lacks a parseable `VERDICT:` section and `FINAL DIFF:` section, `tbVerdict` collapses to `''` and `finalDiff` is `null`. The code fell through to `_package(..., 'convergent')` with a null diff, falsely signalling plan convergence.
 - **Fix:** Added explicit null-verdict guards in Stage 5 exit path and `_package()` to promote null-diff convergence to `needs_human` escalation.
 
@@ -48,6 +72,7 @@
 - **Location:** `src/relay/relay-listener.js`, runtime bootstrap in `src/index.js`
 - **Severity:** P1
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.166
 - **Description:** In globally-installed execution, `relay-listener` binds `relay.sock` under package root via `__dirname`-relative path resolution, causing permission errors in non-root execution.
 - **Fix:** Relay socket and `PILE_LOCK` path now resolve under project-local `.dev/run/` or runtime project root.
 
@@ -55,6 +80,7 @@
 - **Location:** `bin/mbo.js` (respawn supervisor behavior), `src/index.js` non-TTY onboarding guard
 - **Severity:** P2
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.167
 - **Description:** Non-TTY onboarding-required exits triggered infinite respawn loops.
 - **Fix:** Added deterministic startup exit codes and `shouldRespawn()` gate in `bin/mbo.js` to fail once for startup guard exits.
 
@@ -62,6 +88,7 @@
 - **Location:** `bin/mbo.js`, `src/cli/setup.js`, `src/index.js`
 - **Severity:** P2
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.168
 - **Description:** Fresh package-installed runs can enter mixed startup states when local runtime config is absent while global config exists.
 - **Fix:** `initProject()` now seeds `.mbo/config.json` when absent and startup emits deterministic remediation paths.
 
@@ -69,6 +96,7 @@
 - **Location:** `src/graph/mcp-server.js`, `.dev/governance/AGENTS.md`, root `.gitignore`
 - **Severity:** P2
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.165
 - **Description:** (1) Broken symlink `mcp.json` prevented startup. (2) `AGENTS.md` documented wrong recovery command. (3) Stale `.mbo/AGENTS.md` stub misled agents.
 - **Fix:** (1) Added dangling-symlink detection in `mcp-server.js`. (2) Corrected `AGENTS.md` restart command to `mbo mcp`. (3) Removed orphaned `.mbo/AGENTS.md` stub and its `.gitignore` negation entry.
 
@@ -76,6 +104,7 @@
 - **Location:** `src/auth/operator.js`, gate exit behavior
 - **Severity:** P1
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.157
 - **Description:** After the gate fired, the operator returned only scaffolding output with no answer for analysis/Tier 0 routes.
 - **Fix:** Added fallback answer in `processMessage` analysis bypass to ensure the operator always provides a human-readable response.
 
@@ -83,6 +112,7 @@
 - **Location:** `src/auth/operator.js` (context_pinning loop exit condition)
 - **Severity:** P2
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.161
 - **Description:** Low-complexity no-file tasks were hitting Tier 1 context pinning unnecessarily on skeleton graphs.
 - **Fix:** Allowed Tier 0 bypass for no-file tasks even on skeleton graphs.
 
@@ -90,6 +120,7 @@
 - **Location:** `src/auth/operator.js` or `src/cli/` (FILES prompt validation)
 - **Severity:** P2
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.162
 - **Description:** FILES prompt accepted empty input for mutation-based routes.
 - **Fix:** Added non-empty validation for `FILES` in `classifyRequest` for `standard` and `complex` routes.
 
@@ -97,6 +128,7 @@
 - **Location:** `bin/mbo.js`, `src/cli/startup-checks.js`, setup/runtime handoff
 - **Severity:** P1
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.164
 - **Description:** Running setup from `/Users/johnserious/MBO` (controller repo) while targeting `/Users/johnserious/MBO_Alpha` triggers root-mismatch re-onboarding output, then drops directly into `MBO 0.11.24 >` interactive prompt without an explicit blocking error.
 - **Fix:** Architect decision (2026-03-19): preserve current self-run guard behavior as documented in BUG-154. No hard-stop required.
 
@@ -104,6 +136,7 @@
 - **Location:** `src/auth/operator.js`
 - **Severity:** P1
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.163
 - **Description:** Runtime re-entered refinement/derivation with empty scope and drifted world.
 - **Fix:** Implemented immutable `worldId` and `files` locks across `runStage3`, `runStage4`, and `didOrchestrator`. Added hard-fail check in `handleApproval` if file scope is lost during derivation.
 
@@ -111,6 +144,7 @@
 - **Location:** `src/index.js`
 - **Severity:** P2
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.160
 - **Description:** ALIVE ticker overwrote status line without clearing, causing character bleed from previous updates.
 - **Fix:** Refactored `aliveTimer` to use `readline.clearLine` and `readline.cursorTo` before each write.
 
@@ -118,6 +152,7 @@
 - **Location:** `src/auth/operator.js`
 - **Severity:** P1
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.159
 - **Description:** JSON parser failed on plain-English ledger responses.
 - **Fix:** Replaced `_safeParseJSON` with a robust `_extractSection` based parser for the Assumption Ledger.
 
@@ -125,6 +160,7 @@
 - **Location:** `src/auth/operator.js`
 - **Severity:** P1
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.158
 - **Description:** World mutated from `subject` to `mirror` mid-loop.
 - **Fix:** Implemented sticky world lock via `lockedWorld` snapshot and threading through derivation stages.
 
@@ -132,6 +168,7 @@
 - **Location:** `src/auth/operator.js`
 - **Severity:** P1
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.156
 - **Description:** Retrieval queries hit the entropy gate and returned no answer.
 - **Fix:** Expanded Tier 0 to include no-file `analysis` routes. Implemented read-only bypass in `processMessage` using the `operator` persona.
 
@@ -139,6 +176,7 @@
 - **Location:** `src/state/db-manager.js`
 - **Severity:** P1
 - **Status:** COMPLETED — 2026-03-19
+- **Task:** v0.11.155
 - **Description:** Costing projected via per-call average, biasing towards large tasks.
 - **Fix:** Refactored `getCostRollup` to use unit rates (USD/1k tokens) for counterfactual projections.
 
@@ -764,30 +802,6 @@
 - **Task:** v0.11.154
 - **Description:** Warning `MBO SHOULD NOT BE RUN FROM THE MBO DIRECTORY` fires incorrectly in Alpha runtime.
 - **Fix:** Hardened the self-run guard to only fire if the running package root is literally named `MBO` (case-insensitive basename check on `PACKAGE_ROOT`), isolating the warning to the source repository. End-user installs are never in a directory named `MBO`.
-
-### BUG-168: Missing runtime config bootstrap (`.mbo/config.json`) causes startup ambiguity in fresh installs | Milestone: 1.1 | COMPLETED
-- **Location:** `src/cli/init-project.js`, `src/index.js`
-- **Severity:** P2
-- **Status:** COMPLETED — 2026-03-19
-- **Task:** v0.11.168
-- **Description:** Fresh package installs could launch with global config present but missing local runtime config, producing ambiguous startup behavior.
-- **Fix:** `initProject()` now seeds `.mbo/config.json` when absent and startup emits deterministic remediation paths for missing local runtime config.
-
-### BUG-167: Non-TTY onboarding failure entered wrapper respawn loop instead of fail-closed exit | Milestone: 1.1 | COMPLETED
-- **Location:** `bin/mbo.js`, `src/index.js`
-- **Severity:** P2
-- **Status:** COMPLETED — 2026-03-19
-- **Task:** v0.11.167
-- **Description:** Non-interactive onboarding-required exits were deterministic guard failures, but wrapper supervisor respawned indefinitely.
-- **Fix:** Added deterministic startup exit codes and `shouldRespawn()` gate in wrapper to fail once for startup guard exits (no respawn loop).
-
-### BUG-166: Global install runtime resolved relay socket under package root causing `EACCES` crash loop | Milestone: 1.1 | COMPLETED
-- **Location:** `src/relay/relay-listener.js`, `src/index.js`
-- **Severity:** P1
-- **Status:** COMPLETED — 2026-03-19
-- **Task:** v0.11.166
-- **Description:** Relay socket path was package-root relative under global installs and often unwritable, causing startup failure and crash loops.
-- **Fix:** Relay socket/incident paths now resolve under runtime project root and ensure the relay directory exists before listen.
 
 ### BUG-150: Tool context token consumption is invisible to MBO cost tracking — affects all agents | Milestone: 1.1 | RESOLVED
 - **Location:** `src/state/stats-manager.js`, `src/auth/operator.js`, `src/state/db-manager.js`, `src/cli/tokenmiser-dashboard.js`

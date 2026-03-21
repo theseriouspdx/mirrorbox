@@ -2692,3 +2692,91 @@ This matrix ensures every task listed in `.dev/governance/projecttracking.md` ma
 ### Notes
 - Where a task is explicitly governance-only, source-of-truth may be split between SPEC and AGENTS/governance documents.
 - Superseded tasks remain listed for audit continuity and are intentionally mapped to historical/supersession sections.
+
+## Section 37 — Version Transition Consolidation and Approved Build Contracts (2026-03-20)
+
+This section promotes the approved v0.11.x retro + v0.2/v0.3 candidate into the canonical spec.
+
+### 37.1 Scope and Source of Consolidation
+
+Consolidated from:
+- `.dev/governance/projecttracking.md`
+- `.dev/governance/CHANGELOG.md`
+- `.dev/governance/BUGS.md`
+- `.dev/governance/BUGS-resolved.md`
+- `.dev/governance/SESSION-HANDOFF-2026-03-20.md`
+
+Where governance files conflict, reconciliation must be explicit (no silent precedence).
+
+### 37.2 Confirmed Implemented Baseline
+
+#### 37.2A Versioning/Governance Transition
+- AGENTS version protocol is active (`0.VM.BUILD`, compound tags, backport handling, confirmation-before-write).
+- `package.json` baseline is `0.3.01` aligned with CHANGELOG head.
+- Unknown `mbo` subcommand fallthrough bug is fixed.
+- Changelog coverage includes v0.2.01, v0.2.02, and v0.3.01 series entries.
+
+#### 37.2B v0.11.x Completed Before Renumbered Tracks
+The Milestone 1.1 hardening cluster completed before v0.2/v0.3 focus includes:
+- v0.11.152, v0.11.153, v0.11.154
+- v0.11.155, v0.11.156
+- v0.11.158, v0.11.159, v0.11.160
+- v0.11.163, v0.11.164
+- v0.11.165, v0.11.166, v0.11.167, v0.11.168, v0.11.169
+- v0.11.171, v0.11.172, v0.11.173, v0.11.174
+
+### 37.3 Active Build Backlog Contracts
+
+#### 37.3A v0.2.03 — Two-Way Workflow Audit (Approved Direction)
+- Existing behavior (`--world mirror|subject`) remains backward compatible.
+- Two-way behavior adds `--world both`.
+- Single invocation executes both worlds in deterministic sequence: mirror then subject.
+- Per-world checks remain intact and are annotated with world identity.
+- Unified verdict is PASS only when both world verdicts PASS.
+- Combined artifacts must contain:
+  - per-world logs
+  - unified summary (metadata + per-world outcomes + unified verdict + world-tagged findings)
+- `--push-alpha` behavior in two-way mode:
+  - subject path may use alpha execution
+  - mirror path remains local mirror checks
+  - report labels alpha-executed portions explicitly.
+
+Acceptance:
+- One run directory captures both worlds and unified verdict.
+- Single-world mode behavior is unchanged.
+
+#### 37.3B v0.3.07 — Task Activation Preflight Dialogue (Approved Direction)
+Tasks overlay is a navigator. On task selection (`Enter`), the system MUST aggregate context from:
+- selected row in `projecttracking.md`
+- linked entry in `BUGS.md`
+- linked entry in `BUGS-resolved.md` (if applicable)
+- relevant section in `SPEC.md`
+
+Confirmation dialogue contract:
+- Briefing includes goal, assumptions, acceptance, and proposed files.
+- Operator can add context/files and correct assumptions.
+- Explicit confirmation is required before task context activation.
+
+Acceptance:
+- Scrollable task list with cursor.
+- Enter aggregates sources and presents briefing.
+- Task activation is blocked until explicit confirmation.
+
+#### 37.3C v0.3.15 — Setup-Time Model Chooser (Approved Direction)
+Model chooser requirements:
+- Available during `mbo setup` and `/setup`.
+- Per pipeline stage, present:
+  - recommended model
+  - chosen model override
+- Model list is loaded from OpenRouter catalog.
+- Recommendation/selection logic requires operator design review before implementation build-out.
+
+Acceptance:
+- Setup flows expose per-stage model selection with recommendations from live/loaded catalog data.
+
+### 37.4 Governance Reconciliation Requirement
+
+Before or during implementation of Section 37 contracts:
+- Resolve task/bug status drift between `projecttracking.md`, `BUGS.md`, and `BUGS-resolved.md`.
+- Keep "Next Task" marker synchronized with approved execution priority.
+- Treat unresolved status mismatches as governance defects requiring explicit correction.
