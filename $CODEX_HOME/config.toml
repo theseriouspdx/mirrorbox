@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mbo-graph": {
+      "type": "http",
+      "url": "http://127.0.0.1:49660/mcp",
+      "timeout": 30000
+    }
+  }
+}

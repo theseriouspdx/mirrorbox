@@ -289,7 +289,8 @@ MBO uses `0.VM.BUILD` where:
 ### 17A.1. Version Lane Assignment Rule
 Version series are assigned by subsystem, not by whichever series is currently most visible in the repo:
 
-- `0.11.x` — core runtime, backend, governance hardening, onboarding, MCP/runtime reliability, root/path/bootstrap, validation, and other milestone-1.1 hardening work.
+- `0.11.x` — milestone-1.1 hardening, cleanup, backports, bug fixes, runtime reliability corrections, onboarding/root/bootstrap fixes, and other stabilization work against functionality already introduced in earlier modules.
+- `0.12.x` — new V1 module work for graph/runtime intelligence refinement, including graph-server capability expansion, context-assembly upgrades, metadata/knowledge-pack behavior, and other net-new backend functionality that extends rather than merely hardens prior lanes.
 - `0.2.x` — scripting, workflow audit, automation, artifact generation, and auto-run tooling.
 - `0.3.x` — TUI, operator-facing terminal UX, panel behavior, overlays, visual state, and other Ink/UI work.
 - `0.4.x` — multithreading, concurrency orchestration, parallel execution coordination, and future thread-management work.

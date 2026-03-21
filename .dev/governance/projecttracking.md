@@ -3,7 +3,7 @@
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
 **Current Version:** 0.3.20+v0.11.181.v0.2.3 (TUI v.3)
-**Next Task:** v0.41.02
+**Next Task:** v0.12.01
 **Policy:** This file is the single source of truth for work state.
 
 ---
@@ -11,7 +11,8 @@
 ## Active Tasks
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
-| v0.41.02 | feat | V4 Module 1 implementation: Governor, worker pool, operator broker, and pressure-aware queue scaffolding | READY | unassigned | - | 2026-03-21 | SPEC.md Section 38 | HardwareProfile, Governor sensing/state gating, warm worker pool, operator sole-source logging, dependency-aware queue, TUI pressure/worker visibility, and safe sequential fallback land under the Section 38 contract |
+| v0.12.01 | feat | GRAPH SERVER REFINEMENT: metadata sniffing, dependency knowledge pack assembly, and pinned-context handoff | READY | unassigned | - | 2026-03-21 | src/auth/operator.js, src/graph/mcp-server.js, src/graph/graph-store.js | The graph path must gain a lightweight metadata sniff pass for classification/complexity triage, a task-scoped dependency knowledge-pack assembly path for downstream planning/code stages, and real handoff of refined graph context into planner/executor model calls rather than fetch-without-forwarding behavior |
+| v0.41.02 | feat | V4 Module 1 implementation: Governor, worker pool, operator broker, and pressure-aware queue scaffolding | BLOCKED | unassigned | - | 2026-03-21 | SPEC.md Section 38, blocked by v0.12.01 | HardwareProfile, Governor sensing/state gating, warm worker pool, operator sole-source logging, dependency-aware queue, TUI pressure/worker visibility, and safe sequential fallback land under the Section 38 contract |
 | v0.2.04 | audit | Full end-to-end audit against SPEC with completed audit checklist artifact | READY | codex | - | 2026-03-21 | docs/e2e-audit-checklist.md, SPEC.md | Run a full spec-to-implementation audit; complete `docs/e2e-audit-checklist.md` with evidence, verdict, score, and sign-off-ready details; record any gaps as governance follow-ups |
 | v0.2.05 | bug | Tokenmiser semantics clarification gate + counterfactual/token accounting correction | READY | unassigned | - | 2026-03-21 | BUG-187 | Before implementation begins, the agent must interview the user to define intended Tokenmiser behavior, compare expected vs actual behavior, and document the mismatch. Then the system must correct Tokenmiser semantics and accounting so token counts, counterfactuals, savings, and labels are internally consistent and explainable from a single source of truth. |
 | v0.11.182 | chore | Repository cleanup after audit: remove smoke artifacts, reconcile governance state, and leave branch commit-ready | READY | codex | - | 2026-03-21 | SESSION-HANDOFF-2026-03-20-BATCH | Remove temporary smoke artifacts, ensure tracked audit artifacts are committed intentionally, and leave the worktree clean enough for staging/commit without stray audit debris |

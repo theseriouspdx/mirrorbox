@@ -2245,16 +2245,11 @@ Every `callModel` MUST emit `TOKEN_USAGE` with:
 - On failure, use static fallback table or last cached pricing object from `.mbo/pricing_cache.json`.
 - Local models MUST record `costUsd = 0`.
 
-### 30.3 UI Dashboard (Panel Token Display)
-- The main application header bar MUST NOT display token counts.
-- Each Agent Panel MUST feature a top status bar showing tokens scoped to that panel's role category:
-  - **Operator Panel:** `operator` role calls only
-  - **Pipeline Panel:** `classifier`, `planner`, `reviewer`, `tiebreaker` role calls
-  - **Executor Panel:** `executor` role calls
+### 30.3 UI Dashboard (Agent Header)
+- Each Agent Panel MUST feature a top status bar:
   - **Green Text:** TM [Actual Tokens] / $[Actual Cost]
   - **Red Text:** [Estimated Raw Tokens] / $[Estimated Raw Cost]
-- Every token number MUST be labeled with its scope (e.g. `operator: 4.5k tok` not bare `4.5k`).
-- The right StatsPanel MUST show a labeled session total summing all role categories.
+- The Operator Panel MUST show a bundled TOTAL summing these metrics across all active agents.
 
 ### 30.4 The SHIFT-T Stats Overlay
 - Global keydown listener for `SHIFT+T` toggles a persistent terminal-style overlay.
@@ -2408,15 +2403,6 @@ This section defines requirements corresponding to tracking task `1.1-H28`.
 3. Post-abort status is queryable and deterministic.
 4. Existing gate and rollback invariants remain unchanged.
 
-### 34.9 Startup Task Surface
-- On launch, if `projecttracking.md` exists, the operator panel MUST immediately display the next few active tasks and invite the operator to select one — without waiting to be asked.
-- If `projecttracking.md` is missing, the operator MUST say so plainly and offer to create it or analyze source documents.
-
-### 34.10 Tool-Call Transparency
-- When the operator performs a graph or file retrieval, it MUST display the tool call in the operator panel before showing the result (e.g. `→ graph_search: active tasks`).
-- The operator MUST NOT respond as if it will perform an action it cannot execute in the current code path.
-- Every substantive operator response MUST be grounded in a real retrieval or known hard state — not inferred intent.
-
 ---
 
 ## Section 35 — Context Minimization & Tiered Routing Contract (Milestone 1.1)
@@ -2438,8 +2424,6 @@ This section defines requirements corresponding to tracking task `1.1-H29`.
   - blast radius estimate from graph impact query
   - governance sensitivity (spec/governance/security surfaces)
 - Routing outcome MUST map to defined execution tiers (Section 8) and be event-logged.
-- Slash commands (`/tasks`, `/onboarding`, `/projecttracking`, `/setup`, `/docs`) MUST bypass the classifier entirely. Zero model calls for known command routing.
-- Simple governance queries (task lookup, onboarding status, file check) MUST route through `graph_search` rather than the full classifier pipeline. Target token budget: ≤300 tokens round-trip.
 
 ### 35.5 Model-Specific Token Budgeting
 - Each role/model pair MUST have configurable token budgets.
