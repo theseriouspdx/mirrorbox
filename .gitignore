@@ -48,3 +48,7 @@ scripts/scratch/
 !.mbo/CHANGELOG.md
 
 !.mbo/AGENTS.md
+
+# Stale local worktree snapshots (must never be tracked)
+.dev/worktree/
+.dev/worktree_archive/
