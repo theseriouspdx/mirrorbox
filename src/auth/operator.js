@@ -1453,9 +1453,32 @@ The output will be used as the new system context.`;
     this.stateSummary.worldId = lockedWorld;
 
     if (classification.route === 'analysis' && classification.risk === 'low' && lockedFiles.length === 0) {
-      const answer = await this._callModel('operator', `User is asking for information. Answer based on current state: ${userMessage}`, { classification }, this.getHardState(), [], null, { stage: 'idle', roleLabel: 'operator' });
+      // BUG-189: pass sessionHistory so operator model remembers prior turns
+      const historyContext = this.sessionHistory.length > 0
+        ? '\n\nConversation so far:\n' + this.sessionHistory.map(m => `${m.role}: ${m.content}`).join('\n')
+        : '';
+
+      // BUG-189: governance/projecttracking queries route through graph_search, not just classifier context
+      let graphContext = '';
+      const governanceKeywords = /projecttracking|next task|active task|bug|bugs\.md|onboarding|governance|changelog/i;
+      if (governanceKeywords.test(userMessage)) {
+        try {
+          this._emitTuiChunk('operator', `→ graph_search: ${userMessage.slice(0, 60)}`);
+          const searchResult = await this.callMCPTool('graph_search', { pattern: userMessage.slice(0, 80) });
+          if (searchResult && searchResult.results && searchResult.results.length > 0) {
+            graphContext = '\n\nRelevant graph context:\n' + JSON.stringify(searchResult.results.slice(0, 5), null, 2);
+          }
+        } catch {
+          // graph_search unavailable — continue without it
+        }
+      }
+
+      const prompt = `User is asking for information. Answer based on current state: ${userMessage}${historyContext}${graphContext}`;
+      const answer = await this._callModel('operator', prompt, { classification, sessionHistory: this.sessionHistory }, this.getHardState(), [], null, { stage: 'idle', roleLabel: 'operator' });
       // BUG-157: Fallback for empty or purely conversational model answers
       const finalPrompt = (answer && answer.trim()) ? answer : "I have reviewed the current project state but do not have a specific answer. Could you clarify your request?";
+      // BUG-189: persist turn so next idle call retains context
+      this.sessionHistory.push({ role: 'assistant', content: finalPrompt });
       return { status: 'ready', prompt: finalPrompt };
     }
 

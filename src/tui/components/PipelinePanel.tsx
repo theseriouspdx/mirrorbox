@@ -84,7 +84,7 @@ export function PipelinePanel({ entries, isActive, currentStage, stats, stageTok
       <Box justifyContent="space-between">
         <Text bold color={borderColor}>{isActive ? '▶ ' : '  '}PIPELINE</Text>
         <Box gap={2}>
-          <Text color={C.teal}>TM {formatTokens(pipelineRoleTokens)} tok</Text>
+          <Text color={C.teal}>pipeline: {formatTokens(pipelineRoleTokens)} tok</Text>
           {total > available ? (
             <Text color={borderColor} dimColor>
               {canScrollUp ? '↑ ' : '  '}

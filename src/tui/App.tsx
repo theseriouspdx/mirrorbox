@@ -11,6 +11,7 @@ import { StatsPanel } from './components/StatsPanel.js';
 import { StatsOverlay } from './components/StatsOverlay.js';
 import { TasksOverlay, type TaskActivationPayload } from './components/TasksOverlay.js';
 import { InputBar } from './components/InputBar.js';
+import { parseTaskLedger } from './governance.js';
 
 import {
   type MboStage,
@@ -95,9 +96,40 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
   useEffect(() => {
     const onResize = () => setResizeTick((n) => n + 1);
     process.stdout.on('resize', onResize);
+    return () => { process.stdout.off('resize', onResize); };
+  }, []);
+
+  // Enable SGR mouse tracking so scroll wheel events reach MouseFilterStream (BUG-185/186)
+  useEffect(() => {
+    process.stdout.write('\x1b[?1002h\x1b[?1006h');
+    const disable = () => process.stdout.write('\x1b[?1002l\x1b[?1006l');
+    process.on('exit', disable);
+    process.on('SIGINT', disable);
     return () => {
-      process.stdout.off('resize', onResize);
+      disable();
+      process.off('exit', disable);
+      process.off('SIGINT', disable);
     };
+  }, []);
+
+  // Startup task surface — on mount, show top active tasks from projecttracking.md (BUG-189)
+  useEffect(() => {
+    try {
+      const ledger = parseTaskLedger(projectRoot);
+      if (ledger.active.length > 0) {
+        const top = ledger.active.slice(0, 3);
+        const lines = ['─── Active Tasks ───────────────────────────────'];
+        for (const t of top) {
+          lines.push(`  [${t.status}] ${t.id}  ${t.title.slice(0, 60)}${t.title.length > 60 ? '…' : ''}`);
+        }
+        if (ledger.active.length > 3) lines.push(`  … and ${ledger.active.length - 3} more — type /tasks to view all`);
+        lines.push('────────────────────────────────────────────────');
+        lines.forEach(appendOperator);
+      }
+    } catch {
+      // governance not available — silent, not a fatal error
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -301,6 +333,35 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       exit();
       return;
     }
+    if (lower === '/onboarding' || lower === 'onboarding') {
+      // Follow-up interview against existing profile — not a cold-start re-interview (BUG-189)
+      appendOperator('Starting follow-up onboarding interview against existing profile…');
+      setPipelineRunning(true);
+      try {
+        const result = await operator.runOnboarding({ reOnboard: true });
+        appendOperator(formatResult(result));
+      } catch (err: any) {
+        appendOperator('[ONBOARDING ERROR] ' + (err?.message || String(err)));
+      } finally {
+        setPipelineRunning(false);
+      }
+      return;
+    }
+    if (lower === '/projecttracking' || lower === '/tasks next' || lower === 'next task') {
+      try {
+        const ledger = parseTaskLedger(projectRoot);
+        const next = ledger.active[0];
+        if (next) {
+          appendOperator(`Next task: [${next.status}] ${next.id} — ${next.title}`);
+          if (next.acceptance) appendOperator(`Acceptance: ${next.acceptance.slice(0, 120)}${next.acceptance.length > 120 ? '…' : ''}`);
+        } else {
+          appendOperator('No active tasks found in projecttracking.md.');
+        }
+      } catch (err: any) {
+        appendOperator('[PROJECTTRACKING ERROR] ' + (err?.message || String(err)));
+      }
+      return;
+    }
 
     if (operator.stateSummary?.pendingAudit) {
       if (lower === 'approved') {
@@ -396,14 +457,12 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
     <Box flexDirection="column" height={termRows}>
       <StatusBar
         stage={stage}
-        activeModel={String(currentStageUsage.model || activeModel || '')}
         activeAction={activeAction}
         currentTask={currentTask}
         activeTab={activeTab}
         stageStartTime={stageStartTime}
         version={pkg.version}
         pipelineRunning={pipelineRunning}
-        stageTokens={Number(currentStageUsage.tokens || 0)}
       />
 
       <TabBar activeTab={activeTab} stage={stage} auditPending={auditPending} />
@@ -439,7 +498,6 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
               stats={stats}
               activeAction={activeAction}
               activeModel={String(currentStageUsage.model || activeModel || '')}
-              stageTokens={Number(currentStageUsage.tokens || 0)}
             />
           )}
           {activeTab === 4 && <SystemPanel projectRoot={projectRoot} isActive={activeTab === 4} />}

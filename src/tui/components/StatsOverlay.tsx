@@ -55,22 +55,32 @@ export function StatsOverlay({ stats, onClose }: Props) {
       <Text color={C.teal} dimColor>{SEP}</Text>
 
       <Text bold color={C.white}>SESSION</Text>
-      {ROW('Tokens (optimised)',       fmtTokens(s.optimized),                            'green')}
-      {ROW('Tokens (counterfactual)',  fmtTokens(s.notOptimized),                         C.error)}
-      {ROW('Cost (optimised)',         fmtCost(s.costEst, 4),                             'green')}
-      {ROW('Cost (counterfactual)',    fmtCost(s.rawCostEst, 4),                          C.error)}
-      {ROW('Savings',                  `${fmtCost(sSavings, 4)} (${pct(s.costEst, s.rawCostEst)} off)`, 'green')}
-      {ROW('Cache hits / misses',      `${stats.session.cache.hits} / ${stats.session.cache.misses}`, C.teal)}
-      {ROW('Tool context tokens',      fmtTokens(s.toolTokens),                           C.white)}
+      <Text color={C.gray} dimColor>  savings = most-expensive-model cost minus actual smart-routed cost</Text>
+      {ROW('tokens (smart-routed)',    fmtTokens(s.optimized),                            'green')}
+      {ROW('tokens (if single-model)', fmtTokens(s.notOptimized),                        C.error)}
+      {ROW('cost (smart-routed)',      fmtCost(s.costEst, 4),                             'green')}
+      {ROW('cost (if single-model)',   fmtCost(s.rawCostEst, 4),                          C.error)}
+      {ROW('savings vs single-model',  `${fmtCost(sSavings, 4)} (${pct(s.costEst, s.rawCostEst)} off)`, 'green')}
+      {ROW('cache hits / misses',      `${stats.session.cache.hits} / ${stats.session.cache.misses}`, C.teal)}
+      {ROW('tool context tokens',      fmtTokens(s.toolTokens),                           C.white)}
       <Text color={C.teal} dimColor>{SEP}</Text>
 
       <Text bold color={C.white}>LIFETIME ({stats.sessions} sessions)</Text>
-      {ROW('Tokens (optimised)',       fmtTokens(l.optimized),                            'green')}
-      {ROW('Tokens (counterfactual)',  fmtTokens(l.notOptimized),                         C.error)}
-      {ROW('Cost (optimised)',         fmtCost(l.costEst, 4),                             'green')}
-      {ROW('Total savings',            `${fmtCost(lSavings, 4)} (${pct(l.costEst, l.rawCostEst)} off)`, 'green')}
-      {ROW('Largest session delta',    fmtCost(stats.largestSessionDelta, 4),             C.pink)}
+      {ROW('tokens (smart-routed)',    fmtTokens(l.optimized),                            'green')}
+      {ROW('tokens (if single-model)', fmtTokens(l.notOptimized),                        C.error)}
+      {ROW('cost (smart-routed)',      fmtCost(l.costEst, 4),                             'green')}
+      {ROW('savings vs single-model',  `${fmtCost(lSavings, 4)} (${pct(l.costEst, l.rawCostEst)} off)`, 'green')}
+      {ROW('largest session delta',    fmtCost(stats.largestSessionDelta, 4),             C.pink)}
       {ROW('CO₂ avoided (est.)',       `${co2.toFixed(4)}g`,                              'green')}
+      <Text color={C.teal} dimColor>{SEP}</Text>
+
+      <Text bold color={C.white}>BY ROLE — Session</Text>
+      <Text color={C.gray} dimColor>  matches what each panel shows (operator / pipeline / executor)</Text>
+      {Object.entries(stats.session.roles || {}).length === 0
+        ? ROW('(no data yet)', '', C.purple)
+        : Object.entries(stats.session.roles || {}).map(([role, data]) =>
+            ROW(role, `${fmtTokens(data.tokens)} tok · ${fmtCost(data.costEst, 4)}`, C.teal)
+          )}
       <Text color={C.teal} dimColor>{SEP}</Text>
 
       <Text bold color={C.white}>BY MODEL — Session</Text>

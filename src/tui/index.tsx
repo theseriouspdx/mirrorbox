@@ -5,6 +5,7 @@ import { createRequire } from 'module';
 import path from 'path';
 import fs from 'fs';
 import { App } from './App.js';
+import { MouseFilterStream } from './mouseFilter.js';
 
 const require = createRequire(import.meta.url);
 
@@ -80,12 +81,34 @@ async function main() {
     try { relay.stop(); } catch {}
     try { await operator.shutdown(); } catch {}
     process.stdout.write('\x1b[?25h');
-    process.stdout.write('\x1b[?1002l');
+    process.stdout.write('\x1b[?1002l\x1b[?1006l');
   };
 
   process.on('exit', cleanup);
   process.on('SIGINT', () => { cleanup().then(() => process.exit(0)); });
   process.on('SIGTERM', () => { cleanup().then(() => process.exit(0)); });
+
+  // Ensure the terminal is at least 80 columns wide so the header layout holds (BUG-188)
+  const MIN_COLS = 80;
+  const MIN_ROWS = 24;
+  if (process.stdout.isTTY) {
+    const cols = process.stdout.columns || 0;
+    const rows = process.stdout.rows || 0;
+    if (cols < MIN_COLS || rows < MIN_ROWS) {
+      process.stdout.write(`\x1b[8;${Math.max(rows, MIN_ROWS)};${Math.max(cols, MIN_COLS)}t`);
+      await new Promise((res) => setTimeout(res, 100));
+    }
+  }
+
+  // Pipe stdin through MouseFilterStream so Ink never sees raw SGR mouse sequences.
+  // This prevents host terminal crashes during macOS dictation (BUG-185) and stops
+  // mouse button events from clearing text selections (BUG-186).
+  const mouseFilter = new MouseFilterStream();
+  process.stdin.pipe(mouseFilter);
+  (mouseFilter as any).setRawMode = process.stdin.setRawMode?.bind(process.stdin);
+  (mouseFilter as any).ref = process.stdin.ref?.bind(process.stdin);
+  (mouseFilter as any).unref = process.stdin.unref?.bind(process.stdin);
+  (mouseFilter as any).isTTY = process.stdin.isTTY;
 
   const { waitUntilExit, unmount } = render(
     <App
@@ -98,7 +121,7 @@ async function main() {
         unmount();
       }}
     />,
-    { exitOnCtrlC: false }
+    { stdin: mouseFilter as any, exitOnCtrlC: false }
   );
 
   await waitUntilExit();
