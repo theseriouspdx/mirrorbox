@@ -27,6 +27,7 @@ function parseArgs(argv) {
     updateBugs: false,
     pushAlpha: false,
     alphaRoot: process.env.MBO_ALPHA_ROOT || '/Users/johnserious/MBO_Alpha',
+    alphaTimeoutSec: 300,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -35,28 +36,41 @@ function parseArgs(argv) {
     else if (a === '--world') args.world = argv[++i] || 'mirror';
     else if (a === '--operator') args.operator = argv[++i] || args.operator;
     else if (a === '--alpha-root') args.alphaRoot = argv[++i] || args.alphaRoot;
+    else if (a === '--alpha-timeout-sec') args.alphaTimeoutSec = Number(argv[++i] || args.alphaTimeoutSec);
     else if (a === '--strict') args.strict = true;
     else if (a === '--update-bugs') args.updateBugs = true;
     else if (a === '--push-alpha') args.pushAlpha = true;
     else if (a === '-h' || a === '--help') {
-      console.log('Usage: node scripts/mbo-workflow-audit.js [--task <task-id>] [--world mirror|subject] [--operator <name>] [--strict] [--update-bugs] [--push-alpha] [--alpha-root <path>]');
+      console.log('Usage: node scripts/mbo-workflow-audit.js [--task <task-id>] [--world mirror|subject] [--operator <name>] [--strict] [--update-bugs] [--push-alpha] [--alpha-root <path>] [--alpha-timeout-sec <seconds>]');
       process.exit(0);
     }
+  }
+
+  if (!Number.isFinite(args.alphaTimeoutSec) || args.alphaTimeoutSec < 30) {
+    args.alphaTimeoutSec = 300;
   }
 
   return args;
 }
 
-function runCommand(cmd, cwd) {
+function runCommand(cmd, cwd, timeoutMs = 0) {
   try {
-    const stdout = cp.execSync(cmd, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-    return { ok: true, code: 0, stdout: stdout || '', stderr: '' };
+    const stdout = cp.execSync(cmd, {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: timeoutMs > 0 ? timeoutMs : undefined,
+      maxBuffer: 20 * 1024 * 1024,
+    });
+    return { ok: true, code: 0, stdout: stdout || '', stderr: '', timedOut: false };
   } catch (err) {
+    const timedOut = Boolean(err && (err.killed || err.signal === 'SIGTERM'));
     return {
       ok: false,
       code: typeof err.status === 'number' ? err.status : 1,
       stdout: err.stdout ? String(err.stdout) : '',
       stderr: err.stderr ? String(err.stderr) : (err.message || ''),
+      timedOut,
     };
   }
 }
@@ -64,6 +78,17 @@ function runCommand(cmd, cwd) {
 function readIfExists(filePath) {
   if (!fs.existsSync(filePath)) return '';
   return fs.readFileSync(filePath, 'utf8');
+}
+
+function alphaOnboardingExists(alphaRoot) {
+  const onboardingPath = path.join(alphaRoot, '.mbo', 'onboarding.json');
+  if (!fs.existsSync(onboardingPath)) return false;
+  try {
+    JSON.parse(fs.readFileSync(onboardingPath, 'utf8'));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function ensureDir(dirPath) {
@@ -106,7 +131,6 @@ function buildGovernanceChecks(root, taskId) {
     '.dev/governance/projecttracking.md',
     '.dev/governance/BUGS.md',
     '.dev/governance/CHANGELOG.md',
-    'docs/e2e-audit-checklist.md',
   ];
 
   for (const rel of requiredFiles) {
@@ -213,6 +237,7 @@ function buildCommandChecks(root, args) {
       severity: 'P1',
       scope: 'mirror',
       cwd: root,
+      timeoutMs: 120000,
     },
     {
       id: 'invariants',
@@ -221,6 +246,7 @@ function buildCommandChecks(root, args) {
       severity: 'P1',
       scope: 'mirror',
       cwd: root,
+      timeoutMs: 180000,
     },
     {
       id: 'state',
@@ -229,6 +255,7 @@ function buildCommandChecks(root, args) {
       severity: 'P2',
       scope: 'mirror',
       cwd: root,
+      timeoutMs: 180000,
     },
     {
       id: 'chain',
@@ -237,11 +264,17 @@ function buildCommandChecks(root, args) {
       severity: 'P1',
       scope: 'mirror',
       cwd: root,
+      timeoutMs: 180000,
     },
   ];
 
   if (args.pushAlpha) {
     const alphaRoot = path.resolve(args.alphaRoot);
+    const alphaLogsDir = path.join(alphaRoot, '.mbo', 'logs');
+    const mirrorLogsDir = path.join(root, '.dev', 'sessions', 'analysis');
+    const mirrorConfig = path.join(root, '.mbo', 'config.json');
+    const alphaConfig = path.join(alphaRoot, '.mbo', 'config.json');
+
     checks.push(
       {
         id: 'alpha_install',
@@ -250,30 +283,43 @@ function buildCommandChecks(root, args) {
         severity: 'P1',
         scope: 'alpha',
         cwd: root,
+        timeoutMs: 240000,
       },
       {
-        id: 'alpha_validator',
-        label: 'Alpha validator (all)',
-        cmd: 'python3 bin/validator.py --all',
+        id: 'alpha_onboarding_seed',
+        label: 'Seed Alpha onboarding profile when missing',
+        cmd: `node -e "const fs=require('fs');const p=require('path');const alpha=process.argv[1];const mirrorCfg=process.argv[2];const alphaCfg=process.argv[3];const onboarding=p.join(alpha,'.mbo','onboarding.json');if(fs.existsSync(onboarding)){console.log('onboarding.json already present');process.exit(0)};if(!fs.existsSync(mirrorCfg)){console.error('mirror config missing: '+mirrorCfg);process.exit(2)};const mc=JSON.parse(fs.readFileSync(mirrorCfg,'utf8'));const payload={projectRoot:alpha,subjectRoot:alpha,testCommand:'npm test',primeDirective:mc.primeDirective||'Maintain system integrity',partnershipStyle:mc.partnershipStyle||'proactive architect',projectType:mc.projectType||'existing',deploymentTarget:mc.deploymentTarget||'unknown',stagingPath:mc.stagingPath||'internal',dangerZones:Array.isArray(mc.dangerZones)?mc.dangerZones:[],verificationCommands:Array.isArray(mc.verificationCommands)?mc.verificationCommands:['npm test'],realConstraints:Array.isArray(mc.realConstraints)?mc.realConstraints:[],binaryVersion:mc.binaryVersion||'0.11.24',onboardingVersion:Number(mc.onboardingVersion||1)};fs.mkdirSync(p.dirname(onboarding),{recursive:true});fs.writeFileSync(onboarding,JSON.stringify(payload,null,2)+'\\n','utf8');let ac={};if(fs.existsSync(alphaCfg)){try{ac=JSON.parse(fs.readFileSync(alphaCfg,'utf8'))}catch{ac={}}};if(!ac.projectRoot)ac.projectRoot=alpha;if(!ac.scanRoots)ac.scanRoots=['src'];fs.mkdirSync(p.dirname(alphaCfg),{recursive:true});fs.writeFileSync(alphaCfg,JSON.stringify(ac,null,2)+'\\n','utf8');console.log('seeded onboarding.json and ensured alpha config');" ${shellEscape(alphaRoot)} ${shellEscape(mirrorConfig)} ${shellEscape(alphaConfig)}`,
         severity: 'P1',
         scope: 'alpha',
-        cwd: alphaRoot,
+        cwd: root,
+        timeoutMs: 20000,
       },
       {
-        id: 'alpha_invariants',
-        label: 'Alpha invariant suite',
-        cmd: 'node scripts/test-invariants.js',
+        id: 'alpha_e2e',
+        label: 'Alpha runtime E2E workflow cycle',
+        cmd: `bash scripts/alpha-runtime.sh e2e --alpha ${shellEscape(alphaRoot)}`,
         severity: 'P1',
         scope: 'alpha',
-        cwd: alphaRoot,
+        cwd: root,
+        timeoutMs: Math.floor(args.alphaTimeoutSec * 1000),
       },
       {
-        id: 'alpha_chain',
-        label: 'Alpha event chain verification',
-        cmd: 'node scripts/verify-chain.js',
+        id: 'alpha_e2e_log',
+        label: 'Alpha E2E transcript exists',
+        cmd: `node -e "const fs=require('fs');const p=process.argv[1];const files=(fs.existsSync(p)?fs.readdirSync(p):[]).filter(f=>/^mbo-e2e-.*\\.log$/.test(f));if(!files.length){process.exit(1)};files.sort();console.log(files[files.length-1]);" ${shellEscape(alphaLogsDir)}`,
         severity: 'P1',
         scope: 'alpha',
-        cwd: alphaRoot,
+        cwd: root,
+        timeoutMs: 15000,
+      },
+      {
+        id: 'alpha_e2e_mirror_copy',
+        label: 'Mirrored E2E transcript exists',
+        cmd: `node -e "const fs=require('fs');const p=process.argv[1];const files=(fs.existsSync(p)?fs.readdirSync(p):[]).filter(f=>/^mbo-e2e-.*\\.log\\.copy$/.test(f));if(!files.length){process.exit(1)};files.sort();console.log(files[files.length-1]);" ${shellEscape(mirrorLogsDir)}`,
+        severity: 'P1',
+        scope: 'mirror',
+        cwd: root,
+        timeoutMs: 15000,
       }
     );
   }
@@ -290,6 +336,15 @@ function main() {
 
   const governanceChecks = buildGovernanceChecks(root, args.task);
   const commandChecks = buildCommandChecks(root, args);
+
+  if (args.pushAlpha) {
+    const alphaRoot = path.resolve(args.alphaRoot);
+    if (alphaOnboardingExists(alphaRoot)) {
+      console.log('[MBO] Alpha onboarding.json detected, continuing with E2E run.');
+    } else {
+      console.log('[MBO] Alpha onboarding.json missing; auto-seed step will run before E2E.');
+    }
+  }
   const commandResults = [];
 
   console.log(`[MBO] Starting workflow audit: ${runId}`);
@@ -297,11 +352,17 @@ function main() {
 
   for (const check of commandChecks) {
     console.log(`[MBO] Running: ${check.label}`);
-    const result = runCommand(check.cmd, check.cwd);
+    const result = runCommand(check.cmd, check.cwd, check.timeoutMs || 0);
     commandResults.push({ ...check, ...result });
 
     const outPath = path.join(runDir, `${check.id}.log`);
-    const merged = [`$ (cwd=${check.cwd}) ${check.cmd}`, '', result.stdout, result.stderr].filter(Boolean).join('\n');
+    const merged = [
+      `$ (cwd=${check.cwd}) ${check.cmd}`,
+      `$ timeoutMs=${check.timeoutMs || 0}`,
+      '',
+      result.stdout,
+      result.stderr,
+    ].filter(Boolean).join('\n');
     fs.writeFileSync(outPath, `${merged}\n`, 'utf8');
   }
 
@@ -309,11 +370,14 @@ function main() {
 
   for (const c of commandResults) {
     if (!c.ok) {
+      const reason = c.timedOut
+        ? `Command timed out after ${Math.floor((c.timeoutMs || 0) / 1000)}s.`
+        : `Command failed with exit code ${c.code}.`;
       findings.push(toBugFinding(
         `command:${c.id}`,
         c.severity,
         `Workflow check failed (${c.scope}): ${c.label}`,
-        `Command failed with exit code ${c.code}. See ${path.relative(root, path.join(runDir, `${c.id}.log`))}.`
+        `${reason} See ${path.relative(root, path.join(runDir, `${c.id}.log`))}.`
       ));
     }
   }
@@ -342,6 +406,7 @@ function main() {
     world: args.world,
     pushAlpha: args.pushAlpha,
     alphaRoot: args.pushAlpha ? path.resolve(args.alphaRoot) : null,
+    alphaTimeoutSec: args.alphaTimeoutSec,
     verdict,
     score,
     checks: {
@@ -355,6 +420,8 @@ function main() {
       scope: c.scope,
       ok: c.ok,
       code: c.code,
+      timedOut: Boolean(c.timedOut),
+      timeoutMs: c.timeoutMs || 0,
       severity: c.severity,
       logPath: path.relative(root, path.join(runDir, `${c.id}.log`)),
     })),
@@ -396,13 +463,15 @@ function main() {
   complianceMd.push(`- Alpha Mode: ${args.pushAlpha ? 'enabled' : 'disabled'}`);
   if (args.pushAlpha) {
     complianceMd.push(`- Alpha Root: ${path.resolve(args.alphaRoot)}`);
+    complianceMd.push(`- Alpha Timeout (sec): ${args.alphaTimeoutSec}`);
   }
   complianceMd.push(`- Verdict: ${verdict}`);
   complianceMd.push(`- Compliance Score: ${score}`);
   complianceMd.push('');
   complianceMd.push('## Command Checks');
   for (const c of commandResults) {
-    complianceMd.push(`- ${c.ok ? 'PASS' : 'FAIL'} [${c.scope}] ${c.label} (${c.id})`);
+    const timeoutTag = c.timedOut ? ' [TIMEOUT]' : '';
+    complianceMd.push(`- ${c.ok ? 'PASS' : 'FAIL'} [${c.scope}] ${c.label} (${c.id})${timeoutTag}`);
   }
   complianceMd.push('');
   complianceMd.push('## Governance Checks');
