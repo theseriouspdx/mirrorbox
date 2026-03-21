@@ -427,7 +427,23 @@ Feel free to ask for clarification on any question, or go back to a previous que
         'If the interview is not yet complete, ask your next single question in plain English.',
       ].filter(s => s !== null).join('\n');
 
-      const response = await callModel('onboarding', prompt, {}, null);
+      process.stdout.write(`\n${C.GREY}[Advisor] Consulting Advisor...${C.RESET}`);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000);
+
+      let response;
+      try {
+        response = await callModel('onboarding', prompt, {}, null, [], null, { signal: controller.signal });
+        clearTimeout(timeout);
+        process.stdout.write('\r' + ' '.repeat(40) + '\r');
+      } catch (err) {
+        clearTimeout(timeout);
+        process.stdout.write('\r' + ' '.repeat(40) + '\r');
+        if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+          throw new Error('Onboarding advisor timed out after 60s. Please check your connection or model provider.');
+        }
+        throw err;
+      }
 
       // Check for sentinel — Phase 5 trigger
       const parsed = parseSentinel(response);

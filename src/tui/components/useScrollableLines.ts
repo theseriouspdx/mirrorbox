@@ -12,29 +12,26 @@ export function useScrollableLines(lines: string[], visibleCount: number) {
   maxTopRef.current = maxTop;
   const userScrolledRef = useRef(false);
 
-  // Auto-scroll to bottom when new content arrives, only if near bottom
+  // Auto-scroll logic (BUG-183):
+  // If the user hasn't explicitly scrolled up, always track the new bottom.
   useEffect(() => {
     if (!userScrolledRef.current) {
       setTopLine(maxTop);
-    } else {
-      setTopLine((prev) => {
-        // If still near the bottom (within 3 lines), track it
-        if (prev >= maxTop - 3) {
-          userScrolledRef.current = false;
-          return maxTop;
-        }
-        return prev;
-      });
     }
   }, [lines.length, maxTop]);
 
   const scrollUp = (n = 1) => {
-    userScrolledRef.current = true;
-    setTopLine((t) => Math.max(0, t - n));
+    setTopLine((t) => {
+      const next = Math.max(0, t - n);
+      if (next < maxTopRef.current) userScrolledRef.current = true;
+      return next;
+    });
   };
+
   const scrollDown = (n = 1) => {
     setTopLine((t) => {
       const next = Math.min(maxTopRef.current, t + n);
+      // Re-engage auto-scroll if we hit the bottom
       if (next >= maxTopRef.current) userScrolledRef.current = false;
       return next;
     });

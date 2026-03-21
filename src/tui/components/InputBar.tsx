@@ -12,26 +12,26 @@ interface Props {
 }
 
 function getPrefix(stage: MboStage, auditPending: boolean, pipelineRunning: boolean): string {
-  if (auditPending)    return 'AUDIT ❯ ';
+  if (stage === 'audit_gate' || auditPending) return 'AUDIT ❯ ';
   if (pipelineRunning) return 'RUNNING ❯ ';
   return 'MBO ❯ ';
 }
 
 function getPlaceholder(stage: MboStage, auditPending: boolean, pipelineRunning: boolean): string {
-  if (auditPending)    return 'Type "approved" to apply changes, "reject" to roll back…';
+  if (stage === 'audit_gate' || auditPending) return 'Type "approved" to apply changes, "reject" to roll back…';
   if (pipelineRunning) return 'Pipeline running — type a hint to steer, or "stop" to abort…';
   return 'Describe a task, ask a question, or /tasks · /token · status · exit…';
 }
 
 function getPrefixColor(stage: MboStage, auditPending: boolean, pipelineRunning: boolean): string {
-  if (auditPending)    return C.audit;
+  if (stage === 'audit_gate' || auditPending) return C.audit;
   if (pipelineRunning) return C.pink;
   return C.teal;
 }
 
 export function InputBar({ onSubmit, stage, pipelineRunning, auditPending }: Props) {
   const [value, setValue] = useState('');
-  const borderColor   = auditPending ? C.audit : pipelineRunning ? C.pink : C.white;
+  const borderColor   = (stage === 'audit_gate' || auditPending) ? C.audit : pipelineRunning ? C.pink : C.white;
   const prefix        = getPrefix(stage, auditPending, pipelineRunning);
   const prefixColor   = getPrefixColor(stage, auditPending, pipelineRunning);
   const placeholder   = getPlaceholder(stage, auditPending, pipelineRunning);
