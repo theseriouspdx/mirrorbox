@@ -2,7 +2,7 @@
 
 ## Project
 Mirror Box Orchestrator (MBO) — `/Users/johnserious/MBO`
-Current deployed version: **0.3.01**.
+Current deployed version: **0.3.20+v0.11.181.v0.2.3**.
 
 ---
 
@@ -18,7 +18,7 @@ The repo was brought into a clean governance state for wrap.
 
 ### Previously implemented and now fully recorded
 - **BUG-178 / v0.3.01** — unknown `mbo` subcommand no longer falls through to the operator loop.
-- **BUG-179 / v0.3.02** — version drift fixed; `package.json` now matches the current CHANGELOG head at `0.3.01`.
+- **BUG-179 / v0.3.02** — version drift fixed; `package.json` now matches the current CHANGELOG head at `0.3.20+v0.11.181.v0.2.3`.
 
 ### Governance/spec work completed in this wrap session
 - `AGENTS.md`
@@ -40,13 +40,13 @@ The repo was brought into a clean governance state for wrap.
   - Duplicate `Task:` lines removed for `BUG-152`, `BUG-153`, and `BUG-154`.
 - `CHANGELOG.md`
   - Canonical top entries verified and preserved:
-    - `[0.3.01]` — TUI (v.3)
+    - `[0.3.20+v0.11.181.v0.2.3]` — TUI (v.3)
     - `[0.2.02]` — Workflow Audit / Auto-Run Script (v.2)
     - `[0.2.01]` — Tokenmiser Routing Savings
   - Added governance note for version-lane rules and pre-push reconciliation requirement.
 - `projecttracking.md`
   - Header synchronized to:
-    - `Current Version: 0.3.01 (TUI v.3)`
+    - `Current Version: 0.3.20+v0.11.181.v0.2.3 (TUI v.3)`
     - `Next Task: v0.2.03`
   - Active backlog aligned with open bugs and approved TUI/spec backlog.
   - Recorded completed docs/governance tasks `v0.11.181` and `v0.3.20`.
@@ -62,8 +62,8 @@ The repo was brought into a clean governance state for wrap.
 ## Current Canonical State
 
 ### Version state
-- `package.json`: `0.3.01`
-- `CHANGELOG.md` head: `[0.3.01]` — 2026-03-20 — TUI (v.3)
+- `package.json`: `0.3.20+v0.11.181.v0.2.3`
+- `CHANGELOG.md` head: `[0.3.20+v0.11.181.v0.2.3]` — 2026-03-20 — TUI (v.3)
 - These are now in sync.
 
 ### Open bugs

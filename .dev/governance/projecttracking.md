@@ -2,7 +2,7 @@
 ## Mirror Box Orchestrator — Canonical Task Ledger
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Current Version:** 0.3.01 (TUI v.3)
+**Current Version:** 0.3.20+v0.11.181.v0.2.3 (TUI v.3)
 **Next Task:** v0.2.04
 **Policy:** This file is the single source of truth for work state.
 

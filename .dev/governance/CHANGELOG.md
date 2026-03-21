@@ -1,5 +1,5 @@
 # CHANGELOG.md
-## [0.3.01] — 2026-03-20 — TUI (v.3)
+## [0.3.20+v0.11.181.v0.2.3] — 2026-03-20 — TUI (v.3)
 ### Added
 - TasksOverlay now includes governance-doc viewing, scrollable task briefings, activation preflight notes, and inline task creation that writes back to `projecttracking.md`.
 - TUI status surfaces now show operator activity shimmer, stage-aware model/token counts, per-panel token totals, `/setup`, command autocomplete, and pipeline stage navigation.

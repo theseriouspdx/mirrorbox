@@ -11,7 +11,7 @@
 
 ## Governance State
 - `projecttracking.md` backlog rows above were moved to Recently Completed.
-- `package.json` and `package-lock.json` now match the canonical documented version `0.3.01`.
+- `package.json` and `package-lock.json` now match the canonical documented version `0.3.20+v0.11.181.v0.2.3`.
 - `BUGS.md` remains clear with no outstanding active bug entries.
 
 ## Verification

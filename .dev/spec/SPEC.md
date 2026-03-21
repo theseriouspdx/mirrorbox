@@ -2712,9 +2712,9 @@ Where governance files conflict, reconciliation must be explicit (no silent prec
 
 #### 37.2A Versioning/Governance Transition
 - AGENTS version protocol is active (`0.VM.BUILD`, compound tags, backport handling, confirmation-before-write).
-- `package.json` baseline is `0.3.01` aligned with CHANGELOG head.
+- `package.json` baseline is `0.3.20+v0.11.181.v0.2.3` aligned with CHANGELOG head.
 - Unknown `mbo` subcommand fallthrough bug is fixed.
-- Changelog coverage includes v0.2.01, v0.2.02, and v0.3.01 series entries.
+- Changelog coverage includes v0.2.01, v0.2.02, and the promoted v0.3.20 release series entry.
 
 #### 37.2B v0.11.x Completed Before Renumbered Tracks
 The Milestone 1.1 hardening cluster completed before v0.2/v0.3 focus includes:
