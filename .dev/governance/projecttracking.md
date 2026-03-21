@@ -3,7 +3,7 @@
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
 **Current Version:** 0.3.01 (TUI v.3)
-**Next Task:** v0.2.03
+**Next Task:** v0.2.04
 **Policy:** This file is the single source of truth for work state.
 
 ---
@@ -11,24 +11,26 @@
 ## Active Tasks
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
-| v0.2.03 | feat | Two-way workflow audit run: one invocation executes mirror + subject with unified verdict and combined artifacts | READY | codex | - | 2026-03-20 | SESSION-HANDOFF-2026-03-20 | Supports `--world both`; preserves single-world mode; deterministic `--push-alpha` behavior; combined summary includes per-world + unified result |
-| v0.3.11 | feat | Governance doc viewer: projecttracking, BUGS, BUGS-resolved, CHANGELOG readable in TUI | READY | claude | - | 2026-03-20 | - | All four governance docs accessible and scrollable from within the TUI |
-| v0.3.12 | feat | Inline task creation: natural language input → interview flow → written to projecttracking.md | READY | claude | - | 2026-03-20 | - | User types add task description; app interviews for details; entry written to projecttracking.md |
-| v0.3.13 | feat | Operator activity shimmer: current action label + shimmer animation during operator processing | READY | claude | - | 2026-03-20 | - | No silent pauses; operator processing shows current action with shimmer highlight animation |
-| v0.11.177 | feat | Spec as source of truth: spec built/acquired during onboarding, maintained as primary task detail source | READY | unassigned | - | 2026-03-20 | - | Spec generated or acquired in onboarding; task detail aggregation (v0.3.07) uses spec as primary source |
-| v0.11.178 | feat | Auto-generate governance docs during onboarding if project has none | READY | unassigned | - | 2026-03-20 | - | Onboarding detects missing governance docs and generates projecttracking, BUGS, CHANGELOG stubs |
-| v0.11.179 | feat | Pipeline agent governance compliance: spec what applies to prompt agents vs CLI tools | READY | unassigned | - | 2026-03-20 | - | Written spec defining governance obligations for prompt agents vs CLI; pipeline agents updated accordingly |
-| v0.3.14 | feat | Tokenmiser header: stage-aware model + token display — show active stage's model name and running token count, updating as pipeline advances | READY | claude | - | 2026-03-20 | - | Header always shows current stage's model and its token count; switches model+count as pipeline stage changes |
-| v0.3.15 | feat | Model chooser: setup-time per-stage model selection from OpenRouter catalog with recommendations | READY | claude | - | 2026-03-20 | - | During `mbo setup` and `/setup`, user selects model per pipeline stage from a list loaded from OpenRouter; each stage shows recommended default + chosen override. Recommendation/selection logic must be reviewed with operator in a design conversation before implementation build-out. |
-| v0.3.16 | feat | InputBar /command autocomplete: typing / surfaces available commands with completion | READY | claude | - | 2026-03-20 | - | Typing / in InputBar shows autocomplete list of available commands; selection completes the command |
-| v0.3.18 | feat | Per-panel token display: Pipeline shows pipeline session tokens, Operator panel shows operator tokens | READY | claude | - | 2026-03-20 | - | Each main panel (Pipeline, Operator, Executor) shows token count relevant to that panel's activity |
-| v0.3.19 | feat | Pipeline stage navigation: scroll/jump between stages (classification, planning, tiebreaker A/B, code, dry run) in Pipeline tab | READY | claude | - | 2026-03-20 | - | Pipeline tab has stage-level navigation; user can scroll between discrete pipeline stage sections |
+| v0.2.04 | audit | Full end-to-end audit against SPEC with completed audit checklist artifact | READY | codex | - | 2026-03-21 | docs/e2e-audit-checklist.md, SPEC.md | Run a full spec-to-implementation audit; complete `docs/e2e-audit-checklist.md` with evidence, verdict, score, and sign-off-ready details; record any gaps as governance follow-ups |
+| v0.11.182 | chore | Repository cleanup after audit: remove smoke artifacts, reconcile governance state, and leave branch commit-ready | READY | codex | - | 2026-03-21 | SESSION-HANDOFF-2026-03-20-BATCH | Remove temporary smoke artifacts, ensure tracked audit artifacts are committed intentionally, and leave the worktree clean enough for staging/commit without stray audit debris |
 
 ---
 
 ## Recently Completed
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
+| v0.2.03 | feat | Two-way workflow audit run: one invocation executes mirror + subject with unified verdict and combined artifacts | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | SESSION-HANDOFF-2026-03-20 | Supports `--world both`; preserves single-world mode; deterministic `--push-alpha` behavior; combined summary includes per-world + unified result |
+| v0.3.11 | feat | Governance doc viewer: projecttracking, BUGS, BUGS-resolved, CHANGELOG readable in TUI | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | - | All four governance docs accessible and scrollable from within the TUI |
+| v0.3.12 | feat | Inline task creation: natural language input → interview flow → written to projecttracking.md | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | - | User types add task description; app interviews for details; entry written to projecttracking.md |
+| v0.3.13 | feat | Operator activity shimmer: current action label + shimmer animation during operator processing | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | - | No silent pauses; operator processing shows current action with shimmer highlight animation |
+| v0.11.177 | feat | Spec as source of truth: spec built/acquired during onboarding, maintained as primary task detail source | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | - | Spec generated or acquired in onboarding; task detail aggregation (v0.3.07) uses spec as primary source |
+| v0.11.178 | feat | Auto-generate governance docs during onboarding if project has none | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | - | Onboarding detects missing governance docs and generates projecttracking, BUGS, CHANGELOG stubs |
+| v0.11.179 | feat | Pipeline agent governance compliance: spec what applies to prompt agents vs CLI tools | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | - | Written spec defining governance obligations for prompt agents vs CLI; pipeline agents updated accordingly |
+| v0.3.14 | feat | Tokenmiser header: stage-aware model + token display — show active stage's model name and running token count, updating as pipeline advances | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | - | Header always shows current stage's model and its token count; switches model+count as pipeline stage changes |
+| v0.3.15 | feat | Model chooser: setup-time per-stage model selection from OpenRouter catalog with recommendations | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | - | During `mbo setup` and `/setup`, user selects model per pipeline stage from a list loaded from OpenRouter; each stage shows recommended default + chosen override. Recommendation/selection logic must be reviewed with operator in a design conversation before implementation build-out. |
+| v0.3.16 | feat | InputBar /command autocomplete: typing / surfaces available commands with completion | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | - | Typing / in InputBar shows autocomplete list of available commands; selection completes the command |
+| v0.3.18 | feat | Per-panel token display: Pipeline shows pipeline session tokens, Operator panel shows operator tokens | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | - | Each main panel (Pipeline, Operator, Executor) shows token count relevant to that panel's activity |
+| v0.3.19 | feat | Pipeline stage navigation: scroll/jump between stages (classification, planning, tiebreaker A/B, code, dry run) in Pipeline tab | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | - | Pipeline tab has stage-level navigation; user can scroll between discrete pipeline stage sections |
 | v0.3.17 | bug | BUG-184 C.purple too dark — blueBright unreadable for labels/borders; fix with hex color | COMPLETED | claude | gemini/bugs-3.20.26.2009 | 2026-03-20 | BUG-184 | C.purple renders as bright readable purple/violet on dark terminals; all usages updated consistently |
 | v0.3.10 | bug | BUG-183 PipelinePanel scroll: auto-scroll and user-scroll-lock re-engagement | COMPLETED | claude | gemini/bugs-3.20.26.2009 | 2026-03-20 | BUG-183 | PipelinePanel auto-scrolls during streaming; user scroll locks auto-scroll until re-engaged |
 | v0.3.09 | bug | BUG-182 SystemPanel MCP health: port polling and live health display | COMPLETED | claude | gemini/bugs-3.20.26.2009 | 2026-03-20 | BUG-182 | SystemPanel correctly polls MCP ports and displays live health status |

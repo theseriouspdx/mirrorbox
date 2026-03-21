@@ -1,6 +1,9 @@
 # CHANGELOG.md
 ## [0.3.01] — 2026-03-20 — TUI (v.3)
 ### Added
+- TasksOverlay now includes governance-doc viewing, scrollable task briefings, activation preflight notes, and inline task creation that writes back to `projecttracking.md`.
+- TUI status surfaces now show operator activity shimmer, stage-aware model/token counts, per-panel token totals, `/setup`, command autocomplete, and pipeline stage navigation.
+- Workflow audit tooling now supports deterministic `--world both` runs with mirror-then-subject execution, per-world logs, unified verdict reporting, and subject-only alpha execution in two-world mode.
 - Full Ink v5 + React TUI (`src/tui/`) replacing the readline operator interface.
 - 4-tab layout: OPERATOR, PIPELINE, EXECUTOR, SYSTEM — with 35% StatsPanel sidebar always visible.
 - StatusBar (top): stage, model, task, elapsed, version.
@@ -20,6 +23,8 @@
 - `tsconfig.tui.json`: `ES2022`, `bundler` moduleResolution, `react-jsx`, `DOM` lib.
 
 ### Governance
+- Onboarding now seeds missing governance docs plus `.dev/spec/SPEC.md`, then rewrites the spec from the accepted working agreement so task briefings can use spec as the primary source.
+- Pipeline prompts now carry an explicit prompt-agent versus CLI/tool execution boundary so only the CLI layer claims mutation, validation, audit, and persistence work.
 - Added explicit version-lane assignment rules: `0.11.x` core/hardening/runtime, `0.2.x` scripting/audit/automation, `0.3.x` TUI/operator UX, `0.4.x` multithreading/concurrency.
 - Grandfathered legacy bugs `BUG-001` through `BUG-184`; starting with `BUG-185`, new bugs use dual identifiers: `BUG-### / vX.Y.ZZ`.
 - Added required pre-push/session-wrap governance reconciliation across `projecttracking.md`, `BUGS.md`, `BUGS-resolved.md`, `CHANGELOG.md`, and session handoff artifacts.

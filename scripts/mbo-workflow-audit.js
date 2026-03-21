@@ -43,7 +43,7 @@ function parseArgs(argv) {
     else if (a === '--push-alpha') args.pushAlpha = true;
     else if (a === '--human-input') args.humanInput = true;
     else if (a === '-h' || a === '--help') {
-      console.log('Usage: node scripts/mbo-workflow-audit.js [--task <task-id>] [--world mirror|subject] [--operator <name>] [--strict] [--update-bugs] [--push-alpha] [--human-input] [--alpha-root <path>] [--alpha-timeout-sec <seconds>]');
+      console.log('Usage: node scripts/mbo-workflow-audit.js [--task <task-id>] [--world mirror|subject|both] [--operator <name>] [--strict] [--update-bugs] [--push-alpha] [--human-input] [--alpha-root <path>] [--alpha-timeout-sec <seconds>]');
       process.exit(0);
     }
   }
@@ -52,7 +52,38 @@ function parseArgs(argv) {
     args.alphaTimeoutSec = 300;
   }
 
+  if (!['mirror', 'subject', 'both'].includes(args.world)) {
+    throw new Error(`Invalid --world value: ${args.world}. Expected mirror, subject, or both.`);
+  }
+
+  if (args.world === 'both' && args.humanInput) {
+    throw new Error('--human-input is only supported with a single world audit run.');
+  }
+
   return args;
+}
+
+function getWorldSequence(world) {
+  if (world === 'both') return ['mirror', 'subject'];
+  return [world];
+}
+
+function cloneCheckForWorld(check, world, root, alphaRoot) {
+  const cloned = { ...check, world };
+  if (world === 'mirror') {
+    cloned.cwd = root;
+    cloned.scope = 'mirror';
+    cloned.label = check.scope === 'alpha'
+      ? `${check.label} [mirror-local placeholder]`
+      : check.label;
+    return cloned;
+  }
+
+  cloned.cwd = alphaRoot;
+  if (check.scope === 'mirror') cloned.scope = 'subject';
+  else if (check.scope === 'alpha') cloned.scope = 'alpha-subject';
+  else cloned.scope = check.scope || 'subject';
+  return cloned;
 }
 
 function runCommand(cmd, cwd, timeoutMs = 0, interactive = false) {
@@ -427,59 +458,46 @@ function buildCommandChecks(root, args) {
   return checks;
 }
 
-function main() {
-  const root = path.resolve(__dirname, '..');
-  const args = parseArgs(process.argv.slice(2));
-  const runId = `workflow-audit-${nowStamp()}`;
-  const runDir = path.join(root, '.mbo', 'logs', runId);
-  ensureDir(runDir);
+function buildWorldCommandChecks(root, args) {
+  const baseChecks = buildCommandChecks(root, args);
+  const worlds = getWorldSequence(args.world);
+  const alphaRoot = path.resolve(args.alphaRoot);
 
-  if (process.cwd() !== root) {
-    console.log(`[MBO] Launch directory: ${process.cwd()}`);
-    console.log(`[MBO] Using controller root: ${root}`);
-  }
+  return worlds.map((world) => {
+    if (world === 'mirror') {
+      const mirrorChecks = baseChecks.filter((check) => {
+        if (check.scope === 'alpha') return false;
+        if (args.world === 'both' && args.pushAlpha && check.id === 'alpha_e2e_mirror_copy') return false;
+        return true;
+      });
 
-  const governanceChecks = buildGovernanceChecks(root, args.task);
-  const commandChecks = buildCommandChecks(root, args);
+      return {
+        world,
+        displayName: 'mirror',
+        root: root,
+        checks: mirrorChecks.map((check) => cloneCheckForWorld(check, world, root, alphaRoot)),
+      };
+    }
 
-  if (args.pushAlpha) {
-    const alphaRoot = path.resolve(args.alphaRoot);
-    if (alphaOnboardingExists(alphaRoot)) {
-      console.log('[MBO] Alpha onboarding.json detected, continuing with E2E run.');
+    const subjectChecks = [];
+    if (args.pushAlpha) {
+      subjectChecks.push(...baseChecks.map((check) => cloneCheckForWorld(check, world, root, alphaRoot)));
     } else {
-      console.log('[MBO] Alpha onboarding.json missing; auto-seed step will run before E2E.');
+      subjectChecks.push(...baseChecks
+        .filter((check) => check.scope !== 'alpha')
+        .map((check) => cloneCheckForWorld(check, world, alphaRoot, alphaRoot)));
     }
-  }
-  const commandResults = [];
 
-  console.log(`[MBO] Starting workflow audit: ${runId}`);
-  console.log(`[MBO] Logs directory: ${runDir}`);
+    return {
+      world,
+      displayName: args.pushAlpha ? 'subject (alpha)' : 'subject',
+      root: alphaRoot,
+      checks: subjectChecks,
+    };
+  });
+}
 
-  for (const check of commandChecks) {
-    console.log(`[MBO] Running: ${check.label}`);
-    const result = runCommand(check.cmd, check.cwd, check.timeoutMs || 0, Boolean(check.interactive));
-    commandResults.push({ ...check, ...result });
-
-    const outPath = path.join(runDir, `${check.id}.log`);
-    const merged = [
-      `$ (cwd=${check.cwd}) ${check.cmd}`,
-      `$ timeoutMs=${check.timeoutMs || 0}`,
-      '',
-      check.interactive ? '[interactive mode] Output streamed directly to terminal; not captured in log body.' : '',
-      result.stdout,
-      result.stderr,
-    ].filter(Boolean).join('\n');
-    fs.writeFileSync(outPath, `${merged}\n`, 'utf8');
-
-    // Emit exact command log content to terminal for immediate visibility.
-    console.log(`[MBO] Log file: ${outPath}`);
-    console.log(`[MBO] ---- BEGIN ${check.id} ----`);
-    if (merged.trim()) {
-      process.stdout.write(`${merged}\n`);
-    }
-    console.log(`[MBO] ---- END ${check.id} ----`);
-  }
-
+function summarizeFindings(commandResults, governanceChecks, root, runDir) {
   const findings = [];
 
   for (const c of commandResults) {
@@ -488,10 +506,10 @@ function main() {
         ? `Command timed out after ${Math.floor((c.timeoutMs || 0) / 1000)}s.`
         : `Command failed with exit code ${c.code}.`;
       findings.push(toBugFinding(
-        `command:${c.id}`,
+        `command:${c.world}:${c.id}`,
         c.severity,
-        `Workflow check failed (${c.scope}): ${c.label}`,
-        `${reason} See ${path.relative(root, path.join(runDir, `${c.id}.log`))}.`
+        `Workflow check failed (${c.world}/${c.scope}): ${c.label}`,
+        `${reason} See ${path.relative(root, path.join(runDir, c.world, `${c.id}.log`))}.`
       ));
     }
   }
@@ -507,10 +525,103 @@ function main() {
     }
   }
 
+  return findings;
+}
+
+function buildWorldOutcome(world, checks, results) {
+  const total = checks.length;
+  const passed = results.filter((r) => r.ok).length;
+  const verdict = passed === total ? 'PASS' : 'FAIL';
+  return {
+    world,
+    verdict,
+    checks: {
+      total,
+      passed,
+      failed: total - passed,
+    },
+  };
+}
+
+function main() {
+  const root = path.resolve(__dirname, '..');
+  let args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (err) {
+    console.error(`[MBO] ${err.message}`);
+    process.exit(2);
+  }
+  const runId = `workflow-audit-${nowStamp()}`;
+  const runDir = path.join(root, '.mbo', 'logs', runId);
+  ensureDir(runDir);
+
+  if (process.cwd() !== root) {
+    console.log(`[MBO] Launch directory: ${process.cwd()}`);
+    console.log(`[MBO] Using controller root: ${root}`);
+  }
+
+  const governanceChecks = buildGovernanceChecks(root, args.task);
+  const worldCommandChecks = buildWorldCommandChecks(root, args);
+
+  if (args.pushAlpha && getWorldSequence(args.world).includes('subject')) {
+    const alphaRoot = path.resolve(args.alphaRoot);
+    if (alphaOnboardingExists(alphaRoot)) {
+      console.log('[MBO] Alpha onboarding.json detected, continuing with E2E run.');
+    } else {
+      console.log('[MBO] Alpha onboarding.json missing; auto-seed step will run before E2E.');
+    }
+  }
+  const commandResults = [];
+
+  console.log(`[MBO] Starting workflow audit: ${runId}`);
+  console.log(`[MBO] Logs directory: ${runDir}`);
+
+  const worldOutcomes = [];
+
+  for (const worldRun of worldCommandChecks) {
+    const worldRunDir = path.join(runDir, worldRun.world);
+    ensureDir(worldRunDir);
+    console.log(`[MBO] World start: ${worldRun.displayName}`);
+
+    const worldResults = [];
+    for (const check of worldRun.checks) {
+      console.log(`[MBO] Running [${worldRun.world}]: ${check.label}`);
+      const result = runCommand(check.cmd, check.cwd, check.timeoutMs || 0, Boolean(check.interactive));
+      const logPath = path.join(worldRunDir, `${check.id}.log`);
+      const merged = [
+        `$ world=${worldRun.world}`,
+        `$ scope=${check.scope}`,
+        `$ (cwd=${check.cwd}) ${check.cmd}`,
+        `$ timeoutMs=${check.timeoutMs || 0}`,
+        '',
+        check.interactive ? '[interactive mode] Output streamed directly to terminal; not captured in log body.' : '',
+        result.stdout,
+        result.stderr,
+      ].filter(Boolean).join('\n');
+      fs.writeFileSync(logPath, `${merged}\n`, 'utf8');
+
+      const record = { ...check, ...result, logPath: path.relative(root, logPath) };
+      commandResults.push(record);
+      worldResults.push(record);
+
+      console.log(`[MBO] Log file: ${logPath}`);
+      console.log(`[MBO] ---- BEGIN ${worldRun.world}:${check.id} ----`);
+      if (merged.trim()) {
+        process.stdout.write(`${merged}\n`);
+      }
+      console.log(`[MBO] ---- END ${worldRun.world}:${check.id} ----`);
+    }
+
+    worldOutcomes.push(buildWorldOutcome(worldRun.world, worldRun.checks, worldResults));
+  }
+
+  const findings = summarizeFindings(commandResults, governanceChecks, root, runDir);
+
   const totalChecks = commandResults.length + governanceChecks.length;
   const passedChecks = commandResults.filter((c) => c.ok).length + governanceChecks.filter((g) => g.ok).length;
   const score = Math.round((passedChecks / totalChecks) * 100);
-  const verdict = findings.length === 0 ? 'PASS' : 'FAIL';
+  const verdict = findings.length === 0 && worldOutcomes.every((w) => w.verdict === 'PASS') ? 'PASS' : 'FAIL';
 
   const summary = {
     runId,
@@ -518,10 +629,12 @@ function main() {
     operator: args.operator,
     task: args.task || null,
     world: args.world,
+    worldSequence: getWorldSequence(args.world),
     pushAlpha: args.pushAlpha,
     alphaRoot: args.pushAlpha ? path.resolve(args.alphaRoot) : null,
     alphaTimeoutSec: args.alphaTimeoutSec,
     verdict,
+    worlds: worldOutcomes,
     score,
     checks: {
       total: totalChecks,
@@ -530,6 +643,7 @@ function main() {
     },
     commandResults: commandResults.map((c) => ({
       id: c.id,
+      world: c.world,
       label: c.label,
       scope: c.scope,
       ok: c.ok,
@@ -537,7 +651,7 @@ function main() {
       timedOut: Boolean(c.timedOut),
       timeoutMs: c.timeoutMs || 0,
       severity: c.severity,
-      logPath: path.relative(root, path.join(runDir, `${c.id}.log`)),
+      logPath: c.logPath,
     })),
     governanceResults: governanceChecks,
     bugFindings: findings,
@@ -550,6 +664,7 @@ function main() {
   bugMd.push('');
   bugMd.push(`- Run ID: ${runId}`);
   bugMd.push(`- Verdict: ${verdict}`);
+  bugMd.push(`- Worlds: ${worldOutcomes.map((w) => `${w.world}=${w.verdict}`).join(', ')}`);
   bugMd.push(`- Score: ${score}`);
   bugMd.push(`- Findings: ${findings.length}`);
   bugMd.push('');
@@ -582,10 +697,15 @@ function main() {
   complianceMd.push(`- Verdict: ${verdict}`);
   complianceMd.push(`- Compliance Score: ${score}`);
   complianceMd.push('');
+  complianceMd.push('## World Outcomes');
+  for (const world of worldOutcomes) {
+    complianceMd.push(`- ${world.world}: ${world.verdict} (${world.checks.passed}/${world.checks.total} passed)`);
+  }
+  complianceMd.push('');
   complianceMd.push('## Command Checks');
   for (const c of commandResults) {
     const timeoutTag = c.timedOut ? ' [TIMEOUT]' : '';
-    complianceMd.push(`- ${c.ok ? 'PASS' : 'FAIL'} [${c.scope}] ${c.label} (${c.id})${timeoutTag}`);
+    complianceMd.push(`- ${c.ok ? 'PASS' : 'FAIL'} [${c.world}/${c.scope}] ${c.label} (${c.id})${timeoutTag}`);
   }
   complianceMd.push('');
   complianceMd.push('## Governance Checks');
@@ -617,7 +737,9 @@ function main() {
     console.log(`[MBO] BUGS.md update skipped: ${bugUpdate ? bugUpdate.reason : 'unknown reason'}`);
   }
 
-  if ((args.strict && findings.length > 0) || commandResults.some((r) => !r.ok)) {
+  const hasCommandFailure = commandResults.some((r) => !r.ok);
+  const hasGovernanceFailure = governanceChecks.some((g) => !g.ok);
+  if ((args.strict && (hasCommandFailure || hasGovernanceFailure || findings.length > 0)) || (!args.strict && hasCommandFailure)) {
     process.exit(1);
   }
 }

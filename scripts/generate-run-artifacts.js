@@ -37,12 +37,13 @@ function nowTs() {
 }
 
 function usage() {
-  console.log('Usage: node scripts/generate-run-artifacts.js --task <task-id> [--run-id <id>] [--operator <name>] [--branch <name>] [--world mirror|subject] [--transcript <path>] [--checklist <path>] [--auto-changelog]');
+  console.log('Usage: node scripts/generate-run-artifacts.js --task <task-id> [--run-id <id>] [--operator <name>] [--branch <name>] [--world mirror|subject|both] [--transcript <path>] [--checklist <path>] [--auto-changelog]');
 }
 
 function parseArgs(argv) {
   const out = {
     task: '', runId: '', operator: '', branch: '', world: 'mirror', transcript: '', checklist: '', autoChangelog: false,
+    worldSequence: [],
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -56,6 +57,11 @@ function parseArgs(argv) {
     else if (a === '--auto-changelog') out.autoChangelog = true;
     else if (a === '-h' || a === '--help') { usage(); process.exit(0); }
   }
+
+  if (!['mirror', 'subject', 'both'].includes(out.world)) {
+    throw new Error('Invalid --world value: ' + out.world);
+  }
+  out.worldSequence = out.world === 'both' ? ['mirror', 'subject'] : [out.world];
   return out;
 }
 
@@ -162,7 +168,14 @@ function appendChangelogLine(changelogPath, line) {
 
 function main() {
   const root = process.env.MBO_PROJECT_ROOT ? path.resolve(process.env.MBO_PROJECT_ROOT) : process.cwd();
-  const args = parseArgs(process.argv.slice(2));
+  let args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (err) {
+    console.error('ERROR: ' + err.message);
+    usage();
+    process.exit(2);
+  }
   if (!args.task) {
     console.error('ERROR: --task is required');
     usage();
@@ -259,6 +272,14 @@ function main() {
     path.join(root, '.dev', 'governance', 'projecttracking.md'),
     path.join(root, '.dev', 'governance', 'BUGS.md'),
   ];
+  let workflowSummary = null;
+  const summaryPath = path.join(root, '.mbo', 'logs', runId, 'summary.json');
+  try {
+    if (fs.existsSync(summaryPath)) {
+      workflowSummary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+    }
+  } catch (_) {}
+
   const governanceState = {
     generatedAt: new Date().toISOString(),
     runId,
@@ -266,6 +287,7 @@ function main() {
     operator,
     branch,
     world: args.world,
+    worlds: workflowSummary?.worlds || args.worldSequence,
     commit,
     governanceFiles: governanceFiles.map((p) => ({
       path: path.relative(root, p),

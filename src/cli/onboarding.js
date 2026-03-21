@@ -21,6 +21,28 @@ const { version } = require('../../package.json');
 const { DBManager } = require('../state/db-manager');
 const { callModel } = require('../auth/call-model');
 
+const DEFAULT_GOVERNANCE_SPEC = [
+  '# SPEC.md',
+  '## Mirror Box Orchestrator — Project Spec',
+  '',
+  '### 1. Project Identity',
+  '- Prime directive: to be established during onboarding.',
+  '- Primary users: unknown.',
+  '- Deployment target: unknown.',
+  '',
+  '### 2. Safety & Governance',
+  '- Governance docs live in `.dev/governance/` and are the canonical project ledger.',
+  '- Prompt agents may classify, plan, review, and draft only.',
+  '- CLI/tool execution owns filesystem mutation, command execution, validation, and persistence.',
+  '',
+  '### 3. Verification',
+  '- Verification commands: to be supplied during onboarding.',
+  '- Danger zones: to be supplied during onboarding.',
+  '',
+  '### 4. Active Work Contract',
+  '- Keep this spec updated when project goals or safety constraints change.',
+].join('\n') + '\n';
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const C = {
@@ -211,6 +233,130 @@ function buildScanBriefing(projectRoot, scan, inferredConstraints = []) {
   }
 
   return { confirmed, inferred, unknown };
+}
+
+function validateVerificationCommands(commands) {
+  if (!Array.isArray(commands) || commands.length === 0) {
+    return { ok: false, reason: 'Provide at least one verification command.' };
+  }
+  const bad = commands.find((cmd) => !cmd || !String(cmd).trim());
+  if (bad !== undefined) {
+    return { ok: false, reason: 'Verification commands cannot be empty.' };
+  }
+  return { ok: true };
+}
+
+function validateDangerZones(paths) {
+  if (!Array.isArray(paths)) {
+    return { ok: false, reason: 'Danger zones must be an array of paths.' };
+  }
+  const invalid = paths.find((p) => typeof p !== 'string');
+  if (invalid !== undefined) {
+    return { ok: false, reason: 'Danger zone paths must be strings.' };
+  }
+  return { ok: true };
+}
+
+function ensureSpecDoc(projectRoot) {
+  const specDir = path.join(projectRoot, '.dev', 'spec');
+  const specPath = path.join(specDir, 'SPEC.md');
+  fs.mkdirSync(specDir, { recursive: true });
+  if (!fs.existsSync(specPath)) {
+    fs.writeFileSync(specPath, DEFAULT_GOVERNANCE_SPEC, 'utf8');
+  }
+  return specPath;
+}
+
+function updateSpecFromProfile(projectRoot, profile = {}) {
+  const specPath = ensureSpecDoc(projectRoot);
+  const sections = [
+    '# SPEC.md',
+    '## Mirror Box Orchestrator — Project Spec',
+    '',
+    '### 1. Project Identity',
+    `- Prime directive: ${profile.primeDirective || 'unknown'}.`,
+    `- Primary users: ${profile.users || 'unknown'}.`,
+    `- Deployment target: ${profile.deploymentTarget || 'unknown'}.`,
+    `- Project type: ${profile.projectType || 'unknown'}.`,
+    '',
+    '### 2. Safety & Governance',
+    '- Governance docs live in `.dev/governance/` and are the canonical project ledger.',
+    '- SPEC.md is the primary source of truth for project intent, constraints, and acceptance detail.',
+    '- Prompt agents may classify, plan, review, and draft only.',
+    '- CLI/tool execution owns filesystem mutation, command execution, validation, and persistence.',
+    '',
+    '### 3. Verification',
+    `- Verification commands: ${(profile.verificationCommands || []).join(', ') || 'none'}.`,
+    `- Danger zones: ${(profile.dangerZones || []).join(', ') || 'none'}.`,
+    `- Real constraints: ${(profile.realConstraints || []).join(', ') || 'none'}.`,
+    '',
+    '### 4. Working Agreement',
+    `- Partnership style: ${profile.q4Raw || profile.partnershipStyle || 'unspecified'}.`,
+    `- Subject root: ${profile.subjectRoot || 'internal'}.`,
+    `- Last updated: ${new Date().toISOString()}.`,
+  ];
+  fs.writeFileSync(specPath, sections.join('\n') + '\n', 'utf8');
+  return specPath;
+}
+
+function ensureGovernanceDocs(projectRoot) {
+  const govDir = path.join(projectRoot, '.dev', 'governance');
+  fs.mkdirSync(govDir, { recursive: true });
+
+  const defaults = {
+    'projecttracking.md': [
+      '# projecttracking.md',
+      '## Mirror Box Orchestrator — Canonical Task Ledger',
+      '',
+      '**Current Milestone:** 0.1 — Bootstrap [READY]',
+      '**Current Version:** 0.1.00',
+      '**Next Task:** v0.1.01',
+      '**Policy:** This file is the single source of truth for work state.',
+      '',
+      '---',
+      '',
+      '## Active Tasks',
+      '| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |',
+      '|---|---|---|---|---|---|---|---|---|',
+      '| v0.1.01 | docs | Bootstrap governance ledger | READY | unassigned | - | 2026-03-21 | - | Governance docs exist and can be updated in-place |',
+      '',
+      '---',
+      '',
+      '## Recently Completed',
+      '| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |',
+      '|---|---|---|---|---|---|---|---|---|',
+    ].join('\n') + '\n',
+    'BUGS.md': [
+      '## Mirror Box Orchestrator — Outstanding Bugs',
+      '',
+      '**Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.',
+      '**Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).',
+      '**Next bug number:** BUG-001',
+      '',
+      '---',
+      '(No outstanding P0/P1 bugs)',
+    ].join('\n') + '\n',
+    'BUGS-resolved.md': [
+      '# BUGS-resolved.md — Mirror Box Orchestrator',
+      '# Archive of resolved, completed, superseded, and fixed bugs.',
+      '# Reference only. Do not edit or re-open here — log new bugs in BUGS.md.',
+      '',
+      '---',
+    ].join('\n') + '\n',
+    'CHANGELOG.md': [
+      '# CHANGELOG.md',
+      '## [0.1.00] — 2026-03-21 — Governance Bootstrap',
+      '### Added',
+      '- Seeded governance documents during onboarding for projects that did not already have them.',
+    ].join('\n') + '\n',
+  };
+
+  for (const [name, content] of Object.entries(defaults)) {
+    const target = path.join(govDir, name);
+    if (!fs.existsSync(target)) {
+      fs.writeFileSync(target, content, 'utf8');
+    }
+  }
 }
 
 function printScanBriefing(briefing) {
@@ -553,6 +699,8 @@ Feel free to ask for clarification on any question, or go back to a previous que
     // Phase 5: Atomic Persistence
     profile.projectRoot = path.resolve(projectRoot); // BUG-086 fix round 2
     persistProfile(projectRoot, profile);
+    ensureGovernanceDocs(projectRoot);
+    updateSpecFromProfile(projectRoot, profile);
     console.log(`\n[Onboarding] Done. Working agreement locked in.`);
     return profile;
 
@@ -594,6 +742,8 @@ async function checkOnboarding(projectRoot, options = {}) {
   }
 
   if (needsOnboarding && autoRun && isTTY()) {
+    ensureGovernanceDocs(projectRoot);
+    ensureSpecDoc(projectRoot);
     await runOnboarding(projectRoot, profile);
     needsOnboarding = false;
     reason = null;
@@ -610,4 +760,10 @@ module.exports = {
   scanProject,
   buildScanBriefing,
   renderPlanAsText,
+  validateVerificationCommands,
+  validateDangerZones,
+  validateSubjectRoot,
+  ensureGovernanceDocs,
+  ensureSpecDoc,
+  updateSpecFromProfile,
 };

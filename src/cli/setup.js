@@ -346,109 +346,333 @@ const cy  = s => `\x1b[1m\x1b[36m${s}${R}`;
 const dim = s => `\x1b[2m${s}${R}`;
 const wb  = s => `\x1b[1m${s}${R}`;
 const red = s => `\x1b[31m${s}${R}`;
+const MODEL_CATALOG_CACHE = path.join(CONFIG_DIR, 'openrouter-model-catalog.json');
+
+const STAGE_CHOOSER = [
+  { key: 'classifier', label: 'Classifier', desc: 'route and risk triage', baseRole: 'operator', matchers: ['gemini', 'flash', 'haiku'] },
+  { key: 'operator', label: 'Operator', desc: 'session anchor', baseRole: 'operator', matchers: ['gemini', 'flash', 'haiku'] },
+  { key: 'architecturePlanner', label: 'Planner A', desc: 'architecture plan derivation', baseRole: 'planner', matchers: ['sonnet', 'gemini', 'pro', 'reasoning'] },
+  { key: 'componentPlanner', label: 'Planner B', desc: 'independent plan derivation', baseRole: 'planner', matchers: ['sonnet', 'gemini', 'pro', 'reasoning'] },
+  { key: 'reviewer', label: 'Reviewer', desc: 'code critic', baseRole: 'reviewer', matchers: ['sonnet', 'gemini', 'pro', 'coder'] },
+  { key: 'tiebreaker', label: 'Tiebreaker', desc: 'final arbiter', baseRole: 'tiebreaker', matchers: ['opus', 'gemini', 'pro', 'sonnet'] },
+  { key: 'onboarding', label: 'Onboarding', desc: 'working agreement synthesis', baseRole: 'operator', matchers: ['sonnet', 'haiku', 'flash'] },
+];
+
+function cloneRoute(route) {
+  return route ? JSON.parse(JSON.stringify(route)) : null;
+}
+
+function syncStageConfig(cfg) {
+  const next = { ...cfg };
+  if (!next.classifier) next.classifier = cloneRoute(next.operator);
+  if (!next.architecturePlanner) next.architecturePlanner = cloneRoute(next.planner);
+  if (!next.componentPlanner) next.componentPlanner = cloneRoute(next.planner);
+  if (!next.onboarding) {
+    next.onboarding = next.tiebreaker && next.tiebreaker.provider === 'openrouter'
+      ? cloneRoute(next.tiebreaker)
+      : cloneRoute(next.operator);
+  }
+  if (!next.planner) next.planner = cloneRoute(next.architecturePlanner || next.componentPlanner);
+  return next;
+}
+
+function defaultCatalogResponse() {
+  return { fetchedAt: null, source: 'unavailable', models: [] };
+}
+
+function readCachedCatalog() {
+  try {
+    if (!fs.existsSync(MODEL_CATALOG_CACHE)) return defaultCatalogResponse();
+    const parsed = JSON.parse(fs.readFileSync(MODEL_CATALOG_CACHE, 'utf8'));
+    return {
+      fetchedAt: parsed.fetchedAt || null,
+      source: 'cache',
+      models: Array.isArray(parsed.models) ? parsed.models : [],
+    };
+  } catch (_) {
+    return defaultCatalogResponse();
+  }
+}
+
+function writeCatalogCache(payload) {
+  try {
+    fs.mkdirSync(path.dirname(MODEL_CATALOG_CACHE), { recursive: true });
+    fs.writeFileSync(MODEL_CATALOG_CACHE, JSON.stringify(payload, null, 2), 'utf8');
+  } catch (_) {
+    // best-effort cache
+  }
+}
+
+function fetchOpenRouterCatalog(timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'openrouter.ai',
+      port: 443,
+      path: '/api/v1/models',
+      method: 'GET',
+      timeout: timeoutMs,
+    }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(body);
+          const models = Array.isArray(json.data)
+            ? json.data
+                .filter((entry) => entry && entry.id)
+                .map((entry) => ({
+                  id: entry.id,
+                  name: entry.name || entry.id,
+                  contextLength: entry.context_length || 0,
+                  promptPrice: parseFloat(entry.pricing?.prompt || '0') || 0,
+                  completionPrice: parseFloat(entry.pricing?.completion || '0') || 0,
+                }))
+                .sort((a, b) => a.id.localeCompare(b.id))
+            : [];
+          const payload = { fetchedAt: new Date().toISOString(), models };
+          writeCatalogCache(payload);
+          resolve({ fetchedAt: payload.fetchedAt, source: 'live', models });
+        } catch (_) {
+          resolve(readCachedCatalog());
+        }
+      });
+    });
+
+    req.on('error', () => resolve(readCachedCatalog()));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(readCachedCatalog());
+    });
+    req.end();
+  });
+}
+
+function formatRoute(route) {
+  if (!route) return 'unassigned';
+  if (route.provider === 'cli') return `${route.binary || route.model} (CLI)`;
+  if (route.provider === 'local') return `${route.model} (local)`;
+  return `${route.provider} / ${route.model}`;
+}
 
 function buildDefaultConfig(d) {
   const operator = d.geminiCLI
-    ? { provider: 'google',     model: 'gemini-2.5-flash' }
+    ? { provider: 'google', model: 'gemini-2.5-flash' }
     : d.anthropicKey
-    ? { provider: 'anthropic',  model: 'claude-haiku-4-5-20251001' }
-    : { provider: 'google',     model: 'gemini-2.5-flash' };
+    ? { provider: 'anthropic', model: 'claude-haiku-4-5-20251001' }
+    : { provider: 'google', model: 'gemini-2.5-flash' };
 
-  const largeR  = d.ollamaModels.find(n => /70b|72b|reasoning|qwq|deepseek-r/i.test(n));
+  const largeR = d.ollamaModels.find((name) => /70b|72b|reasoning|qwq|deepseek-r/i.test(name));
   const planner = largeR
-    ? { provider: 'ollama',     model: largeR }
+    ? { provider: 'ollama', model: largeR }
     : d.geminiCLI
-    ? { provider: 'google',     model: 'gemini-2.5-flash' }
+    ? { provider: 'google', model: 'gemini-2.5-pro' }
     : d.claudeCLI
     ? { provider: 'claude-cli', model: 'claude-sonnet-4-6' }
-    : { provider: 'google',     model: 'gemini-2.5-flash' };
+    : { provider: 'google', model: 'gemini-2.5-pro' };
 
-  const largeC   = d.ollamaModels.find(n => /30b|34b|coder|codestral|deepseek.*coder/i.test(n));
+  const largeC = d.ollamaModels.find((name) => /30b|34b|coder|codestral|deepseek.*coder/i.test(name));
   const reviewer = largeC
-    ? { provider: 'ollama',     model: largeC }
+    ? { provider: 'ollama', model: largeC }
     : d.claudeCLI
     ? { provider: 'claude-cli', model: 'claude-sonnet-4-6' }
-    : { provider: 'google',     model: 'gemini-2.5-pro' };
+    : { provider: 'google', model: 'gemini-2.5-pro' };
 
   const tiebreaker = d.claudeCLI
     ? { provider: 'claude-cli', model: 'claude-opus-4-6' }
     : d.anthropicKey
-    ? { provider: 'anthropic',  model: 'claude-opus-4-6' }
+    ? { provider: 'anthropic', model: 'claude-opus-4-6' }
     : d.openrouterKey
     ? { provider: 'openrouter', model: 'anthropic/claude-opus-4-6' }
-    : { provider: 'google',     model: 'gemini-2.5-pro' };
+    : { provider: 'google', model: 'gemini-2.5-pro' };
 
   const cli = d.claudeCLI ? 'claude' : d.codexCLI ? 'codex' : 'gemini';
-
-  return {
-    operator, planner, reviewer, tiebreaker,
-    executor:  { cli },
+  const config = {
+    classifier: cloneRoute(operator),
+    operator,
+    planner,
+    architecturePlanner: cloneRoute(planner),
+    componentPlanner: cloneRoute(planner),
+    reviewer,
+    tiebreaker,
+    onboarding: d.claudeCLI
+      ? { provider: 'claude-cli', model: 'claude-sonnet-4-6' }
+      : d.openrouterKey
+      ? { provider: 'openrouter', model: 'anthropic/claude-sonnet-4-6' }
+      : cloneRoute(operator),
+    executor: { cli },
     streaming: {
       enabled: true,
-      roles: {}
+      roles: {},
     },
     devServer: '',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+
+  return syncStageConfig(config);
 }
 
-function getRoleOptions(role, d) {
+function scoreCatalogModel(model, matchers = []) {
+  const haystack = `${model.id} ${model.name}`.toLowerCase();
+  let score = 0;
+  matchers.forEach((token, index) => {
+    if (haystack.includes(token.toLowerCase())) score += Math.max(1, 8 - index);
+  });
+  if (haystack.includes('free')) score -= 3;
+  if (model.contextLength >= 200000) score += 1;
+  return score;
+}
+
+function pickRecommendedCatalogModel(catalog, fallbackRoute, matchers = []) {
+  const models = Array.isArray(catalog?.models) ? catalog.models : [];
+  const fallbackId = fallbackRoute?.provider === 'openrouter' ? fallbackRoute.model : null;
+  if (fallbackId) {
+    const exact = models.find((entry) => entry.id === fallbackId);
+    if (exact) return exact;
+  }
+
+  const ranked = models
+    .map((entry) => ({ entry, score: scoreCatalogModel(entry, matchers) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.entry.id.localeCompare(b.entry.id));
+
+  return ranked.length > 0 ? ranked[0].entry : null;
+}
+
+function getRoleOptions(roleKey, d, catalog, defaultVal) {
   const opts = [];
-  const push = (label, provider, model) => opts.push({ label, provider, model });
+  const seen = new Set();
+  const push = (label, provider, model, extra = {}) => {
+    const key = `${provider}:${model || extra.binary || label}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    opts.push({ label, provider, model, ...extra });
+  };
+
+  const stageMeta = STAGE_CHOOSER.find((entry) => entry.key === roleKey) || STAGE_CHOOSER[0];
+  const role = stageMeta.baseRole;
+  const recommendation = pickRecommendedCatalogModel(catalog, defaultVal, stageMeta.matchers);
+
+  if (recommendation) {
+    push(`OpenRouter → ${recommendation.id}  ★ recommended`, 'openrouter', recommendation.id);
+  }
 
   if (role === 'operator') {
-    if (d.geminiCLI)     push('gemini CLI → gemini-2.5-flash  ★',           'google',     'gemini-2.5-flash');
-    if (d.claudeCLI)     push('claude CLI → claude-haiku-4-5',               'claude-cli', 'claude-haiku-4-5-20251001');
-    if (d.openrouterKey) push('OpenRouter → google/gemini-2.5-flash',        'openrouter', 'google/gemini-2.5-flash');
+    if (d.geminiCLI) push('gemini CLI → gemini-2.5-flash', 'google', 'gemini-2.5-flash');
+    if (d.claudeCLI) push('claude CLI → claude-haiku-4-5', 'claude-cli', 'claude-haiku-4-5-20251001');
+    if (d.openrouterKey) {
+      ['google/gemini-2.5-flash', 'anthropic/claude-sonnet-4-6', 'anthropic/claude-haiku-4-5'].forEach((id) => {
+        push('OpenRouter → ' + id, 'openrouter', id);
+      });
+    }
   }
+
   if (role === 'planner') {
-    d.ollamaModels.filter(n => /70b|72b|reasoning|qwq/i.test(n)).slice(0, 2)
-      .forEach(n => push(`Ollama → ${n}`, 'ollama', n));
-    if (d.geminiCLI)     push('gemini CLI → gemini-2.5-pro  ★',             'google',     'gemini-2.5-pro');
-    if (d.claudeCLI)     push('claude CLI → claude-sonnet-4-6',              'claude-cli', 'claude-sonnet-4-6');
-    if (d.openrouterKey) push('OpenRouter → google/gemini-2.5-pro',          'openrouter', 'google/gemini-2.5-pro');
+    d.ollamaModels.filter((name) => /70b|72b|reasoning|qwq/i.test(name)).slice(0, 2)
+      .forEach((name) => push(`Ollama → ${name}`, 'ollama', name));
+    if (d.geminiCLI) push('gemini CLI → gemini-2.5-pro', 'google', 'gemini-2.5-pro');
+    if (d.claudeCLI) push('claude CLI → claude-sonnet-4-6', 'claude-cli', 'claude-sonnet-4-6');
+    if (d.openrouterKey) {
+      ['google/gemini-2.5-pro', 'anthropic/claude-sonnet-4-6', 'openai/gpt-5-mini'].forEach((id) => {
+        push('OpenRouter → ' + id, 'openrouter', id);
+      });
+    }
   }
+
   if (role === 'reviewer') {
-    d.ollamaModels.filter(n => /coder|codestral|deepseek.*coder/i.test(n)).slice(0, 2)
-      .forEach(n => push(`Ollama → ${n}`, 'ollama', n));
-    if (d.claudeCLI)     push('claude CLI → claude-sonnet-4-6  ★',          'claude-cli', 'claude-sonnet-4-6');
-    if (d.geminiCLI)     push('gemini CLI → gemini-2.5-pro',                 'google',     'gemini-2.5-pro');
-    if (d.openrouterKey) push('OpenRouter → anthropic/claude-sonnet-4-6',    'openrouter', 'anthropic/claude-sonnet-4-6');
+    d.ollamaModels.filter((name) => /coder|codestral|deepseek.*coder/i.test(name)).slice(0, 2)
+      .forEach((name) => push(`Ollama → ${name}`, 'ollama', name));
+    if (d.claudeCLI) push('claude CLI → claude-sonnet-4-6', 'claude-cli', 'claude-sonnet-4-6');
+    if (d.geminiCLI) push('gemini CLI → gemini-2.5-pro', 'google', 'gemini-2.5-pro');
+    if (d.openrouterKey) {
+      ['anthropic/claude-sonnet-4-6', 'google/gemini-2.5-pro', 'openai/gpt-5-mini'].forEach((id) => {
+        push('OpenRouter → ' + id, 'openrouter', id);
+      });
+    }
   }
+
   if (role === 'tiebreaker') {
-    if (d.claudeCLI)     push('claude CLI → claude-opus-4-6  ★',            'claude-cli', 'claude-opus-4-6');
-    if (d.anthropicKey)  push('Anthropic API → claude-opus-4-6',             'anthropic',  'claude-opus-4-6');
-    if (d.openrouterKey) push('OpenRouter → anthropic/claude-opus-4-6',      'openrouter', 'anthropic/claude-opus-4-6');
-    if (d.geminiCLI)     push('gemini CLI → gemini-2.5-pro',                 'google',     'gemini-2.5-pro');
+    if (d.claudeCLI) push('claude CLI → claude-opus-4-6', 'claude-cli', 'claude-opus-4-6');
+    if (d.anthropicKey) push('Anthropic API → claude-opus-4-6', 'anthropic', 'claude-opus-4-6');
+    if (d.openrouterKey) {
+      ['anthropic/claude-opus-4-6', 'google/gemini-2.5-pro', 'openai/gpt-5'].forEach((id) => {
+        push('OpenRouter → ' + id, 'openrouter', id);
+      });
+    }
+    if (d.geminiCLI) push('gemini CLI → gemini-2.5-pro', 'google', 'gemini-2.5-pro');
   }
+
+  const rankedCatalog = (catalog?.models || [])
+    .map((entry) => ({ entry, score: scoreCatalogModel(entry, stageMeta.matchers) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.entry.id.localeCompare(b.entry.id))
+    .slice(0, 6);
+
+  if (d.openrouterKey) {
+    rankedCatalog.forEach(({ entry }) => {
+      push('OpenRouter → ' + entry.id, 'openrouter', entry.id);
+    });
+  }
+
   push('Custom slug (openrouter.ai/models)', 'openrouter', '__custom__');
   return opts;
 }
 
 function ask(rl, question) {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     const prefix = SELF_RUN_WARNING ? `${selfRunWarningBlock()}\n` : '';
-    rl.question(`${prefix}${question}`, a => resolve(a.trim()));
+    rl.question(`${prefix}${question}`, (answer) => resolve(answer.trim()));
   });
 }
 
-async function pickRole(rl, role, defaultVal, d) {
-  const opts = getRoleOptions(role, d);
-  const desc = { operator: 'fast classifier', planner: 'reasoning/plan', reviewer: 'code critic', tiebreaker: 'final arbiter' };
-  console.log(`\n  ${m(role)} — ${dim(desc[role])}`);
-  opts.forEach((o, i) => {
-    const mark = o.model === defaultVal.model ? dim(' ← default') : '';
-    console.log(`    ${m(String(i + 1) + '.')} ${o.label}${mark}`);
+async function pickStageModel(rl, stageMeta, defaultVal, d, catalog) {
+  const opts = getRoleOptions(stageMeta.key, d, catalog, defaultVal);
+  console.log(`\n  ${m(stageMeta.label)} — ${dim(stageMeta.desc)}`);
+  console.log(`    ${dim('recommended:')} ${wb(formatRoute(defaultVal))}`);
+  opts.forEach((option, index) => {
+    const mark = option.model === defaultVal?.model ? dim(' ← default') : '';
+    console.log(`    ${m(String(index + 1) + '.')} ${option.label}${mark}`);
   });
-  const choice = await ask(rl, wb(`  Select [1-${opts.length}] or Enter for default: `));
-  const idx = parseInt(choice, 10) - 1;
-  if (idx < 0 || idx >= opts.length) return defaultVal;
-  if (opts[idx].model === '__custom__') {
-    const slug = await ask(rl, '  Enter model slug (e.g. anthropic/claude-sonnet-4-6): ');
-    return slug ? { provider: 'openrouter', model: slug } : defaultVal;
+
+  const choice = await ask(rl, wb(`  Select [1-${opts.length}] or Enter to keep default: `));
+  const index = parseInt(choice, 10) - 1;
+  if (!choice || Number.isNaN(index) || index < 0 || index >= opts.length) return cloneRoute(defaultVal);
+  const selected = opts[index];
+  if (selected.model === '__custom__') {
+    const slug = await ask(rl, '  Enter model slug (for example anthropic/claude-sonnet-4-6): ');
+    return slug ? { provider: 'openrouter', model: slug } : cloneRoute(defaultVal);
   }
-  return { provider: opts[idx].provider, model: opts[idx].model };
+  return { provider: selected.provider, model: selected.model };
+}
+
+async function configureStageModels(rl, defaults, d, catalog) {
+  let cfg = syncStageConfig({ ...defaults });
+  console.log(cy('\n── Per-Stage Model Chooser ─────────────────────────────────'));
+  if (catalog.models.length > 0) {
+    const freshness = catalog.fetchedAt ? ` (${catalog.source} ${catalog.fetchedAt.slice(0, 10)})` : '';
+    console.log(dim(`  OpenRouter catalog loaded${freshness}.`));
+  } else {
+    console.log(dim('  OpenRouter catalog unavailable — falling back to detected providers and manual slugs.'));
+  }
+
+  for (const stageMeta of STAGE_CHOOSER) {
+    const currentDefault = cloneRoute(cfg[stageMeta.key] || cfg[stageMeta.baseRole] || defaults[stageMeta.baseRole]);
+    const selected = await pickStageModel(rl, stageMeta, currentDefault, d, catalog);
+    cfg[stageMeta.key] = selected;
+    if (stageMeta.key === 'architecturePlanner' || stageMeta.key === 'componentPlanner') {
+      cfg.planner = cloneRoute(cfg.architecturePlanner);
+    }
+  }
+
+  cfg.operator = cloneRoute(cfg.operator || defaults.operator);
+  cfg.classifier = cloneRoute(cfg.classifier || cfg.operator);
+  cfg.architecturePlanner = cloneRoute(cfg.architecturePlanner || cfg.planner);
+  cfg.componentPlanner = cloneRoute(cfg.componentPlanner || cfg.planner);
+  cfg.reviewer = cloneRoute(cfg.reviewer || defaults.reviewer);
+  cfg.tiebreaker = cloneRoute(cfg.tiebreaker || defaults.tiebreaker);
+  cfg.onboarding = cloneRoute(cfg.onboarding || cfg.operator);
+  cfg.planner = cloneRoute(cfg.architecturePlanner || cfg.planner);
+  return syncStageConfig(cfg);
 }
 
 function validateConfig() {
@@ -486,17 +710,17 @@ async function runSetup() {
   console.log(cy('── CLI Tools ──────────────────────────────────────────────'));
   console.log(`  claude  ${d.claudeCLI ? cy('✓ found') : red('✗ not found')}`);
   console.log(`  gemini  ${d.geminiCLI ? cy('✓ found') : red('✗ not found')}`);
-  console.log(`  codex   ${d.codexCLI  ? cy('✓ found') : red('✗ not found')}`);
+  console.log(`  codex   ${d.codexCLI ? cy('✓ found') : red('✗ not found')}`);
   console.log(cy('\n── Local Models (Ollama) ──────────────────────────────────'));
   if (d.ollamaModels.length === 0) {
     console.log(dim('  No Ollama instance found (or no models loaded)'));
   } else {
-    d.ollamaModels.slice(0, 8).forEach(n => console.log(`  ${m('•')} ${n}`));
+    d.ollamaModels.slice(0, 8).forEach((name) => console.log(`  ${m('•')} ${name}`));
     if (d.ollamaModels.length > 8) console.log(dim(`  ... and ${d.ollamaModels.length - 8} more`));
   }
   console.log(cy('\n── API Keys ───────────────────────────────────────────────'));
   console.log(`  OPENROUTER_API_KEY  ${d.openrouterKey ? cy('✓ set') : dim('○ not set')}`);
-  console.log(`  ANTHROPIC_API_KEY   ${d.anthropicKey  ? cy('✓ set') : dim('○ not set')}`);
+  console.log(`  ANTHROPIC_API_KEY   ${d.anthropicKey ? cy('✓ set') : dim('○ not set')}`);
   console.log('');
 
   if (!d.claudeCLI && !d.geminiCLI && !d.codexCLI) {
@@ -525,31 +749,41 @@ async function runSetup() {
       }
     }
 
+    const catalog = await fetchOpenRouterCatalog();
     const defaults = buildDefaultConfig(d);
     console.log(cy('\n── Recommended Config ─────────────────────────────────────'));
-    console.log(`  Operator:    ${wb(defaults.operator.provider   + ' / ' + defaults.operator.model)}`);
-    console.log(`  Planner:     ${wb(defaults.planner.provider    + ' / ' + defaults.planner.model)}`);
-    console.log(`  Reviewer:    ${wb(defaults.reviewer.provider   + ' / ' + defaults.reviewer.model)}`);
-    console.log(`  Tiebreaker:  ${wb(defaults.tiebreaker.provider + ' / ' + defaults.tiebreaker.model)}`);
+    console.log(`  Classifier:  ${wb(formatRoute(defaults.classifier))}`);
+    console.log(`  Operator:    ${wb(formatRoute(defaults.operator))}`);
+    console.log(`  Planner A:   ${wb(formatRoute(defaults.architecturePlanner))}`);
+    console.log(`  Planner B:   ${wb(formatRoute(defaults.componentPlanner))}`);
+    console.log(`  Reviewer:    ${wb(formatRoute(defaults.reviewer))}`);
+    console.log(`  Tiebreaker:  ${wb(formatRoute(defaults.tiebreaker))}`);
+    console.log(`  Onboarding:  ${wb(formatRoute(defaults.onboarding))}`);
     console.log(`  Executor:    ${wb(defaults.executor.cli + ' (local CLI)')}`);
+    if (catalog.models.length > 0) {
+      console.log(dim(`  OpenRouter catalog: ${catalog.models.length} models (${catalog.source})`));
+    }
     console.log('');
 
-    const accept = await ask(rl, wb('Use this config? [Y/n]: '));
-    const cfg = { ...defaults, updatedAt: new Date().toISOString() };
+    const accept = await ask(rl, wb('Use the recommended stage assignments? [Y/n]: '));
+    let cfg = { ...defaults, updatedAt: new Date().toISOString() };
 
     if (accept.toLowerCase() === 'n' || accept.toLowerCase() === 'no') {
-      console.log(cy('\n── Manual Role Assignment ──────────────────────────────────'));
-      cfg.operator   = await pickRole(rl, 'operator',   defaults.operator,   d);
-      cfg.planner    = await pickRole(rl, 'planner',    defaults.planner,    d);
-      cfg.reviewer   = await pickRole(rl, 'reviewer',   defaults.reviewer,   d);
-      cfg.tiebreaker = await pickRole(rl, 'tiebreaker', defaults.tiebreaker, d);
+      cfg = await configureStageModels(rl, cfg, d, catalog);
+    } else {
+      const reviewStages = await ask(rl, 'Review per-stage model chooser anyway? [y/N]: ');
+      if (reviewStages.toLowerCase() === 'y' || reviewStages.toLowerCase() === 'yes') {
+        cfg = await configureStageModels(rl, cfg, d, catalog);
+      }
     }
+
+    cfg = syncStageConfig(cfg);
 
     console.log(cy('\n── Streaming (Section 33) ──────────────────────────────────'));
     const streamGlobal = await ask(rl, '  Enable real-time output streaming? [Y/n]: ');
     cfg.streaming = {
       enabled: streamGlobal.toLowerCase() !== 'n' && streamGlobal.toLowerCase() !== 'no',
-      roles: {}
+      roles: {},
     };
 
     const devCmd = await ask(rl, `${m('Dev server command')} ${dim('(e.g. "npm run dev", Enter to skip): ')}`);
@@ -563,24 +797,25 @@ async function runSetup() {
         const entries = fs.readdirSync(projectRoot);
         if (entries.includes('lib') && fs.statSync(path.join(projectRoot, 'lib')).isDirectory()) {
           defaultRoots = ['lib'];
-        } else {
-          const hasSrcFiles = entries.some(e => e.endsWith('.js') || e.endsWith('.py') || e.endsWith('.ts'));
-          if (hasSrcFiles) defaultRoots = ['.'];
+        } else if (entries.some((entry) => entry.endsWith('.js') || entry.endsWith('.py') || entry.endsWith('.ts'))) {
+          defaultRoots = ['.'];
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      // ignore project scan-root detection failure
+    }
 
     const rootInput = await ask(rl, `  Scan roots (comma separated) [${defaultRoots.join(',')}]: `);
-    const scanRoots = rootInput ? rootInput.split(',').map(s => s.trim()).filter(Boolean) : defaultRoots;
+    const scanRoots = rootInput ? rootInput.split(',').map((segment) => segment.trim()).filter(Boolean) : defaultRoots;
 
     const localConfigDir = path.join(projectRoot, '.mbo');
     const localConfigPath = path.join(localConfigDir, 'config.json');
     let localCfg = {};
     try {
-      if (fs.existsSync(localConfigPath)) {
-        localCfg = JSON.parse(fs.readFileSync(localConfigPath, 'utf8'));
-      }
-    } catch (_) {}
+      if (fs.existsSync(localConfigPath)) localCfg = JSON.parse(fs.readFileSync(localConfigPath, 'utf8'));
+    } catch (_) {
+      localCfg = {};
+    }
     localCfg.scanRoots = scanRoots;
     localCfg.mcpClients = require('../utils/update-client-configs').buildClientRegistry(d);
     if (!fs.existsSync(localConfigDir)) fs.mkdirSync(localConfigDir, { recursive: true });
@@ -591,7 +826,6 @@ async function runSetup() {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
 
-    // BUG-152: Proactively start daemon in setup flow.
     try {
       process.stdout.write(dim('\nStarting graph server...\n'));
       await installMCPDaemon(projectRoot);
@@ -616,4 +850,5 @@ module.exports = {
   validateConfig,
   persistInstallMetadata,
   CONFIG_PATH,
+  fetchOpenRouterCatalog,
 };

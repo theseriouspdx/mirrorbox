@@ -168,12 +168,14 @@ class Operator {
       currentTask: null,
       currentStage: 'classification',
       activeModel: 'operator',
+      activeAction: 'Ready for the next instruction',
       filesInScope: [],
       recoveryAttempts: 0,
       blockCounter: 0,
       progressSummary: '',
       graphSummary: '',
       pendingDecision: null,
+      stageTokenTotals: {},
       mcp: {
         url: null,
         projectId: null
@@ -188,11 +190,18 @@ class Operator {
     this.didOrchestrator = new DIDOrchestrator({
       eventStore,
       // DDR-005: Stream agent messages to operator window as produced.
-      emit: (role, text) => process.stdout.write(`\n[${role}] ${text}\n`)
+      emit: (role, text) => {
+        this._emitTuiChunk(role, text, {
+          stage: this.stateSummary.currentStage || 'planning',
+          model: this.stateSummary.activeModel || 'unknown'
+        });
+        if (typeof this.onChunk !== 'function') process.stdout.write(`\n[${role}] ${text}\n`);
+      }
     });
     this.didStreamBuffer = [];
     this.userHintBuffer = [];
     this.abortController = null;
+    this.onChunk = null;
     this._pipelineRunning = false;
     this.onboardingState = {
       active: false,
@@ -207,12 +216,102 @@ class Operator {
     this.loadHistory();
   }
 
+  _stageActionLabel(stage) {
+    const actions = {
+      idle: 'Ready for the next instruction',
+      onboarding: 'Building the working agreement',
+      classification: 'Classifying the request',
+      context_pinning: 'Pinning assumptions and blockers',
+      planning: 'Deriving the implementation plan',
+      tiebreaker_plan: 'Resolving plan disagreement',
+      code_derivation: 'Deriving implementation code',
+      tiebreaker_code: 'Resolving code disagreement',
+      dry_run: 'Running dry-run validation',
+      implement: 'Applying scoped changes',
+      audit_gate: 'Waiting for audit decision',
+      state_sync: 'Synchronizing state after approval',
+      knowledge_update: 'Refreshing graph knowledge',
+      error: 'Recovering from a pipeline error'
+    };
+    return actions[stage] || 'Working';
+  }
+
+  _emitTuiChunk(role, chunk, meta = {}) {
+    if (typeof this.onChunk === 'function' && chunk) this.onChunk({ role, chunk, ...meta });
+  }
+
+  _setStage(stage, activeAction = null) {
+    this.stateSummary.currentStage = stage;
+    this.stateSummary.activeAction = activeAction || this._stageActionLabel(stage);
+    stateManager.snapshot(this.stateSummary, 'mirror');
+  }
+
+  _setActiveModel(model) {
+    this.stateSummary.activeModel = model || 'unknown';
+  }
+
+  _recordStageUsage(stage, model, tokens = 0) {
+    if (!stage) return;
+    if (!this.stateSummary.stageTokenTotals || typeof this.stateSummary.stageTokenTotals !== 'object') {
+      this.stateSummary.stageTokenTotals = {};
+    }
+    const current = this.stateSummary.stageTokenTotals[stage] || { tokens: 0, model: model || 'unknown' };
+    const nextTokens = Number.isFinite(tokens) ? tokens : 0;
+    current.tokens = Math.max(current.tokens || 0, nextTokens);
+    current.model = model || current.model || 'unknown';
+    this.stateSummary.stageTokenTotals[stage] = current;
+    statsManager.recordStageSnapshot({ stage, model: current.model, tokens: current.tokens });
+  }
+
+  _buildModelCallbacks(stage, roleLabel = null) {
+    return {
+      stage,
+      onChunk: ({ role, chunk, sequence, model }) => {
+        this._emitTuiChunk(role || roleLabel || 'model', chunk, { sequence, stage, model });
+      },
+      onModelResolved: ({ role, model }) => {
+        this._setActiveModel(model);
+        const roleName = roleLabel || role;
+        if (roleName) {
+          this.stateSummary.activeAction = this._stageActionLabel(stage) + ' · ' + roleName;
+        }
+        const existing = this.stateSummary.stageTokenTotals?.[stage]?.tokens || 0;
+        this._recordStageUsage(stage, model, existing);
+      },
+      onUsageRecorded: ({ model, actualTokens }) => {
+        const existing = this.stateSummary.stageTokenTotals?.[stage]?.tokens || 0;
+        this._recordStageUsage(stage, model, existing + (actualTokens || 0));
+      }
+    };
+  }
+
+  _callModel(role, prompt, context = {}, hardState = null, protectedHashes = [], runId = null, options = {}) {
+    const stage = options.stage || this.stateSummary.currentStage || 'idle';
+    const internal = this._buildModelCallbacks(stage, options.roleLabel || role);
+    return callModel(role, prompt, context, hardState, protectedHashes, runId, {
+      ...options,
+      stage,
+      onChunk: (payload) => {
+        internal.onChunk(payload);
+        if (typeof options.onChunk === 'function') options.onChunk(payload);
+      },
+      onModelResolved: (payload) => {
+        internal.onModelResolved(payload);
+        if (typeof options.onModelResolved === 'function') options.onModelResolved(payload);
+      },
+      onUsageRecorded: (payload) => {
+        internal.onUsageRecorded(payload);
+        if (typeof options.onUsageRecorded === 'function') options.onUsageRecorded(payload);
+      }
+    });
+  }
+
   configureOnboarding(status) {
     if (!status || !status.needsOnboarding) return;
     this.onboardingState.active = true;
     this.onboardingState.reason = status.reason || 'missing_profile';
     this.onboardingState.profile = status.profile || null;
-    this.stateSummary.currentStage = 'onboarding';
+    this._setStage('onboarding');
   }
 
   startOnboardingDialogue() {
@@ -317,7 +416,7 @@ class Operator {
       });
 
       this.onboardingState.active = false;
-      this.stateSummary.currentStage = 'classification';
+      this._setStage('classification');
       return {
         status: 'onboarding_complete',
         prompt: `Onboarding saved. Prime directive locked. You can now describe the task you want to run.`,
@@ -943,7 +1042,7 @@ CONFIDENCE:
 User request: "${userMessage}"`;
 
     try {
-      const response = await callModel('classifier', prompt, input, hardState, [], null, { expectJson: false });
+      const response = await this._callModel('classifier', prompt, input, hardState, [], null, { expectJson: false, stage: 'classification', roleLabel: 'classifier' });
       if (process.env.MBO_DEBUG) console.error(`[DEBUG] Classifier response: ${response}`);
       const classification = this._safeParseJSON(response, null, 'classifier');
       
@@ -1095,7 +1194,7 @@ User request: "${userMessage}"`;
    * Grants write access, applies code to filesystem, runs validator.py.
    */
   async runStage6(code, files) {
-    this.stateSummary.currentStage = 'implement';
+    this._setStage('implement');
     const modifiedFiles = [];
 
     if (this._isWorkflowFallbackCode(code)) {
@@ -1154,7 +1253,7 @@ User request: "${userMessage}"`;
    * Presents diff + validator output + summary. Sets pendingAudit for REPL to resolve.
    */
   async runStage7(writeResult) {
-    this.stateSummary.currentStage = 'audit_gate';
+    this._setStage('audit_gate');
 
     let diff = '';
     try { diff = execSync('git diff HEAD', { cwd: RUNTIME_ROOT, encoding: 'utf8' }); }
@@ -1199,7 +1298,7 @@ User request: "${userMessage}"`;
    * §6B / §12 Steps 6-8: State Sync, Lock, Baseline
    */
   async runStage8(classification, routing) {
-    this.stateSummary.currentStage = 'state_sync';
+    this._setStage('state_sync');
 
     // §12 Step 7: Lock src
     spawnSync('python3', [path.join(MBO_ROOT, 'bin/handshake.py'), '--revoke'], {
@@ -1221,7 +1320,7 @@ User request: "${userMessage}"`;
     // Section 15: Stage 11 must run after approval/state sync path.
     await this.runStage11();
 
-    this.stateSummary.currentStage = 'idle';
+    this._setStage('idle');
     this.stateSummary.currentTask = null; // BUG-174: clear placeholder; never surface heuristic label after cycle completion
   }
 
@@ -1301,10 +1400,11 @@ Preserve all active task details, key architectural decisions, and the current H
 Condense the history into approximately 2000 tokens while maintaining causal links between events.
 The output will be used as the new system context.`;
 
-    const summary = await callModel('operator', summarizationPrompt, { sessionHistory: this.sessionHistory }, hardState, [], null, options);
+    const summary = await this._callModel('operator', summarizationPrompt, { sessionHistory: this.sessionHistory }, hardState, [], null, { ...options, stage: this.stateSummary.currentStage || 'idle', roleLabel: 'operator' });
     
     this.sessionHistory = [{ role: 'system', content: `[SESSION SUMMARY] ${summary}` }];
     this.stateSummary.progressSummary = summary.substring(0, 200);
+    this.stateSummary.activeAction = this._stageActionLabel(this.stateSummary.currentStage || 'idle');
     console.error(`[CONTEXT RESET] Session summarized at ${new Date().toISOString()}. ${condensedCount} messages condensed.`);
   }
 
@@ -1353,7 +1453,7 @@ The output will be used as the new system context.`;
     this.stateSummary.worldId = lockedWorld;
 
     if (classification.route === 'analysis' && classification.risk === 'low' && lockedFiles.length === 0) {
-      const answer = await callModel('operator', `User is asking for information. Answer based on current state: ${userMessage}`, { classification }, this.getHardState());
+      const answer = await this._callModel('operator', `User is asking for information. Answer based on current state: ${userMessage}`, { classification }, this.getHardState(), [], null, { stage: 'idle', roleLabel: 'operator' });
       // BUG-157: Fallback for empty or purely conversational model answers
       const finalPrompt = (answer && answer.trim()) ? answer : "I have reviewed the current project state but do not have a specific answer. Could you clarify your request?";
       return { status: 'ready', prompt: finalPrompt };
@@ -1369,7 +1469,7 @@ The output will be used as the new system context.`;
     const { _source, ...cleanClassification } = classification;
     eventStore.append(classificationSource, 'operator', { classification: cleanClassification, routing }, 'mirror');
 
-    this.stateSummary.currentStage = 'classification';
+    this._setStage('classification');
     this.stateSummary.filesInScope = cleanClassification.files;
     this.stateSummary.currentTask = cleanClassification.rationale || userMessage.slice(0, 120);
     stateManager.snapshot(this.stateSummary, 'mirror');
@@ -1414,6 +1514,7 @@ The output will be used as the new system context.`;
       implement:        'Writing files and running validator.',
       audit_gate:       'Audit gate — type "approved" or "reject".',
       state_sync:       'Syncing state after approval.',
+      onboarding:       'Running onboarding.',
       knowledge_update: 'Updating intelligence graph.',
     };
     const description = descriptions[stage] || `Running: ${stage}.`;
@@ -1623,11 +1724,11 @@ The output will be used as the new system context.`;
    */
   async runStage3D(conflict, classification, routing) {
     const options = { signal: this.abortController?.signal };
-    this.stateSummary.currentStage = 'tiebreaker_plan';
+    this._setStage('tiebreaker_plan');
     const hardState = this.getHardState();
     const prompt = `Arbitrate the following plan conflict and produce a single convergent plan in plain English.\nConflict: ${conflict}\nTask: ${classification.rationale}\n\nRespond in these sections:\nRATIONALE:\n<Why this resolution wins.>\n\nFILES:\n<One file path per line, or 'none'>\n\nINVARIANTS:\n<Constraints preserved>\n\nFINAL DIFF:\n<Unified diff if changes are needed, otherwise say read-only.>\n\nVERDICT:\n<GO or ESCALATE_TO_HUMAN with specific reason>.`;
     
-    const response = await callModel('tiebreaker', prompt, { classification, routing }, hardState, [], null, { ...options, expectJson: false });
+    const response = await this._callModel('tiebreaker', prompt, { classification, routing }, hardState, [], null, { ...options, expectJson: false, stage: 'tiebreaker_plan', roleLabel: 'tiebreaker' });
     const plan = this._safeParseJSON(response, null, 'tiebreaker');
     if (!plan) throw new Error("[Operator] Tiebreaker plan parse failure.\n[RECOMMENDED ACTION]: Check model connectivity or retry the task.");
     eventStore.append('TIEBREAKER_PLAN', 'operator', { plan }, 'mirror');
@@ -1660,7 +1761,7 @@ The output will be used as the new system context.`;
 
     try {
       // BUG-173: strip `context` (unbounded session history) — ledger only needs classification + routing.
-      const response = await callModel('classifier', prompt, { classification, routing }, hardState, [], null, { ...options, expectJson: false });
+      const response = await this._callModel('classifier', prompt, { classification, routing }, hardState, [], null, { ...options, expectJson: false, stage: 'context_pinning', roleLabel: 'classifier' });
       
       // BUG-159: Parse plain-English sections instead of forcing JSON.
       const assumptionsRaw = this._extractSection(response, 'ASSUMPTIONS') || '';
@@ -1733,7 +1834,7 @@ The output will be used as the new system context.`;
    * Section 27: Assumption Ledger
    */
   async runStage1_5(classification, routing) {
-    this.stateSummary.currentStage = 'context_pinning';
+    this._setStage('context_pinning');
 
     // 1. Default search for classification files or SPEC.md
     const context = await this.callMCPTool('graph_search', { pattern: classification.files[0] || 'SPEC.md' });
@@ -1777,12 +1878,18 @@ The output will be used as the new system context.`;
       files: locks.lockedFiles || classification.files 
     };
     const options = { signal: this.abortController?.signal };
-    this.stateSummary.currentStage = 'planning';
+    this._setStage('planning');
     const hardState = this.getHardState();
 
     // Task 1.1-H24: Tier 2/3 must trigger DID automatically.
     if (this.didOrchestrator.shouldRunDID(routing)) {
-      const didPackage = await this.didOrchestrator.run(effectiveClassification, routing, hardState, options);
+      const didPackage = await this.didOrchestrator.run(effectiveClassification, routing, hardState, {
+        ...options,
+        stage: 'planning',
+        onChunk: this._buildModelCallbacks('planning').onChunk,
+        onModelResolved: this._buildModelCallbacks('planning').onModelResolved,
+        onUsageRecorded: this._buildModelCallbacks('planning').onUsageRecorded,
+      });
 
       if (didPackage.did.verdict === 'needs_human') {
         return {
@@ -1836,8 +1943,8 @@ DIFF:
 
     // Stage 3A & 3B: Independent derivation (Blind Isolation)
     const [planARaw, planBRaw] = await Promise.all([
-      callModel('architecturePlanner', planPrompt, { classification, routing }, hardState, [], null, { ...options, expectJson: false }),
-      callModel('componentPlanner', planPrompt, { classification, routing }, hardState, [], null, { ...options, expectJson: false })
+      this._callModel('architecturePlanner', planPrompt, { classification, routing }, hardState, [], null, { ...options, expectJson: false, stage: 'planning', roleLabel: 'architecturePlanner' }),
+      this._callModel('componentPlanner', planPrompt, { classification, routing }, hardState, [], null, { ...options, expectJson: false, stage: 'planning', roleLabel: 'componentPlanner' })
     ]);
 
     const planA = this._safeParseJSON(planARaw, null, 'architecturePlanner');
@@ -1866,7 +1973,7 @@ DIFF:
     }, 'mirror');
 
     if (consensus.verdict === 'divergent') {
-      this.stateSummary.currentStage = 'tiebreaker_plan';
+      this._setStage('tiebreaker_plan');
       return { 
         needsTiebreaker: true, 
         conflict: consensus.conflict,
@@ -1888,7 +1995,7 @@ DIFF:
       files: locks.lockedFiles || classification.files 
     };
     const options = { signal: this.abortController?.signal };
-    this.stateSummary.currentStage = 'code_derivation';
+    this._setStage('code_derivation');
     const hardState = this.getHardState();
 
     this.stateSummary.blockCounter = 0;
@@ -1905,7 +2012,7 @@ DIFF:
     while (this.stateSummary.blockCounter < 3) {
       // Stage 4A: Architecture Planner
       const plannerPrompt = `Write the implementation code for the agreed plan in plain English.\nPlan:\n${renderPlanAsText(plan)}\nTask: ${effectiveClassification.rationale}\nFiles: ${effectiveClassification.files.join(', ')}\n\nRespond in these sections:\nRATIONALE:\n<Why this implementation matches the plan>\n\nFILES:\n<One file path per line, or 'none'>\n\nDIFF:\n<Unified diff or code patch>\n\nINVARIANTS:\n<Constraints preserved>.`;
-      const codeA = await callModel('architecturePlanner', plannerPrompt, { plan, classification: effectiveClassification }, hardState, [], null, { ...options, expectJson: false });
+      const codeA = await this._callModel('architecturePlanner', plannerPrompt, { plan, classification: effectiveClassification }, hardState, [], null, { ...options, expectJson: false, stage: 'code_derivation', roleLabel: 'architecturePlanner' });
 
       // Invariant 7: Compute Planner hashes for blindness enforcement
       const plannerHashes = computeContentHashes(codeA);
@@ -1914,7 +2021,7 @@ DIFF:
 
       // Stage 4B: Adversarial Reviewer (blind)
       const reviewerPrompt = `Independent Code Derivation (Blind). Derive your own plan and code independently in plain English.\nTask: ${effectiveClassification.rationale}\n\nRespond in these sections:\nVERDICT:\n<GO if acceptable, otherwise NO with specific objections>\n\nINDEPENDENT CODE:\n<Your code or diff>\n\nCONCERNS:\n<Bulleted concerns, if any>.`;
-      const reviewerOutputRaw = await callModel('reviewer', reviewerPrompt, { classification: effectiveClassification }, hardState, allProtectedHashes, null, { ...options, expectJson: false });
+      const reviewerOutputRaw = await this._callModel('reviewer', reviewerPrompt, { classification: effectiveClassification }, hardState, allProtectedHashes, null, { ...options, expectJson: false, stage: 'code_derivation', roleLabel: 'reviewer' });
       const reviewerParsed = this._safeParseJSON(reviewerOutputRaw, null, 'reviewer');
       const reviewerOutput = (reviewerParsed && typeof reviewerParsed === 'object') ? reviewerParsed : {};
 
@@ -1958,7 +2065,7 @@ DIFF:
    * Non-fatal: failures are logged but do not block task completion.
    */
   async runStage11() {
-    this.stateSummary.currentStage = 'knowledge_update';
+    this._setStage('knowledge_update');
     console.error(`[Operator] Intelligence Graph Update starting...`);
 
     try {
@@ -2006,7 +2113,7 @@ DIFF:
 
   async evaluateCodeConsensus(codeA, plan, reviewerOutput, hardState, options = {}) {
     const auditPrompt = `Audit the Planner's code against the agreed plan and Reviewer's independent derivation.\nPlan:\n${renderPlanAsText(plan)}\nPlanner Code: ${codeA}\nReviewer Code: ${reviewerOutput.independentCode}\nReviewer Concerns:\n${Array.isArray(reviewerOutput.concerns) ? reviewerOutput.concerns.map((c, i) => `${i + 1}. ${c}`).join('\n') : String(reviewerOutput.concerns || 'none')}\n\nRespond in plain English using these sections:\nVERDICT:\n<PASS or BLOCK>\n\nREASON:\n<Why>\n\nCITATION:\n<Relevant evidence>\n\nCONSENSUS INTENT:\n<One line summary>.`;
-    const result = await callModel('reviewer', auditPrompt, {}, hardState, [], null, { ...options, expectJson: false });
+    const result = await this._callModel('reviewer', auditPrompt, {}, hardState, [], null, { ...options, expectJson: false, stage: 'code_derivation', roleLabel: 'reviewer' });
     if (process.env.MBO_DEBUG) console.error(`[DEBUG] evaluateCodeConsensus response: ${result}`);
     const parsed = this._safeParseJSON(result, { verdict: 'block', reason: 'NL audit extraction failure' }, 'reviewer');
     if (parsed && !parsed.consensusIntent) {
@@ -2021,17 +2128,17 @@ DIFF:
    */
   async runStage4D(plan, classification, routing) {
     const options = { signal: this.abortController?.signal };
-    this.stateSummary.currentStage = 'tiebreaker_code';
+    this._setStage('tiebreaker_code');
     const hardState = this.getHardState();
     let retries = 0;
 
     while (retries < 3) {
       const prompt = `Tiebreaker: Produce the final arbitrated code draft based on competing derivations in plain English.\nPlan:\n${renderPlanAsText(plan)}\nTask: ${classification.rationale}\n\nRespond in these sections:\nRATIONALE:\n<Why this final code wins>\n\nFINAL DIFF:\n<The final code or diff>\n\nVERDICT:\n<GO or ESCALATE_TO_HUMAN>.`;
-      const codeTied = await callModel('tiebreaker', prompt, { classification, routing }, hardState, [], null, { ...options, expectJson: false });
+      const codeTied = await this._callModel('tiebreaker', prompt, { classification, routing }, hardState, [], null, { ...options, expectJson: false, stage: 'tiebreaker_code', roleLabel: 'tiebreaker' });
 
       // Spec Note (BUG-010): One final audit for Tiebreaker code.
       const reviewerPrompt = `Final Audit of Tiebreaker Code.\nTask: ${classification.rationale}\nCode: ${codeTied}\n\nRespond in plain English using these sections:\nVERDICT:\n<PASS or BLOCK>\n\nREASON:\n<Why>.`;
-      const finalAuditRaw = await callModel('reviewer', reviewerPrompt, { classification }, hardState, [], null, { ...options, expectJson: false });
+      const finalAuditRaw = await this._callModel('reviewer', reviewerPrompt, { classification }, hardState, [], null, { ...options, expectJson: false, stage: 'tiebreaker_code', roleLabel: 'reviewer' });
       const finalAudit = this._safeParseJSON(finalAuditRaw, null, 'reviewer');
 
       if (finalAudit && finalAudit.verdict === 'pass') {
@@ -2052,7 +2159,7 @@ DIFF:
    * Milestone 0.8 prerequisite.
    */
   async runStage4_5(code) {
-    this.stateSummary.currentStage = 'dry_run';
+    this._setStage('dry_run');
     // Basic structural verification (syntax check)
     try {
       if (code.includes('const') || code.includes('function')) {
@@ -2088,7 +2195,7 @@ CONFLICT:
 
 CONSENSUS INTENT:
 <The shared goal both plans achieve>.`;
-    const result = await callModel('classifier', auditPrompt, {}, hardState, [], null, { expectJson: false });
+    const result = await this._callModel('classifier', auditPrompt, {}, hardState, [], null, { expectJson: false, stage: 'planning', roleLabel: 'classifier' });
     if (process.env.MBO_DEBUG) console.error(`[DEBUG] evaluateSpecAdherence response: ${result}`);
     const parsed = this._safeParseJSON(result, { verdict: 'divergent', conflict: 'Plan convergence audit extraction failure' }, 'classifier');
     if (parsed && parsed.route) {
