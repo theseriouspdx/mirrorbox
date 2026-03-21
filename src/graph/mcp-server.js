@@ -856,6 +856,28 @@ async function main() {
           console.error(`[MCP] ${new Date().toISOString()} Dev auto-refresh failed:`, err.message);
         });
     }
+
+    // Max-uptime self-termination: exit after 12h so launchd respawns a fresh instance.
+    // Only fires when launchd is the parent (ppid === 1) — manual/mbo-mcp launches are unaffected.
+    // Defers if a scan is in progress or active sessions exist; retries every 60s until clear.
+    const MAX_UPTIME_MS = 12 * 60 * 60 * 1000;
+    const scheduleUptimeExit = () => {
+      const timer = setTimeout(() => {
+        if (process.ppid !== 1) {
+          console.error(`[MCP] ${new Date().toISOString()} Max-uptime timer fired but not under launchd (ppid=${process.ppid}) — skipping self-exit.`);
+          return;
+        }
+        if (graphService.isScanning || sessions.size > 0) {
+          console.error(`[MCP] ${new Date().toISOString()} Max-uptime defer — isScanning=${graphService.isScanning} sessions=${sessions.size} — retrying in 60s`);
+          setTimeout(scheduleUptimeExit, 60_000).unref();
+          return;
+        }
+        console.error(`[MCP] ${new Date().toISOString()} Max uptime (12h) reached — self-terminating for launchd respawn`);
+        shutdown('max_uptime_12h');
+      }, MAX_UPTIME_MS);
+      timer.unref();
+    };
+    scheduleUptimeExit();
   });
 
   const shutdown = async (reason = null) => {

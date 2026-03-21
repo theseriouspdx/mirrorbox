@@ -6,6 +6,16 @@
  *
  * Install: npm install -g .
  * Usage:   mbo (from any project directory)
+ *
+ * Commands:
+ *   mbo               — launch TUI (default)
+ *   mbo cl            — legacy operator loop
+ *   mbo mcp           — MCP recovery (reap stale, start fresh, rescan)
+ *   mbo mcp kill      — list all MCP processes, pick ones to kill
+ *   mbo setup         — project setup wizard
+ *   mbo teardown      — remove launchd daemon
+ *   mbo auth          — auth/config operations
+ *   mbo init          — initialize new project
  */
 
 'use strict';
@@ -119,6 +129,129 @@ function persistInstallMetadataBestEffort() {
   } catch {}
 }
 
+// Enumerate all running mcp-server.js processes, grouped by root.
+// Returns array of: { pid, root, uptimeS, manifestOk, isDupe }
+function enumerateMcpProcesses() {
+  // macOS pgrep does not support -a; use -f for PIDs then ps for full args
+  const pgrepResult = spawnSync('pgrep', ['-f', 'mcp-server.js'], { encoding: 'utf8' });
+  const pids = (pgrepResult.stdout || '').trim().split('\n').filter(Boolean).map(Number).filter(Boolean);
+
+  const entries = pids.map((pid) => {
+    // Get full command line for this pid
+    const psResult = spawnSync('ps', ['-p', String(pid), '-o', 'args='], { encoding: 'utf8' });
+    const line = (psResult.stdout || '').trim();
+    const rootMatch = line.match(/--root=(\S+)/);
+    const root = rootMatch ? rootMatch[1] : '(unknown)';
+    if (!line || !line.includes('mcp-server.js')) return null;
+
+    // Uptime from ps
+    let uptimeS = 0;
+    try {
+      const ps = spawnSync('ps', ['-p', String(pid), '-o', 'etime='], { encoding: 'utf8' });
+      const t = (ps.stdout || '').trim(); // [[dd-]hh:]mm:ss
+      const parts = t.split(/[:\-]/).reverse().map(Number);
+      uptimeS = (parts[0] || 0) + (parts[1] || 0) * 60 + (parts[2] || 0) * 3600 + (parts[3] || 0) * 86400;
+    } catch (_) {}
+
+    // Check manifest
+    let manifestOk = false;
+    for (const runDir of ['.dev/run', '.mbo/run']) {
+      try {
+        const dir = path.join(root, runDir);
+        if (!fs.existsSync(dir)) continue;
+        const files = fs.readdirSync(dir).filter((f) => f.startsWith('mcp-') && f.endsWith('.json') && f !== 'mcp.json');
+        for (const f of files) {
+          try {
+            const m = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+            if (m.pid === pid) { manifestOk = true; break; }
+          } catch (_) {}
+        }
+        if (manifestOk) break;
+      } catch (_) {}
+    }
+
+    return { pid, root, uptimeS, manifestOk, isDupe: false };
+  }).filter(Boolean);
+
+  // Mark dupes: for each root, sort by uptimeS ascending (newest = smallest uptime), mark all but first as dupe
+  const byRoot = new Map();
+  for (const e of entries) {
+    if (!byRoot.has(e.root)) byRoot.set(e.root, []);
+    byRoot.get(e.root).push(e);
+  }
+  for (const group of byRoot.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => a.uptimeS - b.uptimeS); // newest first
+    for (let i = 1; i < group.length; i++) group[i].isDupe = true;
+  }
+
+  return entries;
+}
+
+function formatUptime(s) {
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m${s % 60}s`;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `${h}h${m}m`;
+}
+
+function reapStaleMcpProcesses() {
+  const procs = enumerateMcpProcesses();
+  const stale = procs.filter((p) => !p.manifestOk || p.isDupe);
+  if (stale.length === 0) return;
+  process.stdout.write(`[MBO MCP] Reaping ${stale.length} stale/duplicate MCP process(es)...\n`);
+  for (const p of stale) {
+    const reason = p.isDupe ? 'DUPE' : 'STALE';
+    try {
+      process.kill(p.pid, 'SIGTERM');
+      process.stdout.write(`[MBO MCP] Killed PID ${p.pid} (${reason}) root=${p.root}\n`);
+    } catch (err) {
+      process.stdout.write(`[MBO MCP] Could not kill PID ${p.pid}: ${err.message}\n`);
+    }
+  }
+}
+
+async function runMcpKillCommand() {
+  const readline = require('readline');
+  const procs = enumerateMcpProcesses();
+
+  if (procs.length === 0) {
+    process.stdout.write('[MBO MCP] No MCP server processes found.\n');
+    return;
+  }
+
+  process.stdout.write('\nRunning MCP server processes:\n\n');
+  procs.forEach((p, i) => {
+    const status = !p.manifestOk ? 'STALE (no manifest)' : p.isDupe ? 'DUPE' : 'ok';
+    const label = `[${i + 1}] PID ${p.pid}  uptime=${formatUptime(p.uptimeS)}  status=${status}`;
+    const rootLabel = `  root=${p.root}`;
+    process.stdout.write(`${label}\n${rootLabel}\n\n`);
+  });
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await new Promise((resolve) => {
+    rl.question('Kill which? (space-separated numbers, or Enter to cancel): ', resolve);
+  });
+  rl.close();
+
+  const chosen = answer.trim().split(/\s+/).map(Number).filter((n) => n >= 1 && n <= procs.length);
+  if (chosen.length === 0) {
+    process.stdout.write('[MBO MCP] Nothing killed.\n');
+    return;
+  }
+
+  for (const idx of chosen) {
+    const p = procs[idx - 1];
+    try {
+      process.kill(p.pid, 'SIGTERM');
+      process.stdout.write(`[MBO MCP] Killed PID ${p.pid} root=${p.root}\n`);
+    } catch (err) {
+      process.stdout.write(`[MBO MCP] Could not kill PID ${p.pid}: ${err.message}\n`);
+    }
+  }
+}
+
 async function runMcpRecoveryCommand() {
   const setup = require('../src/cli/setup');
 
@@ -155,6 +288,7 @@ async function runMcpRecoveryCommand() {
     return res;
   };
 
+  reapStaleMcpProcesses();
   process.stdout.write('[MBO MCP] Running MCP recovery sequence...\n');
 
   // BUG-077/BUG-079: derive project_id using same algorithm as mcp-server.js
@@ -584,8 +718,28 @@ function reapStaleHelpers(packageRoot) {
 
 // BUG-084: Self-heal missing/incomplete node_modules before any command dispatch.
 function ensureNodeModules() {
-  const lockFile = path.join(PACKAGE_ROOT, 'node_modules', '.package-lock.json');
+  const nodeModulesDir = path.join(PACKAGE_ROOT, 'node_modules');
+  const lockFile = path.join(nodeModulesDir, '.package-lock.json');
   if (fs.existsSync(lockFile)) return;
+
+  // Installed packages under another project's node_modules typically do not
+  // carry npm's hidden .package-lock sentinel. If core runtime deps resolve,
+  // treat the install as healthy instead of recursively reinstalling inside the
+  // packaged dependency tree.
+  const packagedInstall = PACKAGE_ROOT.split(path.sep).includes('node_modules');
+  if (packagedInstall) {
+    const requiredDeps = ['better-sqlite3', 'ink', 'react'];
+    const depsPresent = requiredDeps.every((dep) => {
+      try {
+        require.resolve(dep, { paths: [PACKAGE_ROOT] });
+        return true;
+      } catch (_) {
+        return false;
+      }
+    });
+    if (depsPresent) return;
+  }
+
   process.stdout.write('[MBO] node_modules missing or incomplete — running npm install...\n');
   const result = spawnSync('npm', ['install', '--prefix', PACKAGE_ROOT], { stdio: 'inherit' });
   if ((result.status || 0) !== 0) {
@@ -606,7 +760,11 @@ if (process.argv[2] === 'setup') {
 } else if (process.argv[2] === 'teardown') {
   runTeardownCommand();
 } else if (process.argv[2] === 'mcp') {
-  runMcpRecoveryCommand();
+  if (process.argv[3] === 'kill') {
+    runMcpKillCommand();
+  } else {
+    runMcpRecoveryCommand();
+  }
 } else if (process.argv[2] === 'auth') {
   // Auth/config operations are global and allowed from any directory.
   runAuthCommand(process.argv);
