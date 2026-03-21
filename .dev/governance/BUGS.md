@@ -2,7 +2,7 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-177
+**Next bug number:** BUG-178
 
 ---
 
@@ -119,3 +119,12 @@
 - **Task:** v0.11.162
 - **Description:** FILES prompt fired and accepted empty input with no validation. If certain route types require files, the gate should block empty file lists. If FILES is optional for this route, the prompt should not fire at all.
 - **Acceptance:** FILES prompt either (a) does not fire when files are not required for the route, or (b) validates that required file lists are non-empty before proceeding.
+
+
+### BUG-177: Governance compliance failure: Required governance file exists: docs/e2e-audit-checklist.md | Milestone: 1.1 | OPEN
+- **Location:** workflow audit (governance:gov-file-docs/e2e-audit-checklist.md)
+- **Severity:** P1
+- **Status:** OPEN — observed 2026-03-21
+- **Task:** v0.11.176
+- **Description:** Compliance check reported 'missing'.
+- **Acceptance:** Issue resolved and workflow audit passes on rerun.

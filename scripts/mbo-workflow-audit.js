@@ -26,6 +26,7 @@ function parseArgs(argv) {
     strict: false,
     updateBugs: false,
     pushAlpha: false,
+    humanInput: false,
     alphaRoot: process.env.MBO_ALPHA_ROOT || '/Users/johnserious/MBO_Alpha',
     alphaTimeoutSec: 300,
   };
@@ -40,8 +41,9 @@ function parseArgs(argv) {
     else if (a === '--strict') args.strict = true;
     else if (a === '--update-bugs') args.updateBugs = true;
     else if (a === '--push-alpha') args.pushAlpha = true;
+    else if (a === '--human-input') args.humanInput = true;
     else if (a === '-h' || a === '--help') {
-      console.log('Usage: node scripts/mbo-workflow-audit.js [--task <task-id>] [--world mirror|subject] [--operator <name>] [--strict] [--update-bugs] [--push-alpha] [--alpha-root <path>] [--alpha-timeout-sec <seconds>]');
+      console.log('Usage: node scripts/mbo-workflow-audit.js [--task <task-id>] [--world mirror|subject] [--operator <name>] [--strict] [--update-bugs] [--push-alpha] [--human-input] [--alpha-root <path>] [--alpha-timeout-sec <seconds>]');
       process.exit(0);
     }
   }
@@ -53,7 +55,24 @@ function parseArgs(argv) {
   return args;
 }
 
-function runCommand(cmd, cwd, timeoutMs = 0) {
+function runCommand(cmd, cwd, timeoutMs = 0, interactive = false) {
+  if (interactive) {
+    const res = cp.spawnSync(cmd, {
+      cwd,
+      shell: true,
+      stdio: 'inherit',
+      timeout: timeoutMs > 0 ? timeoutMs : undefined,
+    });
+    return {
+      ok: res.status === 0,
+      code: typeof res.status === 'number' ? res.status : 1,
+      stdout: '',
+      stderr: res.error ? String(res.error.message || res.error) : '',
+      timedOut: Boolean(res.signal === 'SIGTERM' || res.signal === 'SIGKILL'),
+      interactive: true,
+    };
+  }
+
   try {
     const stdout = cp.execSync(cmd, {
       cwd,
@@ -62,7 +81,7 @@ function runCommand(cmd, cwd, timeoutMs = 0) {
       timeout: timeoutMs > 0 ? timeoutMs : undefined,
       maxBuffer: 20 * 1024 * 1024,
     });
-    return { ok: true, code: 0, stdout: stdout || '', stderr: '', timedOut: false };
+    return { ok: true, code: 0, stdout: stdout || '', stderr: '', timedOut: false, interactive: false };
   } catch (err) {
     const timedOut = Boolean(err && (err.killed || err.signal === 'SIGTERM'));
     return {
@@ -71,6 +90,7 @@ function runCommand(cmd, cwd, timeoutMs = 0) {
       stdout: err.stdout ? String(err.stdout) : '',
       stderr: err.stderr ? String(err.stderr) : (err.message || ''),
       timedOut,
+      interactive: false,
     };
   }
 }
@@ -296,12 +316,15 @@ function buildCommandChecks(root, args) {
       },
       {
         id: 'alpha_e2e',
-        label: 'Alpha runtime E2E workflow cycle',
-        cmd: `bash scripts/alpha-runtime.sh e2e --alpha ${shellEscape(alphaRoot)}`,
+        label: args.humanInput ? 'Alpha runtime interactive session (human input)' : 'Alpha runtime E2E workflow cycle',
+        cmd: args.humanInput
+          ? `bash scripts/mbo-run-alpha.sh ${shellEscape(alphaRoot)}`
+          : `bash scripts/alpha-runtime.sh e2e --alpha ${shellEscape(alphaRoot)}`,
         severity: 'P1',
         scope: 'alpha',
         cwd: root,
         timeoutMs: Math.floor(args.alphaTimeoutSec * 1000),
+        interactive: Boolean(args.humanInput),
       },
       {
         id: 'alpha_e2e_log',
@@ -328,11 +351,16 @@ function buildCommandChecks(root, args) {
 }
 
 function main() {
-  const root = process.cwd();
+  const root = path.resolve(__dirname, '..');
   const args = parseArgs(process.argv.slice(2));
   const runId = `workflow-audit-${nowStamp()}`;
   const runDir = path.join(root, '.mbo', 'logs', runId);
   ensureDir(runDir);
+
+  if (process.cwd() !== root) {
+    console.log(`[MBO] Launch directory: ${process.cwd()}`);
+    console.log(`[MBO] Using controller root: ${root}`);
+  }
 
   const governanceChecks = buildGovernanceChecks(root, args.task);
   const commandChecks = buildCommandChecks(root, args);
@@ -352,7 +380,7 @@ function main() {
 
   for (const check of commandChecks) {
     console.log(`[MBO] Running: ${check.label}`);
-    const result = runCommand(check.cmd, check.cwd, check.timeoutMs || 0);
+    const result = runCommand(check.cmd, check.cwd, check.timeoutMs || 0, Boolean(check.interactive));
     commandResults.push({ ...check, ...result });
 
     const outPath = path.join(runDir, `${check.id}.log`);
@@ -360,10 +388,19 @@ function main() {
       `$ (cwd=${check.cwd}) ${check.cmd}`,
       `$ timeoutMs=${check.timeoutMs || 0}`,
       '',
+      check.interactive ? '[interactive mode] Output streamed directly to terminal; not captured in log body.' : '',
       result.stdout,
       result.stderr,
     ].filter(Boolean).join('\n');
     fs.writeFileSync(outPath, `${merged}\n`, 'utf8');
+
+    // Emit exact command log content to terminal for immediate visibility.
+    console.log(`[MBO] Log file: ${outPath}`);
+    console.log(`[MBO] ---- BEGIN ${check.id} ----`);
+    if (merged.trim()) {
+      process.stdout.write(`${merged}\n`);
+    }
+    console.log(`[MBO] ---- END ${check.id} ----`);
   }
 
   const findings = [];
@@ -495,6 +532,8 @@ function main() {
 
   console.log(`[MBO] Compliance report: ${path.relative(root, path.join(runDir, 'compliance.md'))}`);
   console.log(`[MBO] Bug log: ${path.relative(root, path.join(runDir, 'bugs.md'))}`);
+  console.log(`[MBO] Summary JSON: ${path.relative(root, path.join(runDir, 'summary.json'))}`);
+  console.log(`[MBO] Full run logs directory: ${runDir}`);
   if (bugUpdate && bugUpdate.updated) {
     console.log(`[MBO] BUGS.md updated with ${bugUpdate.added} finding(s). Next bug number: BUG-${bugUpdate.nextBug}`);
   } else if (args.updateBugs && findings.length > 0) {

@@ -1,0 +1,13 @@
+{
+  "name": "mbo-ui",
+  "version": "1.0.0",
+  "description": "MBO Web UI — Bridge server + React frontend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "MBO_UI_PORT=7891 node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

@@ -616,6 +616,25 @@ if (process.argv[2] === 'setup') {
   }
   const { initProject } = require('../src/cli/init-project');
   initProject(INVOCATION_CWD);
+} else if (process.argv[2] === 'tui') {
+  // Guard: TUI must not run from the MBO controller directory
+  if (isSelfRunDisallowed(INVOCATION_CWD, PACKAGE_ROOT)) {
+    process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
+    process.stderr.write('[MBO TUI] Run "mbo tui" from your target project directory, e.g. cd ~/MBO_Alpha\n');
+    process.exit(1);
+  }
+  // Launch the Ink-based TUI
+  const tuiLauncher = path.join(PACKAGE_ROOT, 'bin', 'mbo-tui.js');
+  const child = spawn(process.execPath, [tuiLauncher, ...process.argv.slice(3)], {
+    stdio: 'inherit',
+    env: { ...process.env, MBO_PROJECT_ROOT: PROJECT_ROOT },
+    cwd: PROJECT_ROOT,
+  });
+  child.on('exit', (code) => process.exit(code ?? 0));
+  child.on('error', (err) => {
+    process.stderr.write(`[MBO] Failed to launch TUI: ${err.message}\n`);
+    process.exit(1);
+  });
 } else {
   persistInstallMetadataBestEffort();
   reapStaleHelpers(PACKAGE_ROOT);
