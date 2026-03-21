@@ -70,10 +70,9 @@ export function StatsPanel({ stage, stats, filesInScope, auditPending, activeMod
       </Box>
 
       <Box marginTop={1} flexDirection="column">
-        <Text color={C.purple} dimColor>── Session TM</Text>
+        <Text color={C.purple} dimColor>── session total</Text>
         <Text color="green">{fmtTokens(totals.optimized)} tok · {fmtCost(totals.costEst)}</Text>
-        {totals.rawCostEst > 0 ? <Text color={C.error} dimColor>raw {fmtCost(totals.rawCostEst)}</Text> : null}
-        {savings > 0.0001 ? <Text color="green" dimColor>saved {fmtCost(savings)}</Text> : null}
+        {savings > 0.0001 ? <Text color="green" dimColor>saved {fmtCost(savings)} vs single-model</Text> : null}
         <Text color={C.teal} dimColor>cache {stats.session.cache.hits}↑ {stats.session.cache.misses}✗</Text>
       </Box>
 

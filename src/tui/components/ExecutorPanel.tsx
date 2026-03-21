@@ -11,7 +11,6 @@ interface Props {
   stats: TuiStats;
   activeAction: string;
   activeModel: string;
-  stageTokens: number;
 }
 
 function getLineColor(line: string): string {
@@ -35,7 +34,7 @@ function getExecutorTokens(stats: TuiStats): number {
   return EXECUTOR_PANEL_ROLES.reduce((sum, role) => sum + (stats.session.roles?.[role]?.tokens || 0), 0);
 }
 
-export function ExecutorPanel({ lines, stage, isActive, stats, activeAction, activeModel, stageTokens }: Props) {
+export function ExecutorPanel({ lines, stage, isActive, stats, activeAction, activeModel }: Props) {
   const available = useAvailableRows(10);
   const { visibleLines, canScrollUp, canScrollDown, scrollUp, scrollDown, topLine, total } =
     useScrollableLines(lines, available);
@@ -69,8 +68,7 @@ export function ExecutorPanel({ lines, stage, isActive, stats, activeAction, act
       <Box justifyContent="space-between">
         <Text bold color={borderColor}>{isActive ? '▶ ' : '  '}EXECUTOR</Text>
         <Box gap={2}>
-          <Text color={C.teal}>TM {formatTokens(executorTokens)} tok</Text>
-          <Text color={C.gray} dimColor>{formatTokens(stageTokens)} stage</Text>
+          <Text color={C.teal}>executor: {formatTokens(executorTokens)} tok</Text>
           {total > available ? (
             <Text color={borderColor} dimColor>
               {canScrollUp ? '↑ ' : '  '}

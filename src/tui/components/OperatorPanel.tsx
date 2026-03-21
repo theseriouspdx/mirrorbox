@@ -108,8 +108,7 @@ export function OperatorPanel({
       <Box justifyContent="space-between">
         <Text bold color={borderColor}>{isActive ? '▶ ' : '  '}OPERATOR</Text>
         <Box gap={2}>
-          <Text color={C.teal}>TM {fmtTok(totals.tokens)} · {fmtCost(totals.costEst)}</Text>
-          {totals.rawCostEst > 0 ? <Text color={C.error} dimColor>raw {fmtCost(totals.rawCostEst)}</Text> : null}
+          <Text color={C.teal}>operator: {fmtTok(totals.tokens)} tok · {fmtCost(totals.costEst)}</Text>
           {total > panelRows ? (
             <Text color={borderColor} dimColor>
               {canScrollUp ? '↑ ' : '  '}

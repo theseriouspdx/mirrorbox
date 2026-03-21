@@ -5,14 +5,12 @@ import { C } from '../colors.js';
 
 interface Props {
   stage: MboStage;
-  activeModel: string;
   activeAction: string;
   currentTask: string | null;
   activeTab: ActiveTab;
   stageStartTime: number;
   version: string;
   pipelineRunning: boolean;
-  stageTokens: number;
 }
 
 function formatElapsed(seconds: number): string {
@@ -20,12 +18,6 @@ function formatElapsed(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return minutes + 'm ' + secs + 's';
-}
-
-function formatTokens(tokens: number): string {
-  if (tokens >= 1_000_000) return (tokens / 1_000_000).toFixed(1) + 'M';
-  if (tokens >= 1_000) return (tokens / 1_000).toFixed(1) + 'k';
-  return String(Math.round(tokens || 0));
 }
 
 function truncate(value: string | null | undefined, max: number): string {
@@ -36,14 +28,12 @@ function truncate(value: string | null | undefined, max: number): string {
 
 export function StatusBar({
   stage,
-  activeModel,
   activeAction,
   currentTask,
   activeTab,
   stageStartTime,
   version,
   pipelineRunning,
-  stageTokens,
 }: Props) {
   const [elapsed, setElapsed] = useState(0);
   const [pulseFrame, setPulseFrame] = useState(0);
@@ -56,37 +46,46 @@ export function StatusBar({
   }, [stageStartTime]);
 
   useEffect(() => {
-    if (!pipelineRunning) {
-      setPulseFrame(0);
-      return;
-    }
-    const timer = setInterval(() => setPulseFrame((value) => (value + 1) % 3), 220);
+    if (!pipelineRunning) { setPulseFrame(0); return; }
+    const timer = setInterval(() => setPulseFrame((v) => (v + 1) % 3), 220);
     return () => clearInterval(timer);
   }, [pipelineRunning]);
 
   const stageLabel = STAGE_LABELS[stage] ?? stage.toUpperCase();
   const stageColor = STAGE_COLORS[stage] ?? C.white;
-  const tabNames: Record<ActiveTab, string> = { 1: 'OPERATOR', 2: 'PIPELINE', 3: 'EXECUTOR', 4: 'SYSTEM' };
-  const pulse = pipelineRunning ? ['·  ', '·· ', '···'][pulseFrame] : '   ';
+  const tabLabel = ({ 1: 'OPERATOR', 2: 'PIPELINE', 3: 'EXECUTOR', 4: 'SYSTEM' } as const)[activeTab];
+  const pulse = pipelineRunning ? ['·  ', '·· ', '···'][pulseFrame] : '';
 
   return (
-    <Box borderStyle="single" borderBottom borderTop={false} borderLeft={false} borderRight={false} paddingX={1} justifyContent="space-between">
-      <Box gap={1} flexShrink={1}>
-        <Text bold color={C.white}>MBO</Text>
-        <Text color={C.white} dimColor>│</Text>
-        <Text bold color={stageColor}>{stageLabel}</Text>
-        <Text color={pipelineRunning ? C.pink : C.gray}>{pulse}</Text>
-        <Text color={C.white} dimColor>{truncate(activeAction, 34) || 'Ready'}</Text>
-      </Box>
-      <Box gap={1} flexShrink={1}>
-        <Text color={C.teal} bold>[{tabNames[activeTab]}]</Text>
-        <Text color={C.white} dimColor>{truncate(currentTask || 'no active task', 34)}</Text>
-      </Box>
-      <Box gap={2} flexShrink={0}>
-        <Text color={C.teal} dimColor>{truncate(activeModel || 'unassigned', 22)}</Text>
-        <Text color={C.white} dimColor>{formatTokens(stageTokens)} tok</Text>
+    <Box
+      flexDirection="column"
+      borderStyle="single"
+      borderBottom
+      borderTop={false}
+      borderLeft={false}
+      borderRight={false}
+      paddingX={1}
+    >
+      {/* Row 1: title | action | version */}
+      <Box justifyContent="space-between">
+        <Text bold color={C.white}>MIRROR BOX ORCHESTRATOR</Text>
+        <Text color={C.white} dimColor wrap="truncate">
+          {truncate(activeAction || 'Ready for the next instruction', 36)}
+        </Text>
         <Text color={C.white} dimColor>v{version}</Text>
-        <Text color={C.white} dimColor>{formatElapsed(elapsed)}</Text>
+      </Box>
+
+      {/* Row 2: stage + tab | task | timer */}
+      <Box justifyContent="space-between">
+        <Box gap={1}>
+          <Text bold color={stageColor}>{stageLabel}</Text>
+          {pulse ? <Text color={C.pink}>{pulse}</Text> : null}
+          <Text color={C.teal} bold>[{tabLabel}]</Text>
+        </Box>
+        <Text color={C.white} dimColor wrap="truncate">
+          {truncate(currentTask || 'no active task', 34)}
+        </Text>
+        <Text bold color={C.white}>{formatElapsed(elapsed)}</Text>
       </Box>
     </Box>
   );

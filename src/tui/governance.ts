@@ -41,15 +41,31 @@ export interface TaskActivationInput {
 
 export type GovernanceDocKey = 'projecttracking' | 'bugs' | 'bugs-resolved' | 'changelog';
 
-const GOVERNANCE_DOCS: Array<{ key: GovernanceDocKey; title: string; relPath: string }> = [
-  { key: 'projecttracking', title: 'projecttracking.md', relPath: '.dev/governance/projecttracking.md' },
-  { key: 'bugs', title: 'BUGS.md', relPath: '.dev/governance/BUGS.md' },
-  { key: 'bugs-resolved', title: 'BUGS-resolved.md', relPath: '.dev/governance/BUGS-resolved.md' },
-  { key: 'changelog', title: 'CHANGELOG.md', relPath: '.dev/governance/CHANGELOG.md' },
+const GOVERNANCE_FILENAMES: Array<{ key: GovernanceDocKey; title: string; filename: string }> = [
+  { key: 'projecttracking', title: 'projecttracking.md', filename: 'projecttracking.md' },
+  { key: 'bugs', title: 'BUGS.md', filename: 'BUGS.md' },
+  { key: 'bugs-resolved', title: 'BUGS-resolved.md', filename: 'BUGS-resolved.md' },
+  { key: 'changelog', title: 'CHANGELOG.md', filename: 'CHANGELOG.md' },
 ];
 
 function abs(projectRoot: string, relPath: string): string {
   return path.join(projectRoot, relPath);
+}
+
+/**
+ * Returns the governance directory for a given project root.
+ * Runtime projects keep governance under .mbo/governance/.
+ * MBO's own dev tracking lives under .dev/governance/.
+ * Falls back to .dev/governance if neither exists (first-run case).
+ */
+export function findGovernanceDir(projectRoot: string): string {
+  const mboDir = path.join(projectRoot, '.mbo', 'governance');
+  const devDir = path.join(projectRoot, '.dev', 'governance');
+  if (fs.existsSync(path.join(mboDir, 'projecttracking.md'))) return mboDir;
+  if (fs.existsSync(path.join(devDir, 'projecttracking.md'))) return devDir;
+  // Default to .mbo/governance for runtime projects (will be created on first write)
+  if (fs.existsSync(path.join(projectRoot, '.mbo'))) return mboDir;
+  return devDir;
 }
 
 function readText(filePath: string): string {
@@ -181,8 +197,9 @@ export function buildTaskActivationPrompt(task: TaskRecord, input: TaskActivatio
 }
 
 export function readGovernanceDocs(projectRoot: string): GovernanceDoc[] {
-  return GOVERNANCE_DOCS.map((doc) => {
-    const docPath = abs(projectRoot, doc.relPath);
+  const govDir = findGovernanceDir(projectRoot);
+  return GOVERNANCE_FILENAMES.map((doc) => {
+    const docPath = path.join(govDir, doc.filename);
     const text = readText(docPath);
     return {
       key: doc.key,
@@ -194,9 +211,10 @@ export function readGovernanceDocs(projectRoot: string): GovernanceDoc[] {
 }
 
 export function parseTaskLedger(projectRoot: string): { active: TaskRecord[]; recent: TaskRecord[] } {
-  const ptPath = abs(projectRoot, '.dev/governance/projecttracking.md');
-  const bugsText = readText(abs(projectRoot, '.dev/governance/BUGS.md'));
-  const resolvedText = readText(abs(projectRoot, '.dev/governance/BUGS-resolved.md'));
+  const govDir = findGovernanceDir(projectRoot);
+  const ptPath = path.join(govDir, 'projecttracking.md');
+  const bugsText = readText(path.join(govDir, 'BUGS.md'));
+  const resolvedText = readText(path.join(govDir, 'BUGS-resolved.md'));
   const ptText = readText(ptPath);
   const active: TaskRecord[] = [];
   const recent: TaskRecord[] = [];
@@ -254,7 +272,7 @@ export function parseTaskLedger(projectRoot: string): { active: TaskRecord[]; re
 }
 
 export function deriveNextTaskId(projectRoot: string, lane: string): string {
-  const ptText = readText(abs(projectRoot, '.dev/governance/projecttracking.md'));
+  const ptText = readText(path.join(findGovernanceDir(projectRoot), 'projecttracking.md'));
   const normalizedLane = lane.trim().replace(/^v/, '');
   const escapedLane = escapeRegex(normalizedLane);
   const matches = [...ptText.matchAll(new RegExp(`\\bv${escapedLane.replace(/\./g, '\\\\.')}\\.(\\d+)\\b`, 'g'))]
@@ -265,7 +283,7 @@ export function deriveNextTaskId(projectRoot: string, lane: string): string {
 }
 
 export function appendTaskRecord(projectRoot: string, task: TaskRecord): void {
-  const ptPath = abs(projectRoot, '.dev/governance/projecttracking.md');
+  const ptPath = path.join(findGovernanceDir(projectRoot), 'projecttracking.md');
   const text = readText(ptPath);
   if (!text) throw new Error('projecttracking.md is missing');
 
