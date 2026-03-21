@@ -14,7 +14,7 @@
 export const C = {
   // Primary accent colors
   pink:    'magentaBright' as const,   // hot pink  — active pipeline, running state
-  purple:  'blueBright'    as const,   // light purple — operator panel, labels, side panel
+  purple:  '#B47FFF'       as const,   // BUG-184: bright violet — operator panel, labels, side panel
   teal:    'cyan'          as const,   // teal      — status bar, completed stages, borders
 
   // Text
@@ -31,7 +31,7 @@ export const C = {
     active:   'cyan'          as const,   // the tab/panel you're viewing
     live:     'magentaBright' as const,   // pipeline currently running here
     audit:    'magentaBright' as const,   // audit gate pending
-    idle:     'blueBright'    as const,   // always-visible panels at rest
-    inactive: 'blueBright'    as const,   // tabs not in focus
+    idle:     '#B47FFF'       as const,   // always-visible panels at rest
+    inactive: '#B47FFF'       as const,   // tabs not in focus
   },
 } as const;

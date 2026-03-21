@@ -205,7 +205,14 @@ export function App({ operator, statsManager, pkg, projectRoot }: AppProps) {
   if (tasksVisible) {
     return (
       <Box flexDirection="column" height={termRows}>
-        <TasksOverlay projectRoot={projectRoot} onClose={() => setTasksVisible(false)} />
+        <TasksOverlay
+          projectRoot={projectRoot}
+          onClose={() => setTasksVisible(false)}
+          onActivate={(taskId) => {
+            appendOperator(`❯ activate ${taskId}`);
+            handleInput(`activate ${taskId}`);
+          }}
+        />
       </Box>
     );
   }

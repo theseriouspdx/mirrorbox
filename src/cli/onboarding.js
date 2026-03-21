@@ -427,7 +427,9 @@ Feel free to ask for clarification on any question, or go back to a previous que
         'If the interview is not yet complete, ask your next single question in plain English.',
       ].filter(s => s !== null).join('\n');
 
-      const response = await callModel('onboarding', prompt, {}, null);
+      process.stdout.write(`${C.GREY}(Consulting Onboarding Advisor...)${C.RESET}\r`);
+      const response = await callModelWithTimeout('onboarding', prompt, {}, null, { stage: 'onboarding' });
+      process.stdout.write(' '.repeat(40) + '\r'); // Clear status line
 
       // Check for sentinel — Phase 5 trigger
       const parsed = parseSentinel(response);
