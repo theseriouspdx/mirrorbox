@@ -2780,3 +2780,411 @@ Before or during implementation of Section 37 contracts:
 - Resolve task/bug status drift between `projecttracking.md`, `BUGS.md`, and `BUGS-resolved.md`.
 - Keep "Next Task" marker synchronized with approved execution priority.
 - Treat unresolved status mismatches as governance defects requiring explicit correction.
+
+## Section 38 — V4 Module 1: Concurrency Governance and Stateful Worker Orchestration (2026-03-21)
+
+This section is the canonical V4 Module 1 build contract. It formalizes the approved direction for concurrency, resource governance, persistent workers, dependency-aware dispatch, operator-brokered communication, and multithreaded TUI visibility.
+
+This section was promoted only after:
+- an explicit user-agent planning conversation on canonization readiness
+- review of conflicts, duplication, contradictions, governance consistency, and implementation order
+- confirmation that all P0 and P1 blockers were clear
+- confirmation that systems, auto-run, and TUI validation were complete
+
+### 38.1 Scope and Version Lane
+
+This contract defines the first V4 module and belongs to the V4 version lane.
+
+The initial V4 module series is:
+- `0.41.x`
+
+This section does not by itself authorize a version bump. Version changes remain governed by AGENTS Section 17 and require explicit human confirmation before any versioned file is changed.
+
+### 38.2 Goal
+
+V4 Module 1 makes the orchestrator concurrency-aware without making it intrusive. The system must scale across materially different host machines while preserving host responsiveness, protecting TUI usability, retaining warm worker state, and exposing enough runtime visibility for the operator to understand why work is advancing, waiting, or paused.
+
+### 38.3 Environmental and Resource Sensor ("The Governor")
+
+The Governor establishes a machine-agnostic compute ceiling and prevents orchestrator activity from degrading host usability.
+
+#### 38.3.1 Hardware Initialization (Base Cap)
+
+At application startup, the runtime MUST perform a hardware audit and produce a `HardwareProfile`.
+
+The `HardwareProfile` MUST include:
+- `totalLogicalCores`, derived from `os.cpus().length`
+- `totalSystemMemoryBytes`, derived from `os.totalmem()`
+- `maxWorkers`, calculated as `max(1, totalLogicalCores - 2)`
+
+The subtraction of two cores is the mandatory safety floor. Those cores are reserved for the OS, the TUI, and foreground user activity.
+
+#### 38.3.2 Reserved Memory Floor
+
+The orchestrator MUST maintain a protected memory floor that it is forbidden to intentionally encroach upon.
+
+The reserved floor is:
+- `max(2 GB, 20% of total RAM)`
+
+This floor is used by the Governor when determining whether the system may continue dispatching work.
+
+#### 38.3.3 Real-Time Pressure Sensing
+
+The Governor MUST sample host pressure on a configurable interval between 2 and 5 seconds.
+
+The minimum sampled metrics are:
+- 1-minute CPU load average
+- memory pressure, calculated as `(totalRAM - freeRAM) / totalRAM`
+- free RAM in bytes
+
+Future-compatible input:
+- user activity sensing, including keyboard or mouse activity, for optional background-priority behavior
+
+#### 38.3.4 Pressure States
+
+The Governor MUST expose three pressure states.
+
+**Safe State**
+- load is below the pressure threshold
+- free RAM remains above the reserved floor
+- queue dispatch is allowed up to the worker cap
+
+**Pressure State**
+- load is between 70% and 90%
+- the queue enters immediate soft pause
+- no new work is dispatched
+- already-running work may continue to the current completion boundary
+- warm workers remain alive and retain context
+
+**Critical State**
+- load exceeds 90%, or free RAM falls below the reserved floor
+- the queue enters hard pause
+- non-essential I/O is halted
+- the user is warned in the TUI
+- new dispatch is prohibited until recovery conditions are satisfied
+
+#### 38.3.5 Recovery Rule
+
+The system may not exit hard pause immediately upon crossing back below threshold. Safe State must remain continuously true for at least 10 seconds before dispatch resumes.
+
+This avoids thrashing between pause and resume under unstable load conditions.
+
+#### 38.3.6 Governor Policy
+
+The Governor controls dispatch, not worker destruction.
+
+Pressure handling MUST use queue hold and state transitions. The Governor MUST NOT kill healthy workers solely because the host is under pressure.
+
+### 38.4 Stateful Worker Pool
+
+The worker pool provides long-lived execution capacity for scripts and task roles without cold-starting the environment for every task.
+
+#### 38.4.1 Pool Initialization
+
+At application launch, the Pool Manager MUST spawn workers according to `HardwareProfile.maxWorkers`, unless a lower operator-configured cap is active.
+
+Workers in V4 are long-lived processes. They are not one-shot subprocesses.
+
+#### 38.4.2 Warm State Persistence
+
+Workers MUST preserve heavy runtime state across tasks, including:
+- loaded interpreter state
+- loaded runtime modules
+- reusable execution environment
+- cached task-role scaffolding where valid
+
+Workers MUST clear task-local state after task completion, but they MUST preserve warm runtime state unless:
+- the application is shutting down
+- the worker has crashed
+- the user explicitly requests a reset
+
+#### 38.4.3 Dynamic Role Assignment
+
+Workers are not permanently specialized. They are role-flexible.
+
+Each task dispatch MUST include:
+- `taskId`
+- `role`
+- `script` or execution target
+- `payload`
+
+The worker adopts the provided role context for that task only. When the task completes, the worker returns to `IDLE`.
+
+#### 38.4.4 Ready Signal and Idle Loop
+
+When a worker completes a task, it MUST:
+- emit `WORKER_READY`
+- return to a low-CPU idle loop
+- preserve warm runtime state
+
+Idle workers remain eligible for future dispatch and do not lose their warmed environment merely because they are idle.
+
+#### 38.4.5 Soft Self-Care
+
+If a worker remains idle for more than 5 minutes, it SHOULD perform a soft reset.
+
+Soft reset behavior may include:
+- light garbage collection where supported
+- temporary buffer clearing
+- reclaimable cache release
+- other low-risk memory cleanup
+
+Soft reset MUST NOT discard the worker's primary warm runtime context.
+
+#### 38.4.6 No-Kill Policy
+
+Workers are never terminated merely because the Governor has entered Pressure State or Critical State.
+
+Workers are terminated only when:
+- the application is closing
+- the worker has crashed and must be replaced
+- the user explicitly requests a reset or shutdown of the pool
+
+#### 38.4.7 Crash Recovery
+
+If a worker crashes, the Pool Manager MUST:
+- record the incident
+- mark the affected task as failed
+- make the failed task eligible for requeue
+- spawn a replacement worker for the dead slot
+
+The pool MUST not permanently lose capacity because one worker died.
+
+### 38.5 Communication Protocol and Operator Broker
+
+The Main Thread, Operator, and workers communicate through structured message passing. The Operator is the broker and the single authority for session log writes.
+
+#### 38.5.1 Dispatch Envelope
+
+Task dispatch MUST use a structured JSON message.
+
+Minimum dispatch contract:
+
+```json
+{ "taskId": "XYZ", "role": "CODE", "script": "classify.py", "payload": {} }
+```
+
+Equivalent envelopes are allowed so long as the same required fields are preserved.
+
+#### 38.5.2 Heartbeat Contract
+
+While processing a task, a worker MUST emit a heartbeat every 500ms.
+
+Heartbeat payloads MUST include task identity, current status, and progress.
+
+Representative heartbeat:
+
+```json
+{ "taskId": "XYZ", "status": "processing", "progress": 0.45 }
+```
+
+#### 38.5.3 Completion and Error Contract
+
+Workers MUST return either:
+- a standardized success result object
+- a standardized error object containing failure details or stack trace material
+
+Unstructured process death is treated as a crash and handled by recovery rules.
+
+#### 38.5.4 Operator as Inter-Worker Relay
+
+Workers MUST NOT rely on direct shared-memory coordination.
+
+If Worker A needs data from Worker B, the request MUST be sent through the Operator.
+
+The Operator acts as:
+- relay
+- coordinator
+- wait-state manager
+- logging authority
+
+This broker pattern preserves isolation and gives the TUI a single place to observe internal traffic.
+
+#### 38.5.5 Async Wait Behavior
+
+The Operator MUST support ask/tell relay semantics.
+
+Required behavior:
+- Worker A may request data from Worker B through the Operator
+- Worker A may pause while awaiting the response
+- Worker B responds through the Operator
+- all relay events are timestamped and observable
+
+### 38.6 Sole-Source Logging Strategy
+
+The Operator is the exclusive owner of the session log.
+
+#### 38.6.1 Worker Write Restriction
+
+Workers are prohibited from writing directly to the session log file.
+
+Workers MUST stream status updates, results, and errors to the Operator instead.
+
+#### 38.6.2 Atomic Log Ownership
+
+The Operator MUST:
+- timestamp worker emissions
+- sequence them deterministically
+- perform ordered writes to the session log
+- preserve a single authoritative event stream for the session
+
+#### 38.6.3 Buffering Policy
+
+During high-throughput periods, the Operator MAY buffer log entries in memory and flush them in batches to reduce I/O overhead.
+
+Buffering MUST preserve ordered delivery.
+
+Critical failures MUST bypass low-priority buffering and surface immediately in both:
+- the session log path
+- the primary TUI error surface
+
+### 38.7 Dependency-Aware Task Queue
+
+The queue governs the flow of work into the worker pool while preserving strict ordering where dependencies exist and exploiting safe parallelism where they do not.
+
+#### 38.7.1 Task States
+
+The queue MUST support at least these states:
+- `READY`
+- `RUNNING`
+- `BLOCKED`
+- `SUCCESS`
+- `FAILED`
+
+Additional states may exist, but these are the minimum required contract.
+
+#### 38.7.2 Chain-of-Thought Sequencing
+
+If Task B depends on Task A, Task B MUST remain `BLOCKED` until:
+- Task A reports `SUCCESS`
+- the required output payload is available
+- the Operator validates that the dependency has been satisfied
+
+Where sequencing is semantically important, dependent work MUST preserve FIFO order.
+
+#### 38.7.3 Parallel DID Execution
+
+Tasks with no active dependencies MAY run concurrently.
+
+The Queue Manager SHOULD dispatch such tasks to all currently safe idle workers, subject to:
+- the Governor state
+- the current worker cap
+- any explicit operator limits
+
+#### 38.7.4 No-Steal Routing
+
+The queue SHOULD prefer affinity-based routing.
+
+That means:
+- tasks should preferentially be sent to workers that recently performed similar roles
+- warm-role efficiency should be preserved when possible
+- unnecessary environment churn should be avoided
+
+Idle workers MUST NOT steal blocked tasks and MUST NOT bypass dependency rules.
+
+#### 38.7.5 Deadlock Safety Valve
+
+If the queue detects circular waits, mutual blocking, or deadlock, the Operator MUST:
+- halt dispatch for the affected task group
+- surface a TUI alert
+- require manual intervention before resuming the deadlocked path
+
+Deadlock handling is fail-closed.
+
+### 38.8 Multithreaded TUI Orchestration and Monitoring
+
+The TUI must expose enough runtime state to make concurrency transparent rather than mysterious.
+
+#### 38.8.1 Worker Status Grid
+
+The TUI MUST show worker slots with:
+- worker identifier
+- active role
+- current state
+- progress indicator
+
+Representative labels:
+- `[W1: TIEBREAK-P]`
+- `[W2: CODE]`
+
+#### 38.8.2 Worker State Colors
+
+Minimum visual state mapping:
+- green = active / processing
+- yellow = idle / warm
+- blue = waiting on dependency
+- red = error / crash
+
+These colors must be consistent across the worker display.
+
+#### 38.8.3 Internal Comms Overlay
+
+The TUI MUST provide a toggleable Internal Comms view.
+
+That view MUST:
+- expose brokered relay traffic in real time
+- remain non-blocking to the primary command interface
+- support troubleshooting and verification of worker-to-worker coordination through the Operator
+
+Representative display format:
+- `Worker1 > Operator > Worker2 [DIFF_SYNC]`
+
+#### 38.8.4 Pressure Meter
+
+The TUI MUST render a pressure meter below the Tokenmiser display.
+
+That meter MUST show:
+- current pressure score or percentage
+- current Governor state
+- visible threshold transitions
+
+Minimum threshold color behavior:
+- green in Safe State
+- orange in Pressure State
+- pulsing red in Critical State
+
+#### 38.8.5 Logging Health Indicator
+
+The footer or command bar MUST display session logging health.
+
+Representative values:
+- `LOG: SYNCED`
+- `LOG: BUFFERING`
+- `LOG: ERROR`
+
+Critical worker failures MUST be promoted into the primary Operator status surface and must not remain buried in the background log stream.
+
+### 38.9 Non-Disruptive Integration Contract
+
+V4 MUST layer on top of the current v3 TUI and existing script-based execution path without requiring a full rewrite of current classification or execution scripts.
+
+The first V4 implementation pass SHOULD:
+- wrap existing scripts in worker-dispatch envelopes
+- preserve sequential compatibility where concurrency is disabled
+- keep existing script entrypoints intact where practical
+- avoid forcing concurrency assumptions into current v2 or v3 flows
+
+### 38.10 Sequential Fallback Contract
+
+If the worker pool cannot initialize safely, the system MUST fail closed into sequential mode rather than partially enabling unsafe concurrency behavior.
+
+Sequential fallback MUST:
+- preserve correctness
+- preserve current single-thread-compatible workflows
+- avoid presenting false concurrency state in the TUI
+
+### 38.11 Acceptance Contract for Initial V4 Module
+
+The first V4 module is acceptable only when all of the following are true:
+- startup produces a valid `HardwareProfile`
+- worker pool size respects the `totalCores - 2` safety floor
+- reserved memory floor enforcement is active
+- pressure sensing runs on a 2-5 second interval
+- queue dispatch pauses at threshold without killing warm workers
+- workers emit 500ms heartbeats while active
+- worker crashes are detected and replacement workers are spawned automatically
+- dependent tasks remain blocked until prerequisites succeed
+- independent tasks may run concurrently up to the safe worker cap
+- the TUI exposes worker state, pressure state, and internal comms visibility
+- the Operator is the sole writer of session log output
+- the system can fall back safely to sequential execution if worker-pool initialization fails

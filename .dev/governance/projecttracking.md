@@ -3,7 +3,7 @@
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
 **Current Version:** 0.3.20+v0.11.181.v0.2.3 (TUI v.3)
-**Next Task:** v0.2.04
+**Next Task:** v0.41.02
 **Policy:** This file is the single source of truth for work state.
 
 ---
@@ -11,14 +11,19 @@
 ## Active Tasks
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
+| v0.41.02 | feat | V4 Module 1 implementation: Governor, worker pool, operator broker, and pressure-aware queue scaffolding | READY | unassigned | - | 2026-03-21 | SPEC.md Section 38 | HardwareProfile, Governor sensing/state gating, warm worker pool, operator sole-source logging, dependency-aware queue, TUI pressure/worker visibility, and safe sequential fallback land under the Section 38 contract |
 | v0.2.04 | audit | Full end-to-end audit against SPEC with completed audit checklist artifact | READY | codex | - | 2026-03-21 | docs/e2e-audit-checklist.md, SPEC.md | Run a full spec-to-implementation audit; complete `docs/e2e-audit-checklist.md` with evidence, verdict, score, and sign-off-ready details; record any gaps as governance follow-ups |
+| v0.2.05 | bug | Tokenmiser semantics clarification gate + counterfactual/token accounting correction | READY | unassigned | - | 2026-03-21 | BUG-187 | Before implementation begins, the agent must interview the user to define intended Tokenmiser behavior, compare expected vs actual behavior, and document the mismatch. Then the system must correct Tokenmiser semantics and accounting so token counts, counterfactuals, savings, and labels are internally consistent and explainable from a single source of truth. |
 | v0.11.182 | chore | Repository cleanup after audit: remove smoke artifacts, reconcile governance state, and leave branch commit-ready | READY | codex | - | 2026-03-21 | SESSION-HANDOFF-2026-03-20-BATCH | Remove temporary smoke artifacts, ensure tracked audit artifacts are committed intentionally, and leave the worktree clean enough for staging/commit without stray audit debris |
+| v0.11.183 | bug | Governance-aware operator startup and commands: next-task loading, onboarding/setup/projecttracking intents, and non-passive governance state | READY | unassigned | - | 2026-03-21 | BUG-189 | On startup, if `projecttracking.md` exists, the operator must load and surface the top tasks that fit, including `Next Task`. If governance docs are missing, the system must say so plainly and offer creation/source-doc analysis. `/onboarding`, `/setup`, and `/projecttracking` must work as slash commands. If governance files are listed as loaded, they must be operationalized through graph-backed/runtime task awareness rather than treated as passive file context. Excessive token growth for simple governance queries must also be investigated as part of this runtime behavior path. |
+| v0.3.21 | feat | TUI terminal UX hardening: clean Ctrl+C exit, dictation/copy compatibility, and header layout cleanup | READY | unassigned | - | 2026-03-21 | BUG-185, BUG-186, BUG-188 | TUI must exit cleanly with double-press Ctrl+C confirmation, must not crash the host terminal during dictation use, and must allow normal mouse text selection/copy behavior. The top header/status layout must remain readable at default window size without bad wrapping, duplicated token data, stray glyph artifacts, or mis-prioritized stage/status placement; version and timer placement should be clarified and token/model display must have a single source of truth. |
 
 ---
 
 ## Recently Completed
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
+| v0.41.01 | docs | Canonicalize V4 Module 1 build contract into SPEC Section 38 | COMPLETED | codex | - | 2026-03-21 | SPEC.md Section 38 | Section 38 is canonicalized after user-agent planning review and records the approved V4 Module 1 contract, scope, integration rules, and acceptance criteria |
 | v0.2.03 | feat | Two-way workflow audit run: one invocation executes mirror + subject with unified verdict and combined artifacts | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | SESSION-HANDOFF-2026-03-20 | Supports `--world both`; preserves single-world mode; deterministic `--push-alpha` behavior; combined summary includes per-world + unified result |
 | v0.3.11 | feat | Governance doc viewer: projecttracking, BUGS, BUGS-resolved, CHANGELOG readable in TUI | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | - | All four governance docs accessible and scrollable from within the TUI |
 | v0.3.12 | feat | Inline task creation: natural language input → interview flow → written to projecttracking.md | COMPLETED | codex | codex/tui-governance-audit-batch-2 | 2026-03-20 | - | User types add task description; app interviews for details; entry written to projecttracking.md |

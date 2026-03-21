@@ -2,9 +2,60 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-185
+**Next bug number:** BUG-190
 **Bug ID rule:** `BUG-001`–`BUG-184` are legacy-format entries and must not be renumbered. Starting with `BUG-185`, new bug headings must use dual identification: `BUG-### / vX.Y.ZZ`.
 **Version lane rule:** assign the version tag by subsystem: `0.11.x` core/hardening/onboarding/runtime, `0.2.x` scripting/audit/automation, `0.3.x` TUI/operator UX, `0.4.x` multithreading/concurrency.
 
 ---
-(No outstanding P0/P1 bugs)
+### BUG-185 / v0.3.21: macOS dictation input can crash host Terminal during MBO Alpha text entry | Milestone: 1.1 | OPEN
+- **Location:** `src/tui/App.tsx`, TUI input handling / raw terminal mode / host terminal interaction
+- **Severity:** P1
+- **Status:** OPEN — 2026-03-21
+- **Task:** v0.3.21
+- **Description:** While using MBO Alpha in Terminal, invoking macOS system dictation during text entry crashed the entire Terminal app instead of only failing the current MBO session. This is a high-impact accessibility and usability issue because the operator relies heavily on speech-to-text input.
+- **Evidence:** macOS crash report `~/Library/Logs/DiagnosticReports/Terminal-2026-03-21-014513.ips` shows Terminal crashed with `EXC_BAD_ACCESS` / `SIGBUS` on the main thread around 2026-03-21 01:45:13 PDT. Alpha-side logs do not show an internal MBO fatal exception, which suggests an interaction between Terminal, dictation, and MBO's TUI/raw-input behavior rather than a normal application-level error path.
+- **Repro:** Open Alpha in Terminal, launch the MBO interface, focus text entry, start macOS dictation, speak input, observe Terminal crash.
+- **Acceptance:** Using macOS dictation during MBO text entry must not crash the host terminal. If dictation cannot be safely supported in a given mode, MBO must fail gracefully, preserve terminal state, and present a clear fallback or warning instead of taking down the session.
+
+### BUG-186 / v0.3.21: mouse text selection clears immediately, preventing copy from the TUI | Milestone: 1.1 | OPEN
+- **Location:** `src/tui/App.tsx`, TUI terminal mode / mouse handling / selection behavior in host terminal
+- **Severity:** P2
+- **Status:** OPEN — 2026-03-21
+- **Task:** v0.3.21
+- **Description:** When selecting text with the mouse in the TUI, the highlighted selection does not persist after mouse release. The selection clears immediately, which makes normal terminal copy behavior unreliable or unusable.
+- **Evidence:** Reproduced during interactive use: text can be dragged/highlighted, but the selection vanishes as soon as the mouse button is released.
+- **Repro:** Open the MBO TUI, drag-select visible text with the mouse, release the mouse button, observe that the selection immediately clears instead of remaining available for copy.
+- **Acceptance:** Mouse-based text selection must remain highlighted after release long enough for standard terminal copy workflows to work. If the TUI's mouse/input mode prevents native selection, MBO must provide a deliberate compatibility mode or a clear alternative copy path.
+
+### BUG-187 / v0.2.05: Tokenmiser semantics are unresolved and require user interview before implementation | Milestone: 1.1 | OPEN
+- **Location:** `src/state/db-manager.js`, `src/cli/tokenmiser-dashboard.js`, `src/tui/components/StatsOverlay.tsx`, related Tokenmiser/operator displays
+- **Severity:** P1
+- **Status:** OPEN — 2026-03-21
+- **Task:** v0.2.05
+- **Description:** Tokenmiser behavior is not aligned with the operator's intended semantics, and prior discussion already looped without reaching shared understanding. The current display shows values that appear misleading or inconsistent, including counterfactual/savings output and unexpectedly high token counts after only a few prompts.
+- **Related Prior Work:** `BUG-155` previously addressed Tokenmiser costing drift, but the current issue should be treated as a new bug/regression/behavior-definition failure rather than mutating the resolved record.
+- **Hard Gate:** No implementation may begin until the agent interviews the user about the desired Tokenmiser behavior, compares expected behavior against actual behavior, and writes down the mismatch clearly enough that assumptions are explicit.
+- **Evidence:** Current Tokenmiser output appears behaviorally wrong or at least unexplained to the operator, including negative/odd savings presentation and token totals that do not feel proportionate to the small number of prompts issued.
+- **Acceptance:** Tokenmiser must use a single, explainable source of truth for token counts and cost math. The final implementation must include a documented expectation-vs-actual reconciliation derived from a user interview before code changes proceed.
+
+### BUG-188 / v0.3.21: top header/status layout wraps badly and misplaces critical information at default window size | Milestone: 1.1 | OPEN
+- **Location:** `src/tui/components/StatusBar.tsx`, `src/tui/components/TabBar.tsx`, related TUI header layout
+- **Severity:** P2
+- **Status:** OPEN — 2026-03-21
+- **Task:** v0.3.21
+- **Description:** The top-of-screen status/header area is overcrowded and unstable at the default window size. Important elements wrap when they should not, low-value status like `CLASSIFYING` is visually dominant while effectively idle, and token/model information is duplicated or inconsistent across the header and operator area.
+- **Requested Layout Direction:** `MIRROR BOX ORCHESTRATOR` in all caps at upper left; `Ready for the next instruction` may wrap; remove stray punctuation/glyph artifacts; prevent awkward `OPERATOR` wrapping; move stage/state label to the right near the tab boxes; move tab-cycle instructions down one row; keep `No active task` in the operator area; keep version upper right; move timer below version in the lower-right and style it prominently; ensure token/model information has one source of truth; enlarge the default orchestrator window at startup if needed to preserve the layout contract.
+- **Evidence:** Current screenshot shows bad wrapping, malformed header segmentation, duplicated/conflicting token counts, and weak visual hierarchy in the top row.
+- **Acceptance:** At default startup size, the header must remain readable and stable without wrapping critical labels, duplicating token information, or surfacing misleading idle/stage state in the wrong position.
+
+### BUG-189 / v0.11.183: operator treats governance files as passive context instead of actionable runtime state | Milestone: 1.1 | OPEN
+- **Location:** operator/runtime governance handling, slash-command routing, onboarding/setup/projecttracking intent resolution
+- **Severity:** P1
+- **Status:** OPEN — 2026-03-21
+- **Task:** v0.11.183
+- **Description:** The operator talks as if it understands natural-language governance/task requests, but it does not reliably act on them. Requests like `check projecttracking.md for next task` are acknowledged and then go nowhere. `/onboarding` is expected to be a slash command but is not behaving as one. Natural-language requests to rerun onboarding also fail, and asking for the next task can return `unable to assist` even when `projecttracking.md` is already loaded.
+- **Behavioral Expectation:** On startup, if `projecttracking.md` exists, the operator window should load and surface the top tasks that fit, including `Next Task`. If no `projecttracking.md` exists, the system should say so plainly and offer to create one and/or analyze source documents. `/onboarding`, `/setup`, and `/projecttracking` must exist as slash commands. Governance docs should be graph-backed and operationalized into runtime task awareness, not merely listed under loaded files.
+- **Token Concern:** The same runtime path also appears to spend far too many tokens for a handful of simple governance prompts, suggesting wasteful or confused context handling that should be investigated as part of this bug.
+- **Acceptance:** Governance/task intents must produce concrete, observable behavior. If a governance file is loaded, the operator must be able to answer next-task questions and activate or clearly surface the task. If the action cannot be performed, the limitation must be explicit rather than simulated understanding.
+
+**Next bug number:** BUG-190
