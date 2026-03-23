@@ -5,7 +5,7 @@
 **Reference:** For governance document role definitions, see `.dev/governance/GOVERNANCE_MAP.md`.
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Current Version:** 0.3.22+v0.11.185.v0.3.21 (TUI v.3)
+**Current Version:** 0.11.186
 **Next Task:** v0.15.02
 **V4 Gate:** The v0.4x series has zero tasks until ALL of the following clear: v0.13.01, v0.14.01, v0.15.01, v0.16.01. After all four clear, Operator defines v0.4.0-RC.x candidate build tasks. v0.4.0 ships when and only when the Operator has privately demoed MBO and is personally convinced it is ready for external eyes. v0.41.x tasks are created from what surfaces after the public demo — not before it. See AGENTS.md §17H.
 **Policy:** This file is the single source of truth for work state.
@@ -34,7 +34,7 @@
 
 | v0.2.06 | bug | Workflow audit alpha automation hardening: live mirror execution, transcript freshness validation, and governance status parsing | COMPLETED | codex | - | 2026-03-21 | BUG-190 | `--world mirror --push-alpha` now runs the Alpha checks for real, validates the newest Alpha/mirror transcripts by required content instead of filename presence, and treats completed task rows as recognized governance status values during compliance checks. |
 | v0.11.184 | bug | Packaged Alpha runtime bootstrap must not recurse into npm install when dependency tree is already present | COMPLETED | codex | - | 2026-03-21 | BUG-191 | Installed-package startup now skips recursive reinstall when required runtime dependencies already exist, even if npm sentinel files such as `.package-lock.json` are absent. |
-| v0.11.187 | bug | Remove KeepAlive from `mbo mcp start` launchd plist registration — MCP lifetime must be session-scoped | READY | unassigned | - | 2026-03-23 | BUG-194 | `mbo mcp start` must not register a KeepAlive launchd daemon. MCP process lifetime is tied to the `mbo` session that spawned it. Existing orphan-detection/reap logic is sufficient supervision. |
+| v0.11.187 | bug | Remove KeepAlive from `mbo mcp start` launchd plist registration — MCP lifetime must be session-scoped | COMPLETED | claude | - | 2026-03-23 | BUG-194 | `mbo mcp start` must not register a KeepAlive launchd daemon. MCP process lifetime is tied to the `mbo` session that spawned it. Existing orphan-detection/reap logic is sufficient supervision. |
 
 ---
 
