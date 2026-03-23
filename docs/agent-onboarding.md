@@ -24,7 +24,7 @@ Do not implement anything until Gate 0 + nhash is complete.
 - Write to `src/` without a valid handshake session (write.deny will block you)
 - **Overwrite or modify existing files via `write_file` (Invariant 14).** You MUST use `replace` for all modifications to ensure surgical precision. `write_file` is reserved for new files.
 - Call `handshake.py <scope>` or `handshake.py --revoke` — human only
-- Proceed to Planning (Stage 3) without human `go` on the Assumption Ledger (Stage 1.5)
+- Proceed to Planning (Stage 3) without human `go` on the Assumption Ledger (Stage 1.5), including Tier 0 and read-only workflows
 - Auto-approve the audit gate — you must pause and wait for human
 
 ### You CAN:

@@ -390,7 +390,8 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       }
       return;
     }
-    if (lower === 'approved') {
+    if (auditPending || operator.stateSummary?.pendingAudit) {
+      if (lower === 'approved') {
         appendOperator('❯ approved');
         setPipelineRunning(true);
         try {

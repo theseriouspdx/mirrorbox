@@ -8,8 +8,8 @@ Every working session follows this pattern:
 1. Load letsgo.md (session start)
 2. Gate 0: read governance files + nhash affirmation
 3. Run graph_rescan + graph_search to orient
-4. Agent generates Assumption Ledger (Stage 1.5)
-5. Review assumptions + blockers. Respond 'go' to approve defaults.
+4. Agent generates Assumption Ledger (Stage 1.5) for every execution workflow, including Tier 0 and read-only readiness checks
+5. Review assumptions + blockers. Respond 'go' to approve defaults before planning begins.
 6. Grant auth scope: mbo <scope>
 7. Agent creates atomic backup in .dev/bak/ (Invariant 13)
 8. Agent implements via impl_step.sh (one file at a time)

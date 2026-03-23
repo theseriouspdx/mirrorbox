@@ -1059,24 +1059,61 @@ User request: "${userMessage}"`;
         };
       }
 
+      const normalizedClassification = this._normalizeExecutionClassification(classification, userMessage);
+
       // BUG-162: Validate non-empty FILES where the route implies mutation
       const mutationRoutes = new Set(['standard', 'complex']);
-      if (mutationRoutes.has(classification.route) && (!classification.files || classification.files.length === 0)) {
+      if (mutationRoutes.has(normalizedClassification.route) && (!normalizedClassification.files || normalizedClassification.files.length === 0)) {
         return {
           needsClarification: true,
-          rationale: `The ${classification.route} route requires at least one file path to proceed. Please specify which files should be modified.`,
+          rationale: `The ${normalizedClassification.route} route requires at least one file path to proceed. Please specify which files should be modified.`,
           confidence: 0.9
         };
       }
 
-      return classification;
+      return normalizedClassification;
     } catch (e) {
       console.error(`[Operator] Model classification failure: ${e.message}. Falling back to heuristic.`);
       return this._heuristicClassifier(userMessage);
     }
   }
 
+  _isReadOnlyWorkflowRequest(userMessage) {
+    const text = String(userMessage || '').toLowerCase();
+    return text.includes('readiness-check workflow') ||
+      (text.includes('workflow cycle') && text.includes('plain english'));
+  }
+
+  _normalizeExecutionClassification(classification, userMessage) {
+    const normalized = { ...classification };
+    if (this._isReadOnlyWorkflowRequest(userMessage)) {
+      normalized.readOnlyWorkflow = true;
+      normalized.route = 'analysis';
+      normalized.risk = 'low';
+      normalized.complexity = 1;
+      normalized.files = [];
+      if (!String(normalized.rationale || '').trim() || /heuristic classification/i.test(String(normalized.rationale))) {
+        normalized.rationale = 'Readiness-check workflow verification';
+      }
+    }
+    return normalized;
+  }
+
   _heuristicClassifier(userMessage) {
+    if (this._isReadOnlyWorkflowRequest(userMessage)) {
+      return {
+        route: 'analysis',
+        worldId: 'mirror',
+        risk: 'low',
+        complexity: 1,
+        files: [],
+        rationale: 'Readiness-check workflow verification',
+        confidence: 0.9,
+        readOnlyWorkflow: true,
+        _source: 'heuristic'
+      };
+    }
+
     const files = userMessage.match(/[\w./-]+\.\w+/g) || [];
     let route = 'standard';
     let risk = 'low';
@@ -1463,14 +1500,12 @@ The output will be used as the new system context.`;
     const lockedFiles = [...(classification.files || [])];
     this.stateSummary.worldId = lockedWorld;
 
-    // BUG-192: read-only workflow bypass — skip assumption ledger gate and go directly to plan
     if (classification.readOnlyWorkflow) {
       this.stateSummary.filesInScope = [];
       this.stateSummary.currentTask = 'Readiness-check workflow verification';
-      return { classification, routing, status: 'ready_for_planning' };
     }
 
-    if (classification.route === 'analysis' && classification.risk === 'low' && lockedFiles.length === 0) {
+    if (!classification.readOnlyWorkflow && classification.route === 'analysis' && classification.risk === 'low' && lockedFiles.length === 0) {
       // BUG-189: pass sessionHistory so operator model remembers prior turns
       const historyContext = this.sessionHistory.length > 0
         ? '\n\nConversation so far:\n' + this.sessionHistory.map(m => `${m.role}: ${m.content}`).join('\n')
@@ -1512,29 +1547,26 @@ The output will be used as the new system context.`;
 
     this._setStage('classification');
     this.stateSummary.filesInScope = cleanClassification.files;
-    this.stateSummary.currentTask = cleanClassification.rationale || userMessage.slice(0, 120);
+    this.stateSummary.currentTask = cleanClassification.readOnlyWorkflow
+      ? 'Readiness-check workflow verification'
+      : cleanClassification.rationale || userMessage.slice(0, 120);
     stateManager.snapshot(this.stateSummary, 'mirror');
 
-    // Section 8: Approval Gate (Stage 5)
-    // Tier 0 skips gate. Tier 1+ enters Stage 1.5 Assumption Ledger.
-    if (routing.tier > 0) {
-      const stage1_5 = await this.runStage1_5(cleanClassification, routing);
-      
-      // Section 27: Entropy hard stop propagates directly — do not set pendingDecision
-      if (stage1_5.status === 'blocked') return stage1_5;
+    // Section 8 / Section 27: every execution workflow enters Stage 1.5 before planning.
+    const stage1_5 = await this.runStage1_5(cleanClassification, routing);
 
-      this.stateSummary.pendingDecision.ledger = stage1_5.assumptionLedger;
-      this.stateSummary.pendingDecision.knowledgePack = stage1_5.projectedContext;
-      
-      // Section 27: Blocker enforcement
-      if (stage1_5.assumptionLedger.blockers.length > 0) {
-        stage1_5.prompt = `[BLOCKED] ${stage1_5.prompt}\nCannot proceed until blockers are resolved.`;
-      }
+    // Section 27: Entropy hard stop propagates directly — do not set pendingDecision
+    if (stage1_5.status === 'blocked') return stage1_5;
 
-      return stage1_5;
+    this.stateSummary.pendingDecision.ledger = stage1_5.assumptionLedger;
+    this.stateSummary.pendingDecision.knowledgePack = stage1_5.projectedContext;
+
+    // Section 27: Blocker enforcement
+    if (stage1_5.assumptionLedger.blockers.length > 0) {
+      stage1_5.prompt = `[BLOCKED] ${stage1_5.prompt}\nCannot proceed until blockers are resolved.`;
     }
 
-    return { classification: cleanClassification, routing, status: 'ready_for_planning' };
+    return stage1_5;
   }
 
   /**

@@ -65,10 +65,6 @@ function buildPlist({ projectRoot, controllerRoot, nodePath, projectId }) {
   </array>
   <key>WorkingDirectory</key>
   <string>${root}</string>
-  <key>KeepAlive</key>
-  <true/>
-  <key>ThrottleInterval</key>
-  <integer>10</integer>
   <key>RunAtLoad</key>
   <true/>
   <key>EnvironmentVariables</key>

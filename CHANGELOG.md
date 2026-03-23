@@ -1,6 +1,33 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [0.3.23] — 2026-03-23
+#### Fixed
+- **BUG-196 (P1) — `handleInput` arrow function body closes prematurely (esbuild build failure):**
+  - `src/tui/App.tsx`: inserted missing `if (auditPending || operator.stateSummary?.pendingAudit) {` outer guard before the approved/reject audit branch in `handleInput`. The closing `}` at line 429 was correct for this guard but its opening was absent, causing the function body to close at line 429 instead of line 453, stranding the hint-mode check and `processMessage` call outside the function body and producing an esbuild `Expected ")" but found "if"` error that blocked the e2e run.
+
+### [0.11.188] — 2026-03-23
+#### Fixed
+- **BUG-195 (P1) — Assumption-ledger sign-off bypass for Tier 0 and read-only workflows:**
+  - `src/auth/operator.js`: normalized readiness-check requests into an explicit `readOnlyWorkflow` classification so they remain read-only without bypassing the approval gate.
+  - `src/auth/operator.js`: removed the direct `readOnlyWorkflow` fast-path and now routes every execution workflow, including Tier 0, through Stage 1.5 before planning begins.
+  - `docs/operator-guide.md`, `docs/agent-onboarding.md`: clarified that Stage 1.5 sign-off is required for every execution workflow, including Tier 0 and read-only flows.
+  - `scripts/test-assumption-ledger.js`: added targeted coverage proving Tier 0 and read-only workflows emit the spec-refinement gate and require human approval.
+
+### [0.15.01] — 2026-03-23
+#### Plan
+- **V4 Readiness Cleanup Plan — Task v0.15.01:**
+  - Produced `docs/v0.15-cleanup-plan.md`: five-phase cleanup contract defining the
+    step-by-step sequence, auditability standards, and stop conditions required before
+    MBO enters the V4 (`0.4x`) series.
+  - Phase 1: filesystem cruft removal (.DS_Store purge, scratch file, src/cells/ resolution).
+  - Phase 2: documentation sync (README, ROADMAP, docs/ audit, template header).
+  - Phase 3: code quality pass (debug scan, unlinked TODO audit, import consistency).
+  - Phase 4: scripts audit (operational headers, test suite re-run, dead script evaluation).
+  - Phase 5: topology finalization (gitignore, version integrity, V4 sign-off).
+  - Entropy score: 4.0 (below 10-point hard stop). Proposed implementation tasks
+    v0.15.02–v0.15.06 logged in projecttracking.md.
+
 ### [0.11.186] — 2026-03-23
 #### Fixed
 - **Master Test Suite Hardening (Rules 1/5) — Task v0.11.186:**

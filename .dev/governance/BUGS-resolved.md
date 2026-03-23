@@ -188,3 +188,16 @@
 - **Resolution:** Interview completed, mismatch documented in `.dev/governance/tokenmiser-semantics-v0.2.05.md`. Implementation: routing savings now canonical via `db.getCostRollup()` (Option B — counterfactual vs actual, not token compression); `/token` and `/tm` unified to same per-model drill-down via `renderTmCommand()`; per-stage token chips added to OperatorPanel; session routing savings bar added to PipelinePanel; StatsOverlay SESSION section relabeled and sourced from `getCostRollup()`; `statsManager.getRoutingSavings()` added as canonical accessor.
 - **Task:** v0.2.05
 
+
+### BUG-194 / v0.11.187: `mbo mcp start` writes launchd plist with KeepAlive=true causing orphan MCP accumulation | Milestone: 1.1 | RESOLVED
+- **Location:** `src/cli/setup.js` — `buildPlist()`
+- **Severity:** P2
+- **Status:** RESOLVED — 2026-03-23
+- **Task:** v0.11.187
+- **Fix:** Removed `KeepAlive: true` and `ThrottleInterval: 10` from the launchd plist template. `RunAtLoad: true` retained as the one-shot launch trigger on `launchctl load`. MCP is now session-scoped — launchd will not respawn killed/crashed processes. `runTeardown()` unload + plist delete remains the clean shutdown path.
+
+### BUG-196 / v0.3.23: `handleInput` arrow function body closes prematurely | RESOLVED 2026-03-23
+- **Location:** `src/tui/App.tsx` — `handleInput` `useCallback` body
+- **Severity:** P1
+- **Resolution:** Inserted missing `if (auditPending || operator.stateSummary?.pendingAudit) {` outer guard before the audit approved/reject branch. Function body now closes at line 453 (`}, [deps])`). Discovered during e2e sync-and-run session.
+- **Task:** v0.3.23
