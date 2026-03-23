@@ -1,4 +1,10 @@
 # CHANGELOG.md
+## [0.3.22+v0.11.186] — 2026-03-23 — Test Suite Hardening + MCP Cleanup
+### Fixed
+- `test-recovery.js` Rule 4 violation: wrapped async body in try/catch, added explicit `process.exit(0/1)` — test suite now 22/22 green.
+- Removed 4 stale launchd MCP daemon plists (`johnseriouscom`, home-dir root, `gemini-ux-copy-pack` worktree, `MBO_Alpha`) that were auto-respawning orphan MCP processes on kill. MCP now starts on demand per `mbo` invocation as intended.
+- Broken `mcp.json` symlink in `.dev/run/` (pointed to dead PID 18364 manifest) resolved by starting fresh MCP instance for `/MBO`.
+
 ## [0.3.20+v0.11.181.v0.2.3] — 2026-03-20 — TUI (v.3)
 ### Added
 - TasksOverlay now includes governance-doc viewing, scrollable task briefings, activation preflight notes, and inline task creation that writes back to `projecttracking.md`.

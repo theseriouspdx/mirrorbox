@@ -65,7 +65,14 @@ function testRecovery() {
   }
   console.log('────────────────────────────────────────────────────────────────\n');
 
+  console.log(`\nResults: ${results.length} passed, 0 failed`);
   console.log('PASS: All recovery tests passed.');
 }
 
-testRecovery();
+try {
+  testRecovery();
+  process.exit(0);
+} catch (err) {
+  console.error('\nFAIL: ' + err.message);
+  process.exit(1);
+}
