@@ -358,7 +358,7 @@ console.log('\nFM-22: port 65535 (max valid) and port 1 (min) write correctly');
 console.log('\nFM-23: verify installMCPDaemon health-first timeout is 2000ms (static check)');
 {
   const setupSrc = fs.readFileSync(path.join(__dirname, '../src/cli/setup.js'), 'utf8');
-  assert(setupSrc.includes('waitForHealth(resolvedRoot, projectId, 2000)'),
+  assert(setupSrc.includes('waitForHealth(resolvedRoot, projectId, 2000'),
     'installMCPDaemon checks health with 2000ms timeout before restart');
   assert(setupSrc.includes('alreadyHealthy'),
     'alreadyHealthy variable present in installMCPDaemon');

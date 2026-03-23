@@ -774,14 +774,13 @@ if (process.argv[2] === 'setup') {
   }
   const { initProject } = require('../src/cli/init-project');
   initProject(INVOCATION_CWD);
-} else if (process.argv[2] === 'tui') {
-  // Guard: TUI must not run from the MBO controller directory
+} else if (process.argv[2] === 'tui' || process.argv[2] === undefined || process.argv[2] === null) {
+  // BUG-193: mbo bare defaults to TUI. Alias kept.
   if (isSelfRunDisallowed(INVOCATION_CWD, PACKAGE_ROOT)) {
     process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
-    process.stderr.write('[MBO TUI] Run "mbo tui" from your target project directory, e.g. cd ~/MBO_Alpha\n');
+    process.stderr.write('[MBO TUI] Run "mbo" from your target project directory, e.g. cd ~/MBO_Alpha\n');
     process.exit(1);
   }
-  // Launch the Ink-based TUI
   const tuiLauncher = path.join(PACKAGE_ROOT, 'bin', 'mbo-tui.js');
   const child = spawn(process.execPath, [tuiLauncher, ...process.argv.slice(3)], {
     stdio: 'inherit',
@@ -793,16 +792,17 @@ if (process.argv[2] === 'setup') {
     process.stderr.write(`[MBO] Failed to launch TUI: ${err.message}\n`);
     process.exit(1);
   });
-} else {
+} else if (process.argv[2] === 'cl') {
+  // BUG-193: mbo cl starts operator loop
   persistInstallMetadataBestEffort();
   reapStaleHelpers(PACKAGE_ROOT);
   if (isSelfRunDisallowed(INVOCATION_CWD, PACKAGE_ROOT)) {
     process.stderr.write(selfRunGuardMessage(PACKAGE_ROOT));
     process.exit(1);
   }
-  // Task 1.1-H28: Persistent Operator Loop
   function spawnOperator() {
-    const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
+    // BUG-193: slice(3) to skip 'cl' subcommand
+    const child = spawn(process.execPath, [entry, ...process.argv.slice(3)], {
       stdio: 'inherit',
       env: { ...process.env, MBO_PROJECT_ROOT: PROJECT_ROOT },
       cwd: PROJECT_ROOT,
@@ -817,4 +817,13 @@ if (process.argv[2] === 'setup') {
     });
   }
   spawnOperator();
+} else {
+  // BUG-193: unknown subcommand help message
+  process.stderr.write(`[MBO] Unknown command: "${process.argv[2]}"\n`);
+  process.stderr.write('Usage: mbo [tui|cl|mcp|setup|teardown|auth|init]\n');
+  process.stderr.write('  mbo          — launch TUI (default)\n');
+  process.stderr.write('  mbo cl       — legacy operator loop\n');
+  process.stderr.write('  mbo mcp      — MCP recovery\n');
+  process.stderr.write('  mbo setup    — project setup wizard\n');
+  process.exit(1);
 }

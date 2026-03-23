@@ -11,6 +11,7 @@ interface Props {
   stageStartTime: number;
   version: string;
   pipelineRunning: boolean;
+  exitPending?: boolean;
 }
 
 function formatElapsed(seconds: number): string {
@@ -34,6 +35,7 @@ export function StatusBar({
   stageStartTime,
   version,
   pipelineRunning,
+  exitPending = false,
 }: Props) {
   const [elapsed, setElapsed] = useState(0);
   const [pulseFrame, setPulseFrame] = useState(0);
@@ -75,17 +77,19 @@ export function StatusBar({
         <Text color={C.white} dimColor>v{version}</Text>
       </Box>
 
-      {/* Row 2: stage + tab | task | timer */}
+      {/* Row 2: task | stage + tab | timer */}
       <Box justifyContent="space-between">
+        <Text color={C.white} dimColor wrap="truncate">
+          {exitPending
+            ? '⚠ Press Ctrl+C again to exit'
+            : truncate(currentTask || 'no active task', 34)}
+        </Text>
         <Box gap={1}>
           <Text bold color={stageColor}>{stageLabel}</Text>
           {pulse ? <Text color={C.pink}>{pulse}</Text> : null}
           <Text color={C.teal} bold>[{tabLabel}]</Text>
+          <Text bold color={C.white}>{formatElapsed(elapsed)}</Text>
         </Box>
-        <Text color={C.white} dimColor wrap="truncate">
-          {truncate(currentTask || 'no active task', 34)}
-        </Text>
-        <Text bold color={C.white}>{formatElapsed(elapsed)}</Text>
       </Box>
     </Box>
   );

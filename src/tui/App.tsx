@@ -83,6 +83,9 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
   const [activeTab, setActiveTab] = useState<ActiveTab>(1);
   const [statsOverlay, setStatsOverlay] = useState(false);
   const [overlayMode, setOverlayMode] = useState<OverlayMode>(null);
+  const [exitPending, setExitPending] = useState(false);
+  const exitPendingRef = useRef(false);
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [overlayDraftSeed, setOverlayDraftSeed] = useState<{ title?: string } | null>(null);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [pipelineRunning, setPipelineRunning] = useState(false);
@@ -234,7 +237,20 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
 
   useInput((input, key) => {
     if (key.ctrl && input === 'c') {
-      exit();
+      // BUG-185: double-press Ctrl+C for clean exit confirmation
+      if (exitPendingRef.current) {
+        // Second press — exit immediately
+        if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+        exit();
+        return;
+      }
+      // First press — arm the confirmation and show hint
+      exitPendingRef.current = true;
+      setExitPending(true);
+      exitTimerRef.current = setTimeout(() => {
+        exitPendingRef.current = false;
+        setExitPending(false);
+      }, 2000);
       return;
     }
     if (key.escape) {
@@ -463,6 +479,7 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
         stageStartTime={stageStartTime}
         version={pkg.version}
         pipelineRunning={pipelineRunning}
+        exitPending={exitPending}
       />
 
       <TabBar activeTab={activeTab} stage={stage} auditPending={auditPending} />

@@ -16,6 +16,11 @@ const {
   validateDangerZones,
   renderPlanAsText,
 } = require('../cli/onboarding');
+const {
+  getManifestPreference,
+  getMcpLogDir,
+  isWithinPath,
+} = require('../utils/runtime-context');
 
 const RUNTIME_ROOT = path.resolve(process.env.MBO_PROJECT_ROOT || process.cwd());
 const SESSION_HISTORY_PATH = path.join(RUNTIME_ROOT, '.mbo', 'session_history.json');
@@ -1214,6 +1219,12 @@ User request: "${userMessage}"`;
 
     for (const filePath of files) {
       const absPath = path.resolve(RUNTIME_ROOT, filePath);
+
+      // BUG-164/163: Runtime write guard — do not allow writes from a target runtime into the controller root.
+      if (isWithinPath(absPath, MBO_ROOT) && !isWithinPath(RUNTIME_ROOT, MBO_ROOT)) {
+        throw new Error(`[MBO] Runtime writes cannot target controller files: ${filePath}\n[RECOMMENDED ACTION]: Ensure your target file is within the project root.`);
+      }
+
       const cellName = path.relative(path.join(RUNTIME_ROOT, 'src'), absPath);
 
       // §12 Step 2: Permission check
@@ -1451,6 +1462,13 @@ The output will be used as the new system context.`;
     const lockedWorld = classification.worldId || 'mirror';
     const lockedFiles = [...(classification.files || [])];
     this.stateSummary.worldId = lockedWorld;
+
+    // BUG-192: read-only workflow bypass — skip assumption ledger gate and go directly to plan
+    if (classification.readOnlyWorkflow) {
+      this.stateSummary.filesInScope = [];
+      this.stateSummary.currentTask = 'Readiness-check workflow verification';
+      return { classification, routing, status: 'ready_for_planning' };
+    }
 
     if (classification.route === 'analysis' && classification.risk === 'low' && lockedFiles.length === 0) {
       // BUG-189: pass sessionHistory so operator model remembers prior turns
@@ -2272,6 +2290,34 @@ CONSENSUS INTENT:
     // Section 17: Generate handoff on clean shutdown
     stateManager.checkpoint('mirror');
     stateManager.generateHandoff();
+  }
+
+  /**
+   * BUG-189: Expose runOnboarding as a method callable from TUI App.tsx.
+   */
+  async runOnboarding(opts = {}) {
+    const { reOnboard = false } = opts;
+    const { RUNTIME_ROOT } = require('../utils/runtime-context');
+    const { runOnboarding } = require('../cli/onboarding');
+    try {
+      const profile = await runOnboarding(RUNTIME_ROOT, reOnboard ? null : this.onboardingState.profile, {
+        nonInteractive: false,
+      });
+      this.onboardingState.profile = profile;
+      this.onboardingState.active = false;
+      this._setStage('classification');
+      return {
+        status: 'onboarding_complete',
+        prompt: 'Onboarding updated. Prime directive refreshed.',
+        onboardingProfile: {
+          projectType: profile.projectType,
+          users: profile.users,
+          primeDirective: profile.primeDirective,
+        },
+      };
+    } catch (err) {
+      return { status: 'error', reason: err.message };
+    }
   }
 }
 

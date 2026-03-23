@@ -24,27 +24,30 @@ const TABS: TabDef[] = [
 
 export function TabBar({ activeTab, stage, auditPending }: Props) {
   return (
-    <Box flexDirection="row" paddingX={1} gap={1}>
-      {TABS.map((tab) => {
-        const isViewing = activeTab === tab.num;
-        const isLive    = tab.liveStages.includes(stage);
-        const isAudit   = tab.num === 1 && auditPending;
-        const borderColor = isAudit ? C.audit : isViewing ? C.teal : isLive ? C.pink : C.purple;
-        const labelColor  = isViewing ? C.white : isLive || isAudit ? C.pink : C.purple;
+    <Box flexDirection="column" paddingX={1}>
+      <Box flexDirection="row" gap={1}>
+        {TABS.map((tab) => {
+          const isViewing = activeTab === tab.num;
+          const isLive    = tab.liveStages.includes(stage);
+          const isAudit   = tab.num === 1 && auditPending;
+          const borderColor = isAudit ? C.audit : isViewing ? C.teal : isLive ? C.pink : C.purple;
+          const labelColor  = isViewing ? C.white : isLive || isAudit ? C.pink : C.purple;
 
-        return (
-          <Box key={tab.num} borderStyle="single" borderColor={borderColor} paddingX={1} flexShrink={0}>
-            <Text color={C.white} dimColor>{tab.num}:</Text>
-            <Text color={labelColor} bold={isViewing}>
-              {(isLive || isAudit) ? '▶ ' : '  '}
-              {isAudit ? 'AUDIT ⚠' : tab.label}
-            </Text>
-            {isLive && !isViewing && <Text color={C.pink} dimColor> ●</Text>}
-          </Box>
-        );
-      })}
-      <Box flexGrow={1} />
-      <Text color={C.white} dimColor>[Tab] cycle  [1-4] jump  [/tasks] task list  [/token] stats  [Ctrl+C] exit</Text>
+          return (
+            <Box key={tab.num} borderStyle="single" borderColor={borderColor} paddingX={1} flexShrink={0}>
+              <Text color={C.white} dimColor>{tab.num}:</Text>
+              <Text color={labelColor} bold={isViewing}>
+                {(isLive || isAudit) ? '▶ ' : '  '}
+                {isAudit ? 'AUDIT ⚠' : tab.label}
+              </Text>
+              {isLive && !isViewing && <Text color={C.pink} dimColor> ●</Text>}
+            </Box>
+          );
+        })}
+      </Box>
+      <Box paddingY={0}>
+        <Text color={C.white} dimColor> [Tab] cycle  [1-4] jump  [/tasks] task list  [/token] stats  [Ctrl+C] exit</Text>
+      </Box>
     </Box>
   );
 }
