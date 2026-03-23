@@ -1,6 +1,19 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [0.15.01] — 2026-03-23
+#### Plan
+- **V4 Readiness Cleanup Plan — Task v0.15.01:**
+  - Produced `docs/v0.15-cleanup-plan.md`: five-phase cleanup contract defining the
+    step-by-step sequence, auditability standards, and stop conditions required before
+    MBO enters the V4 (`0.4x`) series.
+  - Phase 1: filesystem cruft removal (.DS_Store purge, scratch file, src/cells/ resolution).
+  - Phase 2: documentation sync (README, ROADMAP, docs/ audit, template header).
+  - Phase 3: code quality pass (debug scan, unlinked TODO audit, import consistency).
+  - Phase 4: scripts audit (operational headers, test suite re-run, dead script evaluation).
+  - Phase 5: topology finalization (gitignore, version integrity, V4 sign-off).
+  - Entropy score: 4.0. Proposed tasks v0.15.02–v0.15.06 logged in projecttracking.md.
+
 ### [0.11.186] — 2026-03-23
 #### Fixed
 - **Master Test Suite Hardening (Rules 1/5) — Task v0.11.186:**
