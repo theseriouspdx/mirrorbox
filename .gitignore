@@ -5,6 +5,10 @@ node_modules/
 .DS_Store
 Thumbs.db
 
+# Python cache artifacts
+__pycache__/
+*.pyc
+
 # Project state and logs
 data/
 logs/

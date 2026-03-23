@@ -1,6 +1,6 @@
 {
   "name": "mbo",
-  "version": "0.11.186",
+  "version": "0.3.23",
   "description": "Mirror Box Orchestrator",
   "main": "src/index.js",
   "bin": {
