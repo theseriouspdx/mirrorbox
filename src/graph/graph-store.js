@@ -162,6 +162,90 @@ class GraphStore {
     `, [`%${pattern}%`, `%${pattern}%`, `%${pattern}%`]);
   }
 
+  /**
+   * v0.12.01: Assemble a task-scoped knowledge pack.
+   * anchor_nodes     — direct file nodes for files[]
+   * dependency_nodes — 1-hop IMPORTS/DEPENDS_ON targets of anchors
+   * spec_sections    — spec_section nodes whose name matches pattern
+   * edges            — edges connecting the assembled node set
+   * Deduplicates and trims to maxNodes (anchors preserved first).
+   */
+  getKnowledgePack(files, pattern, maxNodes = 40) {
+    const cap = Math.min(maxNodes, 80);
+    const nodeMap = new Map(); // id → node
+
+    // 1. Anchor nodes
+    for (const f of files) {
+      const relPath = f.startsWith('file://') ? f.slice(7) : f;
+      const nodeId = `file://${relPath}`;
+      const node = this.getNode(nodeId);
+      if (node) {
+        if (node.metadata) node.metadata = typeof node.metadata === 'string'
+          ? JSON.parse(node.metadata) : node.metadata;
+        nodeMap.set(nodeId, { ...node, _role: 'anchor' });
+      }
+    }
+
+    // 2. 1-hop dependency nodes (IMPORTS + DEPENDS_ON edges from anchors)
+    const anchorIds = [...nodeMap.keys()];
+    for (const anchorId of anchorIds) {
+      if (nodeMap.size >= cap) break;
+      const deps = this.db.query(
+        `SELECT target_id as id FROM edges
+         WHERE source_id = ? AND relation IN ('IMPORTS','DEPENDS_ON')`,
+        [anchorId]
+      );
+      for (const dep of deps) {
+        if (nodeMap.size >= cap) break;
+        if (nodeMap.has(dep.id)) continue;
+        const node = this.getNode(dep.id);
+        if (node) {
+          if (node.metadata) node.metadata = typeof node.metadata === 'string'
+            ? JSON.parse(node.metadata) : node.metadata;
+          nodeMap.set(dep.id, { ...node, _role: 'dependency' });
+        }
+      }
+    }
+
+    // 3. Spec sections matching pattern (only if budget remains)
+    if (pattern && nodeMap.size < cap) {
+      const specRows = this.db.query(
+        `SELECT * FROM nodes WHERE type = 'spec_section' AND name LIKE ? LIMIT ?`,
+        [`%${pattern}%`, cap - nodeMap.size]
+      );
+      for (const row of specRows) {
+        if (nodeMap.has(row.id)) continue;
+        if (row.metadata) row.metadata = typeof row.metadata === 'string'
+          ? JSON.parse(row.metadata) : row.metadata;
+        nodeMap.set(row.id, { ...row, _role: 'spec' });
+      }
+    }
+
+    // 4. Edges within the assembled node set only (no orphan edges)
+    const ids = [...nodeMap.keys()];
+    const edges = ids.length > 1
+      ? this.db.query(
+          `SELECT source_id, target_id, relation, source FROM edges
+           WHERE source_id IN (${ids.map(() => '?').join(',')})
+           AND target_id IN (${ids.map(() => '?').join(',')})`,
+          [...ids, ...ids]
+        )
+      : [];
+
+    const tokenEstimate = Math.ceil(
+      JSON.stringify([...nodeMap.values()]).length / 4
+    );
+
+    return {
+      anchor_nodes:     [...nodeMap.values()].filter(n => n._role === 'anchor'),
+      dependency_nodes: [...nodeMap.values()].filter(n => n._role === 'dependency'),
+      spec_sections:    [...nodeMap.values()].filter(n => n._role === 'spec'),
+      edges,
+      token_estimate:   tokenEstimate,
+      truncated:        nodeMap.size >= cap,
+    };
+  }
+
   clearGraph() {
     this.db.transaction(() => {
       this.db.run('DELETE FROM edges');

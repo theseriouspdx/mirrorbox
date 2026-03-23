@@ -1524,6 +1524,7 @@ The output will be used as the new system context.`;
       if (stage1_5.status === 'blocked') return stage1_5;
 
       this.stateSummary.pendingDecision.ledger = stage1_5.assumptionLedger;
+      this.stateSummary.pendingDecision.knowledgePack = stage1_5.projectedContext;
       
       // Section 27: Blocker enforcement
       if (stage1_5.assumptionLedger.blockers.length > 0) {
@@ -1642,7 +1643,7 @@ The output will be used as the new system context.`;
       return { status: 'aborted', reason: 'Human denied approval.' };
     }
 
-    const { classification, routing } = this.stateSummary.pendingDecision;
+    const { classification, routing, knowledgePack } = this.stateSummary.pendingDecision;
     // BUG-158/163: Scope lock.
     const locks = {
       lockedWorld: this.stateSummary.worldId || 'mirror',
@@ -1652,7 +1653,7 @@ The output will be used as the new system context.`;
 
     try {
       // Stage 3: Planning
-      const planResult = await this.runStage3(classification, routing, [], this.stateSummary.executorLogs, locks);
+      const planResult = await this.runStage3(classification, routing, knowledgePack ? [knowledgePack] : [], this.stateSummary.executorLogs, locks);
 
       // BUG-163: check filesToChange
       if (locks.lockedFiles.length > 0 && (!planResult.plan || !planResult.plan.filesToChange || planResult.plan.filesToChange.length === 0)) {
@@ -1688,7 +1689,7 @@ The output will be used as the new system context.`;
       }
 
       // Stage 4: Code
-      const codeResult = await this.runStage4(agreedPlan, classification, routing, locks);
+      const codeResult = await this.runStage4(agreedPlan, classification, routing, locks, knowledgePack);
       
       // Stage 4.5: Virtual Dry Run (Placeholder for 0.8)
       const dryRun = await this.runStage4_5(codeResult.code);
@@ -1783,10 +1784,26 @@ The output will be used as the new system context.`;
   async generateAssumptionLedger(classification, routing, context) {
     const options = { signal: this.abortController?.signal };
     const hardState = this.getHardState();
+
+    // v0.12.01: Format knowledge pack as pinned context block for ledger prompt
+    let packedContextBlock = '';
+    if (context && (context.anchor_nodes || context.spec_sections)) {
+      const anchors = (context.anchor_nodes || []).map(n => `  ${n.path} (${n.type})`).join('\n');
+      const deps    = (context.dependency_nodes || []).map(n => `  ${n.path}`).join('\n');
+      const specs   = (context.spec_sections || []).map(n => `  ${n.name}`).join('\n');
+      packedContextBlock = [
+        anchors ? `Anchor files:\n${anchors}`        : '',
+        deps    ? `Dependencies:\n${deps}`            : '',
+        specs   ? `Relevant spec sections:\n${specs}` : '',
+        context.truncated ? '(pack truncated — max_nodes reached)' : '',
+      ].filter(Boolean).join('\n');
+    }
+
     const prompt = `Audit every assumption for the following task. 
   Task: ${classification.rationale}
   Files: ${classification.files.join(', ')}
   Routing Tier: ${routing.tier}
+${packedContextBlock ? `\nGraph Context:\n${packedContextBlock}\n` : ''}
 
   Respond in plain English using these sections:
   ASSUMPTIONS:
@@ -1802,7 +1819,7 @@ The output will be used as the new system context.`;
 
     try {
       // BUG-173: strip `context` (unbounded session history) — ledger only needs classification + routing.
-      const response = await this._callModel('classifier', prompt, { classification, routing }, hardState, [], null, { ...options, expectJson: false, stage: 'context_pinning', roleLabel: 'classifier' });
+      const response = await this._callModel('classifier', prompt, { classification, routing, knowledgePack: context }, hardState, [], null, { ...options, expectJson: false, stage: 'context_pinning', roleLabel: 'classifier' });
       
       // BUG-159: Parse plain-English sections instead of forcing JSON.
       const assumptionsRaw = this._extractSection(response, 'ASSUMPTIONS') || '';
@@ -1877,11 +1894,24 @@ The output will be used as the new system context.`;
   async runStage1_5(classification, routing) {
     this._setStage('context_pinning');
 
-    // 1. Default search for classification files or SPEC.md
-    const context = await this.callMCPTool('graph_search', { pattern: classification.files[0] || 'SPEC.md' });
+    // 1. Build task-scoped knowledge pack (v0.12.01: replaces dead graph_search fetch)
+    let knowledgePack = null;
+    try {
+      const files = (classification.files && classification.files.length > 0)
+        ? classification.files.slice(0, 5)
+        : [];
+      const pattern = (classification.rationale || classification.files[0] || 'SPEC.md').slice(0, 80);
+      knowledgePack = await this.callMCPTool('graph_get_knowledge_pack', {
+        files,
+        pattern,
+        max_nodes: 30,
+      });
+    } catch (e) {
+      console.error(`[Operator] knowledge pack unavailable, continuing without: ${e.message}`);
+    }
 
-    // 2. Generate Section 27 Assumption Ledger
-    const ledger = await this.generateAssumptionLedger(classification, routing, context);
+    // 2. Generate Section 27 Assumption Ledger — pack injected into prompt
+    const ledger = await this.generateAssumptionLedger(classification, routing, knowledgePack);
     const signOff = this._formatSignOffBlock(ledger);
 
     // Section 27: Entropy Gate — hard stop before any planning begins
@@ -1902,7 +1932,7 @@ The output will be used as the new system context.`;
 
     return {
       needsApproval: true,
-      projectedContext: context,
+      projectedContext: knowledgePack,
       assumptionLedger: ledger,
       signOffBlock: signOff,
       prompt: `Spec refinement gate: Confirm intent, files, and assumptions before autonomous implementation.\n${signOff}\nType 'pin: [id]' to emphasize, 'exclude: [id]' to ignore, or 'go' to proceed.`
@@ -1964,10 +1994,26 @@ The output will be used as the new system context.`;
       this.userHintBuffer = [];
     }
 
+    // v0.12.01: Serialize knowledge pack for prompt injection
+    let knowledgePackBlock = '';
+    if (Array.isArray(pinnedContext) && pinnedContext.length > 0) {
+      const pack = pinnedContext[0];
+      if (pack && typeof pack === 'object' && pack.anchor_nodes) {
+        const anchors = (pack.anchor_nodes || []).map(n => `  ${n.path}`).join('\n');
+        const specs   = (pack.spec_sections || []).map(n => `  § ${n.name}`).join('\n');
+        knowledgePackBlock = [
+          anchors ? `Anchor files:\n${anchors}` : '',
+          specs   ? `Relevant spec sections:\n${specs}` : '',
+        ].filter(Boolean).join('\n');
+      } else if (typeof pack === 'string') {
+        knowledgePackBlock = pack;
+      }
+    }
+
     const planPrompt = `${promptPrefix}
 Prime Directive: ${hardState.primeDirective}
 Failure Context (Retry): ${executorLogs || 'None'}
-Pinned Context: ${pinnedContext.join(', ')}
+${knowledgePackBlock ? `Graph Context:\n${knowledgePackBlock}\n` : ''}
 
 Respond in plain English using these sections:
 RATIONALE:
@@ -2029,7 +2075,7 @@ DIFF:
    * Section 15: Stage 4 — Code Derivation and Consensus
    * Milestone 0.7-03 & 0.7-04.
    */
-  async runStage4(plan, classification, routing, locks = {}) {
+  async runStage4(plan, classification, routing, locks = {}, knowledgePack = null) {
     const effectiveClassification = { 
       ...classification, 
       worldId: locks.lockedWorld || classification.worldId, 
@@ -2053,9 +2099,10 @@ DIFF:
     while (this.stateSummary.blockCounter < 3) {
       // Stage 4A: Architecture Planner
       const plannerPrompt = `Write the implementation code for the agreed plan in plain English.\nPlan:\n${renderPlanAsText(plan)}\nTask: ${effectiveClassification.rationale}\nFiles: ${effectiveClassification.files.join(', ')}\n\nRespond in these sections:\nRATIONALE:\n<Why this implementation matches the plan>\n\nFILES:\n<One file path per line, or 'none'>\n\nDIFF:\n<Unified diff or code patch>\n\nINVARIANTS:\n<Constraints preserved>.`;
-      const codeA = await this._callModel('architecturePlanner', plannerPrompt, { plan, classification: effectiveClassification }, hardState, [], null, { ...options, expectJson: false, stage: 'code_derivation', roleLabel: 'architecturePlanner' });
+      const codeA = await this._callModel('architecturePlanner', plannerPrompt, { plan, classification: effectiveClassification, knowledgePack }, hardState, [], null, { ...options, expectJson: false, stage: 'code_derivation', roleLabel: 'architecturePlanner' });
 
       // Invariant 7: Compute Planner hashes for blindness enforcement
+      // reviewer intentionally receives no knowledgePack — Invariant 7 (blind derivation)
       const plannerHashes = computeContentHashes(codeA);
       const planHashes = computeContentHashes(JSON.stringify(plan));
       const allProtectedHashes = [...plannerHashes, ...planHashes];
