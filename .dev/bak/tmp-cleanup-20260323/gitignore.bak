@@ -52,6 +52,3 @@ scripts/scratch/
 # Stale local worktree snapshots (must never be tracked)
 .dev/worktree/
 .dev/worktree_archive/
-
-# Scratch/tmp artifacts (never tracked)
-.dev/tmp/

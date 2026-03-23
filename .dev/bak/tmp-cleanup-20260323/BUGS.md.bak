@@ -23,6 +23,5 @@
 - **Location:** MCP start path (wherever launchd plist registration occurs in `src/`)
 - **Severity:** P2
 - **Status:** OPEN — 2026-03-23
-- **Task:** v0.11.187
 - **Description:** Each `mbo mcp start` registers a launchd daemon with `KeepAlive: true`. Processes killed manually are instantly respawned. Over time stale plists accumulate for dead project roots (old worktrees, wrong roots, previous sessions). Manually removed 4 orphan plists today: `johnseriouscom`, home-dir root, `gemini-ux-copy-pack` worktree, `MBO_Alpha`. MCP should be ephemeral — started on demand per session, not supervised by launchd.
 - **Acceptance:** `mbo mcp start` must not register a KeepAlive launchd daemon. MCP process lifetime is tied to the `mbo` session that spawned it. Existing orphan-detection/reap logic is sufficient supervision.

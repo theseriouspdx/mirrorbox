@@ -6,7 +6,7 @@
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
 **Current Version:** 0.3.22+v0.11.185.v0.3.21 (TUI v.3)
-**Next Task:** v0.2.04
+**Next Task:** v0.11.182
 **Policy:** This file is the single source of truth for work state.
 
 ---
@@ -30,14 +30,13 @@
 | v0.2.05 | bug | Tokenmiser semantics clarification gate + counterfactual/token accounting correction | READY | unassigned | - | 2026-03-21 | BUG-187 | Before implementation begins, the agent must interview the user to define intended Tokenmiser behavior, compare expected vs actual behavior, and document the mismatch. Then the system must correct Tokenmiser semantics and accounting so token counts, counterfactuals, savings, and labels are internally consistent and explainable from a single source of truth. |
 | v0.2.06 | bug | Workflow audit alpha automation hardening: live mirror execution, transcript freshness validation, and governance status parsing | COMPLETED | codex | - | 2026-03-21 | BUG-190 | `--world mirror --push-alpha` now runs the Alpha checks for real, validates the newest Alpha/mirror transcripts by required content instead of filename presence, and treats completed task rows as recognized governance status values during compliance checks. |
 | v0.11.184 | bug | Packaged Alpha runtime bootstrap must not recurse into npm install when dependency tree is already present | COMPLETED | codex | - | 2026-03-21 | BUG-191 | Installed-package startup now skips recursive reinstall when required runtime dependencies already exist, even if npm sentinel files such as `.package-lock.json` are absent. |
-| v0.11.187 | bug | Remove KeepAlive from `mbo mcp start` launchd plist registration — MCP lifetime must be session-scoped | READY | unassigned | - | 2026-03-23 | BUG-194 | `mbo mcp start` must not register a KeepAlive launchd daemon. MCP process lifetime is tied to the `mbo` session that spawned it. Existing orphan-detection/reap logic is sufficient supervision. |
+| v0.11.182 | chore | Repository cleanup after audit: remove smoke artifacts, reconcile governance state, and leave branch commit-ready | READY | codex | - | 2026-03-21 | SESSION-HANDOFF-2026-03-20-BATCH | Remove temporary smoke artifacts, ensure tracked audit artifacts are committed intentionally, and leave the worktree clean enough for staging/commit without stray audit debris |
 
 ---
 
 ## Recently Completed
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
-| v0.11.182 | chore | Repository cleanup after audit: remove smoke artifacts, reconcile governance state, and leave branch commit-ready | COMPLETED | claude | - | 2026-03-23 | SESSION-HANDOFF-2026-03-20-BATCH | Remove temporary smoke artifacts, ensure tracked audit artifacts are committed intentionally, and leave the worktree clean enough for staging/commit without stray audit debris |
 | v0.3.22 | bug | `mbo` bare command should launch TUI by default; operator loop moves to `mbo cl` | COMPLETED | gemini | - | 2026-03-21 | BUG-193 | `mbo` with no subcommand launches the TUI. `mbo cl` launches the legacy operator loop. `mbo tui` kept as alias. Unrecognised subcommands still exit with a clear error. |
 | v0.3.21 | feat | TUI terminal UX hardening: clean Ctrl+C exit, dictation/copy compatibility, and header layout cleanup | COMPLETED | gemini | - | 2026-03-21 | BUG-185, BUG-186, BUG-188 | TUI must exit cleanly with double-press Ctrl+C confirmation, must not crash the host terminal during dictation use, and must allow normal mouse text selection/copy behavior. The top header/status layout must remain readable at default window size without bad wrapping, duplicated token data, stray glyph artifacts, or mis-prioritized stage/status placement; version and timer placement should be clarified and token/model display must have a single source of truth. |
 | v0.11.185 | bug | Readiness-check workflow verification must stay on the read-only path instead of requiring file targets | COMPLETED | gemini | - | 2026-03-21 | BUG-192 | The prompt `Run readiness-check workflow now and complete one full workflow cycle successfully in plain English.` must bypass mutation-only file requirements, proceed through the conservative workflow verification path, and reach the audit gate without a clarification loop. |
