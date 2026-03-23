@@ -1,6 +1,28 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [0.3.22] — 2026-03-21
+#### Fixed
+- **BUG-193 (P2) — `mbo` bare command should launch TUI by default:** Updated `bin/mbo.js` routing logic. `mbo` (no subcommand) and `mbo tui` now launch the Ink-based TUI. Legacy operator loop moved to `mbo cl` with `process.argv.slice(3)` to correctly skip the subcommand token. Unknown subcommands now exit with a clear error and descriptive usage message.
+- **BUG-185, 186 (P1/P2) — TUI Terminal UX Hardening:**
+  - `src/tui/mouseFilter.ts`: Implemented `MouseFilterStream` transform to intercept and filter SGR mouse sequences before they reach Ink. This prevents host terminal crashes during macOS system dictation (BUG-185) and allows native terminal text selection/copy behavior by dropping non-scroll mouse events (BUG-186).
+  - `src/tui/App.tsx`: Added double-press `Ctrl+C` confirmation logic with a 2000ms window and UI feedback to prevent accidental exits.
+- **BUG-188 (P2) — TUI Header Layout Refinement:**
+  - `src/tui/components/StatusBar.tsx`: Re-aligned Row 2 to move `stageLabel` and `tabLabel` to the right, grouping them with the timer. Task/hint aligned to the left for better stability. Added `exitPending` UI hint.
+  - `src/tui/components/TabBar.tsx`: Moved tab-cycle instructions to a new row below the tab boxes to reduce overcrowding.
+- **BUG-192 (P1) — Readiness-check E2E request misclassification:** Added `readOnlyWorkflow` bypass in `src/auth/operator.js`. Requests identified as read-only now skip the Stage 1.5 assumption ledger gate and proceed directly to planning, avoiding the "at least one file path required" clarification loop.
+- **BUG-189 (P1) — Operator Governance Refinement:**
+  - `src/auth/operator.js`: Implemented `runOnboarding(opts)` method in `Operator` class, enabling the TUI `/onboarding` slash command and natural-language re-onboarding requests. Supports `fullRedo` via `reOnboard: true`.
+  - `src/auth/operator.js`: Improved idle-path handling for governance queries (projecttracking, bugs, etc.) by routing them through `graph_search` and passing `sessionHistory` to the model to maintain conversational context.
+- **BUG-164, 163 (P1) — Runtime Write Guard:**
+  - `src/utils/runtime-context.js`: Created new utility module for shared path-security logic, including `isWithinPath`, `getManifestPreference`, and `getMcpLogDir`.
+  - `src/auth/operator.js`: Added a runtime write guard to `runStage6`. Prevents target runtimes from writing into the controller root (`MBO_ROOT`) using `isWithinPath` to securely handle directory traversal and symlinks.
+  - `scripts/test-runtime-write-guard.js`: Added new test script to verify security invariants and path-arithmetic correctness for the write guard.
+
+#### Changed
+- `scripts/test-client-config-failure-modes.js`: Fixed FM-23 stale assertion by relaxing the `waitForHealth` call signature match to include the 4th argument.
+- `scripts/test-section36.js`: Updated `xfail` list to include `AC-04` and `AC-10`, which require a live model provider for LLM synthesis.
+
 ### [0.11.26] — 2026-03-20
 #### Fixed
 - **BUG-150 (P2) — Tool context token consumption invisible to cost tracking:** Added `tool_token_log` table (`id, session_id, agent, tool_name, estimated_tokens, timestamp`) to `mirrorbox.db` with `IF NOT EXISTS` for safe migration on existing DBs. Added `estimateToolTokens()` helper (length/4 heuristic). Instrumented `callMCPTool()` in `operator.js` — sole choke point for all MBO-managed graph tool calls — to write to both `tool_token_log` (durable audit trail) and `statsManager.recordToolCall()` (in-memory, persisted). `getStatus()` now surfaces a Token Budget block showing callModel tokens, tool ctx tokens, and session total. SHIFT+T overlay gains TOOL CONTEXT TOKENS row. `_normalizeStatsShape` back-fills `toolTokens: 0` on existing stats files. (`src/state/db-manager.js`, `src/state/stats-manager.js`, `src/auth/operator.js`, `src/cli/tokenmiser-dashboard.js`)

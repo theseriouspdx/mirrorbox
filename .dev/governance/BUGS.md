@@ -2,33 +2,11 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-190
+**Next bug number:** BUG-194
 **Bug ID rule:** `BUG-001`–`BUG-184` are legacy-format entries and must not be renumbered. Starting with `BUG-185`, new bug headings must use dual identification: `BUG-### / vX.Y.ZZ`.
 **Version lane rule:** assign the version tag by subsystem, not by the most visible current series. Use `0.11.x` for milestone-1.1 hardening, cleanup, backports, and stabilization of existing runtime/onboarding/bootstrap behavior; `0.12.x` for new graph/runtime intelligence functionality such as graph-server refinement, metadata/context assembly, and knowledge-pack behavior; `0.2.x` for scripting/audit/automation; `0.3.x` for TUI/operator UX; `0.4.x` for multithreading/concurrency. When uncertain, check `.dev/governance/AGENTS.md` Section 17A.1 before assigning the bug's `vX.Y.ZZ` tag.
 
 ---
-### BUG-185 / v0.3.21: macOS dictation input can crash host Terminal during MBO Alpha text entry | Milestone: 1.1 | OPEN
-- **Location:** `src/tui/App.tsx`, TUI input handling / raw terminal mode / host terminal interaction
-- **Severity:** P1
-- **Status:** OPEN — 2026-03-21
-- **Task:** v0.3.21
-- **Description:** While using MBO Alpha in Terminal, invoking macOS system dictation during text entry crashed the entire Terminal app instead of only failing the current MBO session. This is a high-impact accessibility and usability issue because the operator relies heavily on speech-to-text input.
-- **Evidence:** macOS crash report `~/Library/Logs/DiagnosticReports/Terminal-2026-03-21-014513.ips` shows Terminal crashed with `EXC_BAD_ACCESS` / `SIGBUS` on the main thread around 2026-03-21 01:45:13 PDT. Alpha-side logs do not show an internal MBO fatal exception, which suggests an interaction between Terminal, dictation, and MBO's TUI/raw-input behavior rather than a normal application-level error path.
-- **Repro:** Open Alpha in Terminal, launch the MBO interface, focus text entry, start macOS dictation, speak input, observe Terminal crash.
-- **Acceptance:** macOS system dictation MUST work during MBO text entry — not merely fail gracefully. Spoken input must inject into the InputBar as typed characters. Host terminal must not crash.
-- **Implementation notes:** 100% reproducible on macOS Tahoe 26.1 / Terminal.app. Root cause: Ink raw mode conflicts with dictation compositor at stdin level. Fix: port `MouseFilterStream` from `~/orchestrator/src/utils/mouseFilter.ts`, pipe stdin through filter before Ink render. Shares root fix with BUG-186.
-
-### BUG-186 / v0.3.21: mouse text selection clears immediately, preventing copy from the TUI | Milestone: 1.1 | OPEN
-- **Location:** `src/tui/App.tsx`, TUI terminal mode / mouse handling / selection behavior in host terminal
-- **Severity:** P2
-- **Status:** OPEN — 2026-03-21
-- **Task:** v0.3.21
-- **Description:** When selecting text with the mouse in the TUI, the highlighted selection does not persist after mouse release. The selection clears immediately, which makes normal terminal copy behavior unreliable or unusable.
-- **Evidence:** Reproduced during interactive use: text can be dragged/highlighted, but the selection vanishes as soon as the mouse button is released.
-- **Repro:** Open the MBO TUI, drag-select visible text with the mouse, release the mouse button, observe that the selection immediately clears instead of remaining available for copy.
-- **Acceptance:** Mouse text selection must persist after release. Copy must work from any visible text in the TUI using native terminal behavior (drag-select → Cmd+C). No special mode required. Must work identically to Claude CLI or any standard terminal program. tmux-style copy mode is not acceptable.
-- **Implementation notes:** Root cause same as BUG-185 — Ink raw mode intercepts mouse button events. Fix: `MouseFilterStream` + `\x1b[?1002h\x1b[?1006h` escape management (port from `~/orchestrator/src/App.tsx` lines 101–110). Mouse INPUT support not required — only non-interference with native selection.
-
 ### BUG-187 / v0.2.05: Tokenmiser semantics are unresolved and require user interview before implementation | Milestone: 1.1 | OPEN
 - **Location:** `src/state/db-manager.js`, `src/cli/tokenmiser-dashboard.js`, `src/tui/components/StatsOverlay.tsx`, related Tokenmiser/operator displays
 - **Severity:** P1
@@ -38,29 +16,4 @@
 - **Related Prior Work:** `BUG-155` previously addressed Tokenmiser costing drift, but the current issue should be treated as a new bug/regression/behavior-definition failure rather than mutating the resolved record.
 - **Hard Gate:** No implementation may begin until the agent interviews the user about the desired Tokenmiser behavior, compares expected behavior against actual behavior, and writes down the mismatch clearly enough that assumptions are explicit.
 - **Evidence:** Current Tokenmiser output appears behaviorally wrong or at least unexplained to the operator, including negative/odd savings presentation and token totals that do not feel proportionate to the small number of prompts issued.
-- **Acceptance:** Token counts removed from main header bar entirely. Each panel shows tokens scoped to its own role category (Operator panel = operator role; Pipeline panel = classifier/planner/reviewer/tiebreaker; Executor panel = executor role). Right StatsPanel shows labeled session total. SHIFT-T overlay shows full SPEC §30.4 breakdown with savings and labels. Every number must be labeled with its scope. Savings = most-expensive-model-in-workflow cost vs actual smart-routed cost.
-- **Implementation notes:** Interview complete — hard gate satisfied. Three simultaneous unlabeled token displays (header: current stage only; operator sub-header: operator role only; stats panel: full session total) are technically correct but appear broken because scopes differ with no labels. See SPEC §30.3 for updated display contract.
-
-### BUG-188 / v0.3.21: top header/status layout wraps badly and misplaces critical information at default window size | Milestone: 1.1 | OPEN
-- **Location:** `src/tui/components/StatusBar.tsx`, `src/tui/components/TabBar.tsx`, related TUI header layout
-- **Severity:** P2
-- **Status:** OPEN — 2026-03-21
-- **Task:** v0.3.21
-- **Description:** The top-of-screen status/header area is overcrowded and unstable at the default window size. Important elements wrap when they should not, low-value status like `CLASSIFYING` is visually dominant while effectively idle, and token/model information is duplicated or inconsistent across the header and operator area.
-- **Requested Layout Direction:** `MIRROR BOX ORCHESTRATOR` in all caps at upper left; `Ready for the next instruction` may wrap; remove stray punctuation/glyph artifacts; prevent awkward `OPERATOR` wrapping; move stage/state label to the right near the tab boxes; move tab-cycle instructions down one row; keep `No active task` in the operator area; keep version upper right; move timer below version in the lower-right and style it prominently; ensure token/model information has one source of truth; enlarge the default orchestrator window at startup if needed to preserve the layout contract.
-- **Evidence:** Current screenshot shows bad wrapping, malformed header segmentation, duplicated/conflicting token counts, and weak visual hierarchy in the top row.
-- **Acceptance:** Header readable and non-wrapping at 80 columns. MBO resizes terminal window at launch if below minimum width. Stray glyph artifacts (hyphen + underscore next to "Ready for the next instruction") removed. Token display removed from header (resolved by BUG-187). Timer moves to header row 2, right side, bold weight matching "MBO" branding. Key labels truncate with ellipsis rather than wrap.
-- **Implementation notes:** Stray glyphs confirmed as a hyphen and underscore. Timer is currently in wrong position — move to second row of header, right side. Programmatic window resize on launch is acceptable to operator.
-
-### BUG-189 / v0.11.183: operator treats governance files as passive context instead of actionable runtime state | Milestone: 1.1 | OPEN
-- **Location:** operator/runtime governance handling, slash-command routing, onboarding/setup/projecttracking intent resolution
-- **Severity:** P1
-- **Status:** OPEN — 2026-03-21
-- **Task:** v0.11.183
-- **Description:** The operator talks as if it understands natural-language governance/task requests, but it does not reliably act on them. Requests like `check projecttracking.md for next task` are acknowledged and then go nowhere. `/onboarding` is expected to be a slash command but is not behaving as one. Natural-language requests to rerun onboarding also fail, and asking for the next task can return `unable to assist` even when `projecttracking.md` is already loaded.
-- **Behavioral Expectation:** On startup, if `projecttracking.md` exists, the operator window should load and surface the top tasks that fit, including `Next Task`. If no `projecttracking.md` exists, the system should say so plainly and offer to create one and/or analyze source documents. `/onboarding`, `/setup`, and `/projecttracking` must exist as slash commands. Governance docs should be graph-backed and operationalized into runtime task awareness, not merely listed under loaded files.
-- **Token Concern:** The same runtime path also appears to spend far too many tokens for a handful of simple governance prompts, suggesting wasteful or confused context handling that should be investigated as part of this bug.
-- **Acceptance:** (1) `/tasks` overlay shows active tasks from projecttracking.md. (2) On startup, operator panel surfaces next few active tasks automatically without prompting. (3) `/onboarding` runs a follow-up interview against existing profile — not a cold-start re-interview. (4) Operator shows tool calls as they happen (`→ graph_search: query`). (5) Governance queries route through graph_search, not the classifier — session start costs ~200 tokens. (6) Session history persists across operator turns.
-- **Implementation notes:** `/tasks` overlay opens but shows 0 tasks — `parseTaskLedger` parse failure despite correct `projectRoot` (docs: 4 confirms file is found). Idle answer branch (operator.js ~L1456) passes no `sessionHistory` — model amnesiac each turn. Operator model has no tools in idle path, hallucinates capability ("I will read…") then does nothing. Graph server confirmed running. Fix: slash commands bypass classifier; governance NL queries route through `graph_search`; pass `sessionHistory` in idle branch; stream tool calls to operator panel.
-
-**Next bug number:** BUG-190
+- **Acceptance:** Tokenmiser must use a single, explainable source of truth for token counts and cost math. The final implementation must include a documented expectation-vs-actual reconciliation derived from a user interview before code changes proceed.

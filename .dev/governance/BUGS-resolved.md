@@ -6,6 +6,64 @@
 
 ---
 
+---
+
+### BUG-193 / v0.3.22: `mbo` bare command should launch TUI by default | Milestone: 1.1 | COMPLETED
+- **Location:** `bin/mbo.js` — subcommand routing logic
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-21
+- **Task:** v0.3.22
+- **Description:** `mbo` with no subcommand launched the legacy operator loop instead of the TUI.
+- **Fix:** Updated `bin/mbo.js`. `mbo` (bare) and `mbo tui` now route to TUI. Legacy operator moved to `mbo cl`. Added descriptive usage message for unknown commands.
+
+### BUG-192 / v0.11.185: Readiness-check workflow verification stalls on file requirement | Milestone: 1.1 | COMPLETED
+- **Location:** `src/auth/operator.js` — `processMessage()`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-21
+- **Task:** v0.11.185
+- **Description:** "Run readiness-check" was misclassified as a write workflow but had no files, causing a clarification loop.
+- **Fix:** Added `readOnlyWorkflow` bypass in `operator.js`. Skips assumption ledger and returns `ready_for_planning` directly for read-only tasks.
+
+### BUG-189 / v0.11.183: operator treats governance files as passive context | Milestone: 1.1 | COMPLETED
+- **Location:** `src/auth/operator.js`, `src/tui/App.tsx`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-21
+- **Task:** v0.11.183
+- **Description:** Slash commands like `/onboarding` were missing or non-functional. Governance queries spent excessive tokens.
+- **Fix:** Implemented `Operator.runOnboarding()`. Routed governance queries through `graph_search` in the idle path and persisted `sessionHistory`.
+
+### BUG-188 / v0.3.21: TUI top header layout wraps badly at 80 columns | Milestone: 1.1 | COMPLETED
+- **Location:** `src/tui/components/StatusBar.tsx`, `src/tui/components/TabBar.tsx`
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-21
+- **Task:** v0.3.21
+- **Description:** Header was overcrowded and unstable. Stage/state labels dominated the view.
+- **Fix:** Reordered `StatusBar` Row 2 to move stage/tab/timer to the right. Moved `TabBar` instructions to a new row. Added programmatic terminal resize to 80x24 at startup.
+
+### BUG-186 / v0.3.21: mouse text selection clears immediately | Milestone: 1.1 | COMPLETED
+- **Location:** `src/tui/mouseFilter.ts`, `src/tui/index.tsx`
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-21
+- **Task:** v0.3.21
+- **Description:** Ink's mouse interception cleared terminal selections on release.
+- **Fix:** Implemented `MouseFilterStream` to drop non-scroll mouse SGR sequences before they reach Ink. Enables native terminal selection behavior.
+
+### BUG-185 / v0.3.21: macOS dictation input can crash host Terminal | Milestone: 1.1 | COMPLETED
+- **Location:** `src/tui/mouseFilter.ts`, `src/tui/App.tsx`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-21
+- **Task:** v0.3.21
+- **Description:** Dictation compositor escape sequences crashed Terminal.app in Ink's raw mode. Accidental exits occurred due to single Ctrl+C.
+- **Fix:** `MouseFilterStream` sanitizes stdin. Added double-press `Ctrl+C` confirmation logic in `App.tsx` with 2s timeout.
+
+### BUG-164, 163: Runtime write guard and scope drift | Milestone: 1.1 | COMPLETED
+- **Location:** `src/auth/operator.js`, `src/utils/runtime-context.js`
+- **Severity:** P1
+- **Status:** COMPLETED — 2026-03-21
+- **Task:** v0.11.163
+- **Description:** Target runtimes could potentially write into the controller root.
+- **Fix:** Implemented `isWithinPath` security utility. Added write guard to `runStage6` to block unauthorized cross-root writes.
+
 ### BUG-184: C.purple renders too dark — Stage labels and borders unreadable | Milestone: 1.1 | COMPLETED
 - **Location:** `src/tui/colors.ts`
 - **Severity:** P2
