@@ -353,4 +353,16 @@ Work on an older version series (e.g. fixing the v2 auto-run script while the pr
 
 ---
 
-*Last updated: 2026-03-21 — Added explicit lane-assignment rules, dual bug/version labeling from BUG-185 forward, and required pre-push governance reconciliation. Versioning scheme remains 0.VM.BUILD where V=major version (tens), M=module (ones).*
+### 17H — Demo Launch Designator: v0.4.0
+
+`v0.4.0` is the public demo launch version of MBO. It is not a `VM.BUILD` dev task ID — it is a release milestone marker that exists outside the standard build counter scheme.
+
+**What it means:** `v0.4.0` ships when and only when the Operator has privately demoed MBO and is personally convinced it is ready for eyes outside the studio. No test result, no agent, and no governance rule triggers this — it is a conviction decision made solely by the Operator.
+
+**How the candidate build sequence works:** After all V4 gate blockers clear, the Operator defines a set of `v0.4.0-RC.x` tasks in `projecttracking.md` at that time. Those tasks represent whatever work is needed to reach a demo-ready state. No `v0.4.0-RC.x` tasks exist in the ledger until the Operator creates them.
+
+**After v0.4.0 ships:** The active development series becomes `v0.41.x` (Module 1). Tasks in `v0.41.x` are created from what surfaces after the public demo — not from internal testing before it. Internal testing before `v0.4.0` produces `v0.11.x`, `v0.2.x`, or `v0.3.x` bugs per normal lane assignment.
+
+**Version artifacts:** `v0.4.0` appears in `package.json` and `CHANGELOG.md` as the release version. It carries no BUILD counter suffix.
+
+*Last updated: 2026-03-23 — Added §17H Demo Launch Designator v0.4.0; lane-assignment rules, dual bug/version labeling from BUG-185 forward, and required pre-push governance reconciliation remain in force. Versioning scheme remains 0.VM.BUILD where V=major version (tens), M=module (ones).*

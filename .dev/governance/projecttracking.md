@@ -7,7 +7,7 @@
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
 **Current Version:** 0.3.22+v0.11.185.v0.3.21 (TUI v.3)
 **Next Task:** v0.15.01
-**V4 Gate:** The v0.4x series has zero tasks until ALL of the following clear: v0.13.01, v0.14.01, v0.15.01, v0.16.01. After all four clear, Operator hard-approves and defines the first v0.41.x task. Subsequent v0.41.x tasks come from user testing of the v0.41 demo — they do not exist until that demo ships.
+**V4 Gate:** The v0.4x series has zero tasks until ALL of the following clear: v0.13.01, v0.14.01, v0.15.01, v0.16.01. After all four clear, Operator defines v0.4.0-RC.x candidate build tasks. v0.4.0 ships when and only when the Operator has privately demoed MBO and is personally convinced it is ready for external eyes. v0.41.x tasks are created from what surfaces after the public demo — not before it. See AGENTS.md §17H.
 **Policy:** This file is the single source of truth for work state.
 
 ---
