@@ -1,6 +1,5 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { createRequire } from 'module';
 import { TuiStats } from '../types.js';
 import { C } from '../colors.js';
 
@@ -43,16 +42,9 @@ const ROW = (label: string, val: string, color: string = C.white) => (
 export function StatsOverlay({ stats, onClose }: Props) {
   const s = getTotals('session', stats);
   const l = getTotals('lifetime', stats);
+  const sSavings = s.rawCostEst - s.costEst;
   const lSavings = l.rawCostEst - l.costEst;
   const co2 = ((Math.max(0, l.notOptimized - l.optimized)) / 1000) * 0.1;
-
-  // v0.2.05: routing savings — counterfactual (all → most expensive model) minus actual
-  let rollup: { actualCost: number; counterfactualCost: number; routingSavings: number; maxRateModel: string; totalCalls: number } | null = null;
-  try {
-    const _require = createRequire(import.meta.url);
-    const db = _require('../../state/db-manager.js');
-    rollup = db.getCostRollup();
-  } catch { /* db unavailable — fall back gracefully */ }
 
   return (
     <Box flexDirection="column" paddingX={2} paddingY={1} borderStyle="double" borderColor={C.teal} flexGrow={1}>
@@ -62,24 +54,22 @@ export function StatsOverlay({ stats, onClose }: Props) {
       </Box>
       <Text color={C.teal} dimColor>{SEP}</Text>
 
-      <Text bold color={C.white}>SESSION — Routing Savings</Text>
-      <Text color={C.gray} dimColor>  smart model routing saved cost vs. always using the most expensive model</Text>
-      {rollup && rollup.totalCalls > 0 ? (
-        <>
-          {ROW('actual cost (smart routing)',    fmtCost(rollup.actualCost, 4),            'green')}
-          {ROW('counterfactual (all → ' + rollup.maxRateModel.slice(0, 18) + ')', fmtCost(rollup.counterfactualCost, 4), C.error)}
-          {ROW('routing savings',               `${fmtCost(rollup.routingSavings, 4)} (${pct(rollup.actualCost, rollup.counterfactualCost)} off)`, 'green')}
-        </>
-      ) : ROW('(no model calls yet)', '', C.purple)}
-      {ROW('token compression est.',    fmtTokens(s.notOptimized) + ' → ' + fmtTokens(s.optimized), C.gray)}
+      <Text bold color={C.white}>SESSION</Text>
+      <Text color={C.gray} dimColor>  savings = most-expensive-model cost minus actual smart-routed cost</Text>
+      {ROW('tokens (smart-routed)',    fmtTokens(s.optimized),                            'green')}
+      {ROW('tokens (if single-model)', fmtTokens(s.notOptimized),                        C.error)}
+      {ROW('cost (smart-routed)',      fmtCost(s.costEst, 4),                             'green')}
+      {ROW('cost (if single-model)',   fmtCost(s.rawCostEst, 4),                          C.error)}
+      {ROW('savings vs single-model',  `${fmtCost(sSavings, 4)} (${pct(s.costEst, s.rawCostEst)} off)`, 'green')}
       {ROW('cache hits / misses',      `${stats.session.cache.hits} / ${stats.session.cache.misses}`, C.teal)}
       {ROW('tool context tokens',      fmtTokens(s.toolTokens),                           C.white)}
       <Text color={C.teal} dimColor>{SEP}</Text>
 
       <Text bold color={C.white}>LIFETIME ({stats.sessions} sessions)</Text>
       {ROW('tokens (smart-routed)',    fmtTokens(l.optimized),                            'green')}
+      {ROW('tokens (if single-model)', fmtTokens(l.notOptimized),                        C.error)}
       {ROW('cost (smart-routed)',      fmtCost(l.costEst, 4),                             'green')}
-      {ROW('compression savings est.', `${fmtCost(lSavings, 4)} (${pct(l.costEst, l.rawCostEst)} off)`, 'green')}
+      {ROW('savings vs single-model',  `${fmtCost(lSavings, 4)} (${pct(l.costEst, l.rawCostEst)} off)`, 'green')}
       {ROW('largest session delta',    fmtCost(stats.largestSessionDelta, 4),             C.pink)}
       {ROW('CO₂ avoided (est.)',       `${co2.toFixed(4)}g`,                              'green')}
       <Text color={C.teal} dimColor>{SEP}</Text>

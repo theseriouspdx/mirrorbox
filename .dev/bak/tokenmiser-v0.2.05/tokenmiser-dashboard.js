@@ -53,69 +53,6 @@ class TokenmiserDashboard {
     }
   }
 
-  /**
-   * v0.2.05: /token and /tm — per-model drill-down table + routing savings.
-   * Returns a string suitable for operator panel output.
-   */
-  renderTmCommand() {
-    const lines = [];
-    const SEP = '─'.repeat(68);
-
-    // Section 1: Routing savings (Option B — primary savings story)
-    try {
-      const rollup = db.getCostRollup();
-      lines.push(`${BOLD}TOKENMISER — Routing Savings${R}`);
-      lines.push(SEP);
-      if (rollup.totalCalls === 0) {
-        lines.push(`${DIM}No callModel data yet this session.${R}`);
-      } else {
-        const fmt = (v, p = 6) => `$${this._formatMoney(v, p)}`;
-        lines.push(`  Actual cost (smart routing)   ${G}${fmt(rollup.actualCost, 4)}${R}`);
-        lines.push(`  Counterfactual (all → ${rollup.maxRateModel.slice(0, 20)})`);
-        lines.push(`                                ${RED}${fmt(rollup.counterfactualCost, 4)}${R}`);
-        const savingsPct = rollup.counterfactualCost > 0
-          ? ` (${((rollup.routingSavings / rollup.counterfactualCost) * 100).toFixed(1)}% off)`
-          : '';
-        lines.push(`  ${BOLD}Routing savings${R}               ${G}${BOLD}${fmt(rollup.routingSavings, 4)}${savingsPct}${R}`);
-      }
-    } catch (_) {
-      lines.push(`${DIM}Routing data unavailable.${R}`);
-    }
-
-    lines.push('');
-    lines.push(`${BOLD}BY MODEL — Session${R}`);
-    lines.push(SEP);
-
-    // Section 2: Per-model breakdown
-    try {
-      const usage = db.getTokenUsage();
-      if (!usage || usage.length === 0) {
-        lines.push(`${DIM}No model calls recorded yet.${R}`);
-      } else {
-        const hdr = `${'Model'.padEnd(36)} ${'Calls'.padStart(5)} ${'Tok-In'.padStart(8)} ${'Tok-Out'.padStart(8)} ${'Cost'.padStart(10)}`;
-        lines.push(`${DIM}${hdr}${R}`);
-        lines.push(DIM + '─'.repeat(72) + R);
-        for (const row of usage) {
-          const costStr = row.cost > 0 ? `$${this._formatMoney(row.cost, 4)}` : `${G}$0.0000${R}`;
-          const line = `${row.model.padEnd(36)} ${String(row.calls).padStart(5)} ${this._fmtInt(row.input).padStart(8)} ${this._fmtInt(row.output).padStart(8)} ${costStr.padStart(10)}`;
-          lines.push(line);
-        }
-        lines.push(DIM + '─'.repeat(72) + R);
-        const totIn  = usage.reduce((s, r) => s + (r.input  || 0), 0);
-        const totOut = usage.reduce((s, r) => s + (r.output || 0), 0);
-        const totCost = usage.reduce((s, r) => s + (r.cost  || 0), 0);
-        const totCalls = usage.reduce((s, r) => s + (r.calls || 0), 0);
-        lines.push(`${'TOTAL'.padEnd(36)} ${String(totCalls).padStart(5)} ${this._fmtInt(totIn).padStart(8)} ${this._fmtInt(totOut).padStart(8)} ${G}$${this._formatMoney(totCost, 4)}${R}`);
-      }
-    } catch (_) {
-      lines.push(`${DIM}Model usage data unavailable.${R}`);
-    }
-
-    lines.push('');
-    lines.push(`${DIM}SHIFT+T for lifetime stats and session history.${R}`);
-    return lines.join('\n');
-  }
-
   drawOverlay() {
     const s = statsManager.stats.session;
     const l = statsManager.stats.lifetime;
@@ -180,63 +117,6 @@ ${BOLD}────────────────────────�
 ${DIM}Press SHIFT+T to close this overlay.${R}
 `);
   }
-  /**
-   * v0.2.05: /tm slash command — per-model drill-down table.
-   * Shows model name, tokens-in, tokens-out, cost, call count.
-   * Local models show tokens + $0.00 — that's the correct display.
-   */
-  renderTmCommand() {
-    try {
-      const rollup = db.getCostRollup();
-      if (rollup.totalCalls === 0) {
-        return `${DIM}No token data yet. Run a task first.${R}\n`;
-      }
-
-      const COL = { model: 36, calls: 7, tokIn: 10, tokOut: 10, cost: 12 };
-      const sep = '─'.repeat(COL.model + COL.calls + COL.tokIn + COL.tokOut + COL.cost + 4);
-      const header = [
-        'Model'.padEnd(COL.model),
-        'Calls'.padStart(COL.calls),
-        'Tok-In'.padStart(COL.tokIn),
-        'Tok-Out'.padStart(COL.tokOut),
-        'Cost'.padStart(COL.cost),
-      ].join(' ');
-
-      const rows = rollup.byModel.map(r => {
-        const costStr = r.actualCost === 0 ? `${DIM}$0.000000${R}` : `${G}$${this._formatMoney(r.actualCost)}${R}`;
-        return [
-          r.model.slice(0, COL.model).padEnd(COL.model),
-          String(r.calls).padStart(COL.calls),
-          this._fmtInt(r.totalInput).padStart(COL.tokIn),
-          this._fmtInt(r.totalOutput).padStart(COL.tokOut),
-          costStr,
-        ].join(' ');
-      });
-
-      const totalCostStr = rollup.actualCost === 0
-        ? `${DIM}$0.000000${R}`
-        : `${G}$${this._formatMoney(rollup.actualCost)}${R}`;
-
-      const savingsLine = rollup.routingSavings > 0.000001
-        ? `\n${G}${BOLD}Routing savings${R}  $${this._formatMoney(rollup.routingSavings, 4)} saved vs all-${rollup.maxRateModel}\n`
-        : `\n${DIM}Routing savings  $0.0000 (single model or no API calls yet)${R}\n`;
-
-      return [
-        `${BOLD}TM — Token Breakdown by Model${R}`,
-        sep,
-        `${DIM}${header}${R}`,
-        sep,
-        ...rows,
-        sep,
-        `${'TOTAL'.padEnd(COL.model)} ${String(rollup.totalCalls).padStart(COL.calls)}` +
-          `${' '.repeat(COL.tokIn + COL.tokOut + 2)} ${totalCostStr}`,
-        savingsLine,
-      ].join('\n') + '\n';
-    } catch (_) {
-      return `${DIM}Token data unavailable.${R}\n`;
-    }
-  }
-
 }
 
 module.exports = new TokenmiserDashboard();

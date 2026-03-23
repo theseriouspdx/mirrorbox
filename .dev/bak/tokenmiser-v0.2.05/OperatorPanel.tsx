@@ -1,23 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { type MboStage, type TuiStats, OPERATOR_PANEL_ROLES } from '../types.js';
-
-const STAGE_SHORT: Record<string, string> = {
-  idle: 'idle',
-  onboarding: 'onboard',
-  classification: 'classify',
-  context_pinning: 'context',
-  planning: 'plan',
-  tiebreaker_plan: 'tie-plan',
-  code_derivation: 'code',
-  tiebreaker_code: 'tie-code',
-  dry_run: 'dry-run',
-  implement: 'impl',
-  audit_gate: 'audit',
-  state_sync: 'sync',
-  knowledge_update: 'graph',
-  error: 'error',
-};
 import { C } from '../colors.js';
 import { useScrollableLines, useAvailableRows } from './useScrollableLines.js';
 
@@ -140,19 +123,6 @@ export function OperatorPanel({
         <Text color={pipelineRunning ? C.pink : C.gray}>{shimmer} {trimLine(activeAction || 'Ready for the next instruction', 42)}</Text>
         <Text color={C.gray} dimColor>{trimLine(activeModel || 'no model selected', 22)}</Text>
       </Box>
-
-      {stats?.session?.stageHistory && stats.session.stageHistory.length > 0 && (
-        <Box flexDirection="row" flexWrap="wrap" gap={1} marginBottom={1}>
-          {stats.session.stageHistory.slice(-4).map((snap, i) => (
-            <Box key={snap.stage + '-' + i} borderStyle="single" borderColor={C.purple} paddingX={1}>
-              <Text color={C.gray} dimColor>
-                {(STAGE_SHORT[snap.stage] || snap.stage).slice(0, 10)}
-                {snap.tokens > 0 ? ' · ' + fmtTok(snap.tokens) : ''}
-              </Text>
-            </Box>
-          ))}
-        </Box>
-      )}
 
       <Box flexDirection="column" flexGrow={1}>
         {visibleLines.map((line, index) => (

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, useApp, useInput, useStdout } from 'ink';
+import { createRequire } from 'module';
 
 import { StatusBar } from './components/StatusBar.js';
 import { TabBar } from './components/TabBar.js';
@@ -294,8 +295,19 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       exit();
       return;
     }
-    if (lower === 'stats' || lower === '/token' || lower === 'token') {
+    if (lower === 'stats') {
       setStatsOverlay(true);
+      return;
+    }
+    if (lower === '/token' || lower === 'token' || lower === '/tm' || lower === 'tm') {
+      try {
+        const _require = createRequire(import.meta.url);
+        const tmDashboard = _require('../cli/tokenmiser-dashboard.js');
+        const output = tmDashboard.renderTmCommand();
+        output.split('\n').forEach((line: string) => appendOperator(line));
+      } catch (err: any) {
+        appendOperator('[TM ERROR] ' + (err?.message || String(err)));
+      }
       return;
     }
     if (lower === 'tasks' || lower === '/tasks') {
@@ -378,9 +390,7 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       }
       return;
     }
-
-    if (operator.stateSummary?.pendingAudit) {
-      if (lower === 'approved') {
+    if (lower === 'approved') {
         appendOperator('❯ approved');
         setPipelineRunning(true);
         try {

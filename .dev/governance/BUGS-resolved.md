@@ -174,3 +174,9 @@
 - **Task:** v0.11.171
 - **Fix:** Added `timeout: 5000` to `execSync('git diff --name-only HEAD')`. Confirmed root cause of 1-hour production freeze.
 ...
+### BUG-187 / v0.2.05: Tokenmiser semantics — user interview + mismatch doc + implementation | RESOLVED 2026-03-23
+- **Location:** `src/state/db-manager.js`, `src/cli/tokenmiser-dashboard.js`, `src/tui/components/StatsOverlay.tsx`, `src/tui/components/OperatorPanel.tsx`, `src/tui/components/PipelinePanel.tsx`, `src/tui/App.tsx`, `src/state/stats-manager.js`
+- **Severity:** P1
+- **Resolution:** Interview completed, mismatch documented in `.dev/governance/tokenmiser-semantics-v0.2.05.md`. Implementation: routing savings now canonical via `db.getCostRollup()` (Option B — counterfactual vs actual, not token compression); `/token` and `/tm` unified to same per-model drill-down via `renderTmCommand()`; per-stage token chips added to OperatorPanel; session routing savings bar added to PipelinePanel; StatsOverlay SESSION section relabeled and sourced from `getCostRollup()`; `statsManager.getRoutingSavings()` added as canonical accessor.
+- **Task:** v0.2.05
+

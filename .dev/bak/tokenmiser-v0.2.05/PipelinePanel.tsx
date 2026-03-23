@@ -1,6 +1,5 @@
 import React from 'react';
 import { Box, Text, useInput } from 'ink';
-import { createRequire } from 'module';
 import { type PipelineEntry, ROLE_COLORS, PIPELINE_STAGE_SEQUENCE, STAGE_LABELS, type MboStage, type TuiStats } from '../types.js';
 import { C } from '../colors.js';
 import { useScrollableLines, useAvailableRows } from './useScrollableLines.js';
@@ -37,33 +36,6 @@ function entriesToLines(entries: PipelineEntry[]): { lines: string[]; stageAncho
   }
 
   return { lines, stageAnchors };
-}
-
-function fmtCost(n: number): string {
-  return '$' + n.toFixed(4);
-}
-
-function SessionSavingsBar({ stats }: { stats: TuiStats }) {
-  try {
-    const _require = createRequire(import.meta.url);
-    const db = _require('../../state/db-manager.js');
-    const rollup = db.getCostRollup();
-    const totalTok = Object.values(stats.session.models).reduce((s: number, m: any) => s + (m.optimized || 0), 0);
-    if (rollup.totalCalls === 0) return null;
-    return (
-      <Box gap={2} marginBottom={1} paddingX={1}>
-        <Text color="green" bold>SAVED {fmtCost(rollup.routingSavings)}</Text>
-        <Text color={C.gray} dimColor>·</Text>
-        <Text color={C.teal}>Actual {fmtCost(rollup.actualCost)}</Text>
-        <Text color={C.gray} dimColor>·</Text>
-        <Text color={C.white} dimColor>{formatTokens(totalTok)} tok total</Text>
-        <Text color={C.gray} dimColor>·</Text>
-        <Text color={C.gray} dimColor>vs {rollup.maxRateModel.slice(0, 24)}</Text>
-      </Box>
-    );
-  } catch {
-    return null;
-  }
 }
 
 function getRoleColor(line: string): string {
@@ -139,8 +111,6 @@ export function PipelinePanel({ entries, isActive, currentStage, stats, stageTok
           );
         })}
       </Box>
-
-      <SessionSavingsBar stats={stats} />
 
       {entries.length === 0 ? (
         <Text color={borderColor} dimColor>Waiting for planning and review output...</Text>
