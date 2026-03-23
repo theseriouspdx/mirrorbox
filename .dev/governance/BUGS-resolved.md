@@ -8,6 +8,14 @@
 
 ---
 
+### BUG-194 / v0.11.187: `mbo mcp start` writes launchd plist with KeepAlive=true causing orphan MCP accumulation | Milestone: 1.1 | COMPLETED
+- **Location:** MCP start path (`src/` — launchd plist registration)
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-23
+- **Task:** v0.11.187
+- **Description:** Each `mbo mcp start` registered a launchd daemon with `KeepAlive: true`. Processes killed manually were instantly respawned. Stale plists accumulated for dead project roots (old worktrees, wrong roots, previous sessions). MCP should be ephemeral — started on demand per session, not supervised by launchd.
+- **Fix:** `mbo mcp start` no longer registers a KeepAlive launchd daemon. MCP process lifetime is tied to the `mbo` session that spawned it. Orphan-detection/reap logic provides sufficient supervision.
+
 ### BUG-193 / v0.3.22: `mbo` bare command should launch TUI by default | Milestone: 1.1 | COMPLETED
 - **Location:** `bin/mbo.js` — subcommand routing logic
 - **Severity:** P2
