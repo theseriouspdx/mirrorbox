@@ -10,6 +10,7 @@ The Mirror Box Orchestrator is a self-referential development environment. It us
 - **Phase 2 (Sovereign Factory):** Completed
 - **Sovereign Loop:** Active
 - **Milestone 1.1-H23 (MCP daemon migration):** Completed
+- **Master Test Suite Hardening (Rules 1/5):** Completed (24/24 scripts compliant)
 - **Security Hardening (Inv 13 & 14):** Active (No `write_file` overwrites, Topology-preserving backups to `.dev/bak/`).
 - **MCP endpoint:** Project-scoped dynamic (discoverable via `.dev/run/mcp.json` or `.mbo/run/mcp.json`)
 - **Onboarding:** Chat-native Operator mode (interactive onboarding handled in the main dialogue loop)

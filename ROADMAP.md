@@ -29,6 +29,7 @@ Milestone 1.1 focuses on expanding the Sovereign Loop's reach and hardening the 
 
 ### Milestone 1.1 — Portability & Hardening [IN PROGRESS]
 - [x] Section 28 portability/scaffolding/launch sequence hardening completed (`1.1-H01` to `1.1-H05`).
+- [x] Master Test Suite Hardening (Rules 1/5) completed (v0.11.186).
 - [x] Tokenmiser baseline/accounting/dashboard completed (`1.1-H06` to `1.1-H11`).
 - [x] MCP daemon migration completed (`1.1-H23`) and DID protocol implementation completed (`1.1-H24`).
 - [x] Security hardening completed for affirmation + topology backups + overwrite lock (`1.1-H25`).

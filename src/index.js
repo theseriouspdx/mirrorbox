@@ -12,6 +12,7 @@ const { fetchPricing } = require('./utils/pricing');
 const dashboard = require('./cli/tokenmiser-dashboard');
 const statsManager = require('./state/stats-manager');
 const pkg = require('../package.json');
+const { getMcpLogDir } = require('./utils/runtime-context');
 
 // §28.1 & 28.7: Step 1: Authoritative Root Resolution
 const resolvedRoot = process.env.MBO_PROJECT_ROOT || findProjectRoot();
@@ -61,7 +62,7 @@ function formatOperatorResult(result) {
   if (status === 'audit_pending') return result.prompt || 'Audit package ready. Respond "approved" or "reject".';
   if (status === 'blocked') return result.reason || result.prompt || 'Task is blocked by spec refinement assumptions.\n[RECOMMENDED ACTION]: Decompose the task or resolve the listed blockers.';
   if (status === 'aborted') return result.reason || 'Operation aborted.\n[RECOMMENDED ACTION]: You can retry with a different task or refine the current one.';
-  if (status === 'error') return result.reason || 'Pipeline failed.\n[RECOMMENDED ACTION]: Check .dev/logs/mcp-stderr.log or retry the task with a hint.';
+  if (status === 'error') return result.reason || `Pipeline failed.\n[RECOMMENDED ACTION]: Check ${getMcpLogDir(PROJECT_ROOT, 'runtime')}/mcp-stderr.log or retry the task with a hint.`;
   if (status === 'shutdown_complete') return 'Session shutdown complete.';
 
   const stage = String(result.stage || '').toLowerCase();

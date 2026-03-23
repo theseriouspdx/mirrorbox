@@ -1,8 +1,27 @@
+'use strict';
+
 const Database = require('better-sqlite3');
 const crypto = require('crypto');
 const path = require('path');
+const os = require('os');
+const fs = require('fs');
 
 const DB_PATH = process.argv[2] || path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db');
+
+// ── Rule 1: Environment Assertions ───────────────────────────────────────────
+const ENV_CHECKS = [
+  { label: 'Platform is macOS', ok: os.platform() === 'darwin', detail: `got ${os.platform()}` },
+  { label: 'Running as johnserious', ok: os.userInfo().username === 'johnserious', detail: `got ${os.userInfo().username}` },
+  { label: 'Database exists', ok: fs.existsSync(DB_PATH), detail: `not found at ${DB_PATH}` }
+];
+let envFailed = false;
+console.log('── Environment checks ──────────────────────────────────────────');
+for (const check of ENV_CHECKS) {
+  console.log((check.ok ? 'PASS' : 'FAIL') + '  ' + check.label + (check.ok ? '' : ' — ' + check.detail));
+  if (!check.ok) envFailed = true;
+}
+if (envFailed) { console.log('\nEnvironment checks failed — aborting.\n'); process.exit(2); }
+console.log('── Environment OK — proceeding with chain audit ──────────────────\n');
 
 /**
  * Section 7: Audit Tool
@@ -97,8 +116,13 @@ function verifyChain() {
     }
 
     if (errors === 0) {
-      console.log(`PASS: Verified ${count} events. Chain intact from seq 1 → ${maxSeq}.`);
-      console.log(`Anchor run_id: ${anchor.run_id} | tail hash: ${lastHash.slice(0,16)}...`);
+      console.log('\n── Audit Summary ───────────────────────────────────────────────');
+      console.log(`| Total Events | ${count.toString().padEnd(46)} |`);
+      console.log(`| Seq Range    | 1 → ${maxSeq.toString().padEnd(41)} |`);
+      console.log(`| Tail Hash    | ${lastHash.slice(0, 46).padEnd(46)} |`);
+      console.log(`| Anchor ID    | ${anchor.run_id.slice(0, 46).padEnd(46)} |`);
+      console.log('────────────────────────────────────────────────────────────────\n');
+      console.log(`PASS: Verified ${count} events. Chain intact.`);
     } else {
       console.error(`FAILED: ${errors} integrity error(s) found.`);
       process.exit(1);

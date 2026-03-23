@@ -11,9 +11,27 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { fetchPricing, getModelPricing } = require('../src/utils/pricing');
 const statsManager = require('../src/state/stats-manager');
 const dashboard = require('../src/cli/tokenmiser-dashboard');
+
+const DB_PATH = path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo', 'mirrorbox.db');
+
+// ── Rule 1: Environment Assertions ───────────────────────────────────────────
+const ENV_CHECKS = [
+  { label: 'Platform is macOS', ok: os.platform() === 'darwin', detail: `got ${os.platform()}` },
+  { label: 'Running as johnserious', ok: os.userInfo().username === 'johnserious', detail: `got ${os.userInfo().username}` },
+  { label: 'Pricing cache exists', ok: fs.existsSync(path.join(process.env.MBO_PROJECT_ROOT || process.cwd(), '.mbo/pricing_cache.json')), detail: 'pricing_cache.json not found' }
+];
+let envFailed = false;
+console.log('── Environment checks ──────────────────────────────────────────');
+for (const check of ENV_CHECKS) {
+  console.log((check.ok ? 'PASS' : 'FAIL') + '  ' + check.label + (check.ok ? '' : ' — ' + check.detail));
+  if (!check.ok) envFailed = true;
+}
+if (envFailed) { console.log('\nEnvironment checks failed — aborting.\n'); process.exit(2); }
+console.log('── Environment OK — proceeding with tokenmiser test ──────────────\n');
 
 async function test() {
   console.log('--- Testing Tokenmiser Dashboard ---');
@@ -61,6 +79,19 @@ async function test() {
   const est = Math.ceil(testStr.length / 4);
   console.log(`   Heuristic estimate for 400 chars: ${est} tokens`);
   if (est !== 100) throw new Error('Baseline heuristic failed');
+
+  // ── Rule 5: Live Output Table ──────────────────────────────────────────────
+  const lifetime = statsManager.getTotals('lifetime');
+  console.log('\n── Tokenmiser Lifetime Savings ───────────────────────────────────');
+  console.log('| Metric               | Value                                  |');
+  console.log('| -------------------- | -------------------------------------- |');
+  console.log(`| Actual Cost          | $${lifetime.costEst.toFixed(6).padEnd(38)} |`);
+  console.log(`| Raw Cost (Estimated) | $${lifetime.rawCostEst.toFixed(6).padEnd(38)} |`);
+  console.log(`| Total Saved          | $${(lifetime.rawCostEst - lifetime.costEst).toFixed(6).padEnd(38)} |`);
+  console.log(`| Tokens (Actual)      | ${lifetime.optimized.toString().padEnd(38)} |`);
+  console.log(`| Tokens (Raw)         | ${lifetime.notOptimized.toString().padEnd(38)} |`);
+  console.log(`| Tokens Saved         | ${(lifetime.notOptimized - lifetime.optimized).toString().padEnd(38)} |`);
+  console.log('────────────────────────────────────────────────────────────────\n');
 
   console.log('\n--- ALL TESTS PASSED ---');
 }

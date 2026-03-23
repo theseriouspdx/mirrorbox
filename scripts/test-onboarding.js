@@ -10,6 +10,20 @@ const checkOnboarding = onboarding.checkOnboarding;
 const runOnboarding = onboarding.runOnboarding;
 const buildScanBriefing = onboarding.buildScanBriefing;
 
+// ── Rule 1: Environment Assertions ───────────────────────────────────────────
+const ENV_CHECKS = [
+  { label: 'Platform is macOS', ok: os.platform() === 'darwin', detail: `got ${os.platform()}` },
+  { label: 'Running as johnserious', ok: os.userInfo().username === 'johnserious', detail: `got ${os.userInfo().username}` }
+];
+let envFailed = false;
+console.log('── Environment checks ──────────────────────────────────────────');
+for (const check of ENV_CHECKS) {
+  console.log((check.ok ? 'PASS' : 'FAIL') + '  ' + check.label + (check.ok ? '' : ' — ' + check.detail));
+  if (!check.ok) envFailed = true;
+}
+if (envFailed) { console.log('\nEnvironment checks failed — aborting.\n'); process.exit(2); }
+console.log('── Environment OK — proceeding with onboarding test ──────────────\n');
+
 const expandHome = typeof onboarding.expandHome === 'function'
   ? onboarding.expandHome
   : (p) => {
@@ -65,9 +79,7 @@ const validateSubjectRoot = (raw, projectRoot, allowRootOverride = false) => {
   return { ok: true, resolved };
 };
 
-// Stubs for functions removed in BUG-146 rewrite (deterministic wizard → LLM-native sentinel)
-// Tests that exercised these functions are superseded by test-section36.js AC tests
-const validateProfile = () => ({ complete: true, missing: [] });
+// Stubs for functions removed in BUG-146 rewrite
 const readLatestDbProfile = (projectRoot) => {
   const db = require('../src/state/db-manager').DBManager;
   try {
@@ -178,18 +190,13 @@ async function testChatNativeOnboardingModeGate() {
 // ─── Original tests ───────────────────────────────────────────────────────────
 
 async function testFreshOnboarding() {
-  // BUG-146: runOnboarding now uses LLM-native sentinel architecture.
-  // nonInteractive path with hardcoded answers is replaced by checkOnboarding status check
-  // and direct profile persistence (the shell contract that tests can verify without LLM).
   const projectRoot = mktempProject();
   const subjectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mbo-subject-'));
 
-  // Verify fresh project requires onboarding
   const status = await checkOnboarding(projectRoot, { autoRun: false, returnStatus: true });
   assert(status.needsOnboarding === true, 'fresh project should require onboarding');
   eq(status.reason, 'missing_profile', 'reason should be missing_profile');
 
-  // Write a minimal valid profile directly (simulates Phase 5 persistence)
   const profile = {
     primeDirective: 'keep deployment stable',
     q3Raw: 'keep deployment stable',
@@ -223,7 +230,6 @@ async function testFreshOnboarding() {
     JSON.stringify(profile), Date.now()
   ]);
 
-  // Verify persistence
   const filePath = onboardingPath;
   assert(fs.existsSync(filePath), 'onboarding.json must exist');
   const fileData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -234,7 +240,6 @@ async function testFreshOnboarding() {
   assert(dbProfile.profile.subjectRoot === subjectRoot, 'DB subjectRoot mismatch');
   assert(dbProfile.profile.binaryVersion, 'DB binaryVersion missing');
 
-  // Verify checkOnboarding no longer requires onboarding after profile written
   const statusAfter = await checkOnboarding(projectRoot, { autoRun: false, returnStatus: true });
   assert(statusAfter.needsOnboarding === false, 'should not need onboarding after profile written');
 
@@ -242,8 +247,6 @@ async function testFreshOnboarding() {
 }
 
 async function testReonboardAdditive() {
-  // BUG-146: Tests additive re-onboard behavior via profile versioning contract.
-  // LLM-native path cannot be exercised without a live model; test the shell contract.
   const projectRoot = mktempProject();
   const subjectRoot1 = fs.mkdtempSync(path.join(os.tmpdir(), 'mbo-subject-a-'));
   const subjectRoot2 = fs.mkdtempSync(path.join(os.tmpdir(), 'mbo-subject-b-'));
@@ -293,7 +296,6 @@ async function testReonboardAdditive() {
 function testScanBriefing() {
   const projectRoot = mktempProject();
 
-  // Minimal scan with known fields
   const scan = {
     languages: ['JavaScript'],
     frameworks: ['Express'],
@@ -310,28 +312,14 @@ function testScanBriefing() {
   assert(Array.isArray(briefing.inferred), 'inferred must be array');
   assert(Array.isArray(briefing.unknown), 'unknown must be array');
 
-  // Language should be confirmed
   assert(briefing.confirmed.some((c) => c.includes('JavaScript')), 'Language should be in confirmed');
-
-  // Framework should be confirmed
   assert(briefing.confirmed.some((c) => c.includes('Express')), 'Framework should be in confirmed');
-
-  // Build system should be confirmed
   assert(briefing.confirmed.some((c) => c.includes('npm')), 'Build system should be in confirmed');
-
-  // Canonical config should be confirmed
   assert(briefing.confirmed.some((c) => c.includes('package.json')), 'Canonical config should be in confirmed');
-
-  // CI not found → inferred
   assert(briefing.inferred.some((i) => i.toLowerCase().includes('ci')), 'Missing CI should appear in inferred');
-
-  // Low test coverage → inferred
   assert(briefing.inferred.some((i) => i.toLowerCase().includes('test')), 'Low test coverage should appear in inferred');
-
-  // Injected inferredConstraint should appear in inferred
   assert(briefing.inferred.some((i) => i.includes('Node pinned')), 'Inferred constraints should appear in inferred');
 
-  // Scan with NO languages — language goes to unknown
   const emptyScan = { ...scan, languages: [], frameworks: [], buildSystem: null };
   const emptyBriefing = buildScanBriefing(projectRoot, emptyScan, []);
   assert(emptyBriefing.unknown.some((u) => u.toLowerCase().includes('language')), 'Absent language should be unknown');
@@ -356,15 +344,13 @@ function testAdaptiveQuestions() {
     verificationCommands: ['npm test'],
   };
 
-  // -- Update mode: prior has HIGH-confidence fields → they should be skipped
-
   const priorWithHighConf = {
     _projectRoot: projectRoot,
-    subjectRoot,               // exists on disk → HIGH confidence
-    verificationCommands: ['npm test'],  // has value → HIGH confidence
-    dangerZones: ['auth.js'],           // has value → HIGH confidence
-    testCoverageIntent: 'intentional',  // set → HIGH confidence
-    ciIntent: 'intentional',            // set → HIGH confidence
+    subjectRoot,               
+    verificationCommands: ['npm test'],  
+    dangerZones: ['auth.js'],           
+    testCoverageIntent: 'intentional',  
+    ciIntent: 'intentional',            
     realConstraints: [],
     assumedConstraints: [],
     canonicalConfigPath: 'package.json',
@@ -373,14 +359,11 @@ function testAdaptiveQuestions() {
   const updateQuestions = deriveFollowupQuestions(scan, priorWithHighConf, [], false);
   const updateKeys = updateQuestions.map((q) => q.key);
 
-  // High-confidence fields should not appear in update mode
   assert(!updateKeys.includes('testCoverageIntent'), 'testCoverageIntent should be skipped (HIGH confidence)');
   assert(!updateKeys.includes('ciIntent'), 'ciIntent should be skipped (HIGH confidence)');
   assert(!updateKeys.includes('verificationCommands'), 'verificationCommands should be skipped (HIGH confidence)');
   assert(!updateKeys.includes('dangerZones'), 'dangerZones should be skipped (HIGH confidence)');
   assert(!updateKeys.includes('subjectRoot'), 'subjectRoot should be skipped (existing dir → HIGH confidence)');
-
-  // -- Full redo: all applicable questions should appear
 
   const emptyPrior = {
     _projectRoot: projectRoot,
@@ -393,7 +376,6 @@ function testAdaptiveQuestions() {
   const fullRedoQuestions = deriveFollowupQuestions(scan, emptyPrior, [], true);
   const fullRedoKeys = fullRedoQuestions.map((q) => q.key);
 
-  // Low coverage + no CI → should appear in full redo (scan triggers them)
   assert(fullRedoKeys.includes('testCoverageIntent'), 'testCoverageIntent should appear in full redo (low coverage)');
   assert(fullRedoKeys.includes('ciIntent'), 'ciIntent should appear in full redo (no CI)');
   assert(fullRedoKeys.includes('verificationCommands'), 'verificationCommands should appear in full redo');
@@ -406,39 +388,31 @@ function testSubjectRootValidation() {
   const projectRoot = mktempProject();
   const existingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mbo-sr-'));
 
-  // Empty → fail
   let r = validateSubjectRoot('', projectRoot);
   assert(!r.ok, 'empty path should fail');
 
-  // Non-absolute relative path → fail
   r = validateSubjectRoot('relative/path', projectRoot);
   assert(!r.ok, 'relative path should fail');
   assert(r.reason.toLowerCase().includes('absolute'), 'reason should mention "absolute"');
 
-  // Filesystem root without override → fail
   r = validateSubjectRoot('/', projectRoot);
   assert(!r.ok, 'filesystem root should fail without override');
 
-  // Filesystem root with override → pass (if dir exists, which / always does)
   r = validateSubjectRoot('/', projectRoot, true);
   assert(r.ok, 'filesystem root should pass with explicit override');
 
-  // Non-existent directory → fail
   r = validateSubjectRoot('/tmp/definitely-does-not-exist-99999', projectRoot);
   assert(!r.ok, 'non-existent path should fail');
   assert(r.reason.toLowerCase().includes('does not exist'), 'reason should mention existence');
 
-  // Same as projectRoot → fail
   r = validateSubjectRoot(projectRoot, projectRoot);
   assert(!r.ok, 'same as projectRoot should fail');
   assert(r.reason.toLowerCase().includes('same'), 'reason should mention "same"');
 
-  // Valid existing directory → pass
   r = validateSubjectRoot(existingDir, projectRoot);
   assert(r.ok, `valid existing dir should pass: ${r.reason}`);
   eq(r.resolved, existingDir, 'resolved should match input');
 
-  // ~ expansion
   const home = os.homedir();
   eq(expandHome('~'), home, 'expandHome bare ~');
   eq(expandHome('~/foo/bar'), path.join(home, 'foo/bar'), 'expandHome ~/foo/bar');
@@ -449,19 +423,15 @@ function testSubjectRootValidation() {
 // ─── UX-028: Semantic validation ─────────────────────────────────────────────
 
 function testSemanticValidation() {
-  // validateVerificationCommands
-  // Empty/null behavior depends on implementation contract; both are accepted if parser returns structured result.
   let r = validateVerificationCommands([]);
   assert(r && typeof r === 'object', 'empty commands should return structured result');
 
   r = validateVerificationCommands(null);
   assert(r && typeof r === 'object', 'null commands should return structured result');
 
-  // Valid commands → ok
   r = validateVerificationCommands(['npm test', 'npm run lint']);
   assert(r.ok, `valid commands should pass: ${r.reason}`);
 
-  // Nonsense → fail
   r = validateVerificationCommands(['yes']);
   assert(!r.ok, '"yes" should fail semantic validation');
 
@@ -474,25 +444,18 @@ function testSemanticValidation() {
   r = validateVerificationCommands(['ok']);
   assert(!r.ok, '"ok" should fail');
 
-  // Mixed valid + nonsense
   r = validateVerificationCommands(['cargo test', 'done']);
   assert(!r.ok, '"done" should fail');
 
-  // validateDangerZones
-
-  // Empty → ok
   r = validateDangerZones([]);
   assert(r.ok, 'empty danger zones should be ok');
 
-  // Valid paths → ok
   r = validateDangerZones(['src/auth', 'config/production.yml']);
   assert(r.ok, 'path-like danger zones should pass');
 
-  // Description masquerading as path → fail
   r = validateDangerZones(['all authentication files']);
   assert(!r.ok, 'description without "/" should fail');
 
-  // Path with slash → ok even if it has spaces (unusual but valid)
   r = validateDangerZones(['src/some dir/file.js']);
   assert(r.ok, 'path with slash should pass even with space');
 }
@@ -500,43 +463,34 @@ function testSemanticValidation() {
 // ─── UX-027: Prime directive synthesis ───────────────────────────────────────
 
 function testPrimeDirectiveSynthesis() {
-  // Minimal: q3 only
   let d = synthesizePrimeDirective('never break auth', '', [], null, null);
   assert(d.includes('never break auth'), 'directive should include q3');
 
-  // With real constraints
   d = synthesizePrimeDirective('keep it fast', '', ['Node 18 pinned', 'Deploy to Vercel'], null, null);
   assert(d.includes('keep it fast'), 'directive should include q3');
   assert(d.includes('Node 18 pinned'), 'directive should include real constraint 1');
   assert(d.includes('Deploy to Vercel'), 'directive should include real constraint 2');
 
-  // With deployment target (not duplicated)
   d = synthesizePrimeDirective('keep it fast', '', ['Deployment target: Vercel'], 'Vercel', null);
   const vercelMatches = (d.match(/vercel/gi) || []).length;
   assert(vercelMatches < 3, 'Vercel should not be duplicated excessively in directive');
 
-  // With canonicalConfigPath
   d = synthesizePrimeDirective('keep it small', '', [], null, 'package.json');
   assert(d.includes('package.json'), 'directive should reference canonical config');
 
-  // With q4 partnership note (short)
   d = synthesizePrimeDirective('keep it stable', 'flag all DB changes', [], null, null);
   assert(d.includes('flag all DB changes'), 'short q4 should appear verbatim');
 
-  // q4 truncation at > 80 chars
   const longQ4 = 'This is a very long partnership note that should be truncated because it exceeds eighty characters easily';
   d = synthesizePrimeDirective('keep stable', longQ4, [], null, null);
   assert(d.includes('…'), 'long q4 should be truncated with ellipsis');
 
-  // Verbatim q3 echo guard: synthesis should not JUST be the q3 raw value
-  // (It incorporates constraints and q4, making it more than a bare echo)
   const q3 = 'security first';
   const q4 = 'involve me on deps';
   d = synthesizePrimeDirective(q3, q4, ['Node 16 pinned'], 'Heroku', 'Cargo.toml');
   assert(d !== q3, 'directive must be more than a verbatim echo of q3');
   assert(d.length > q3.length, 'synthesized directive should be longer than bare q3');
 
-  // Fallback: empty q3 → still produces something
   d = synthesizePrimeDirective('', '', [], null, null);
   assert(d.length > 0, 'should produce a fallback directive even with empty inputs');
 }
@@ -547,24 +501,20 @@ function testInferRealConstraints() {
   const projectRoot = mktempProject();
   const scan = { verificationCommands: [], frameworks: [], buildSystem: 'npm' };
 
-  // No artifacts → empty list
   let cs = inferRealConstraints(projectRoot, scan);
   assert(Array.isArray(cs), 'should return array');
 
-  // .nvmrc → constraint
   fs.writeFileSync(path.join(projectRoot, '.nvmrc'), '18.20.0\n');
   cs = inferRealConstraints(projectRoot, scan);
   assert(cs.some((c) => c.includes('18.20.0')), 'should detect .nvmrc version');
   assert(cs.some((c) => c.includes('.nvmrc')), 'should cite .nvmrc source');
   fs.rmSync(path.join(projectRoot, '.nvmrc'));
 
-  // vercel.json → deployment constraint
   fs.writeFileSync(path.join(projectRoot, 'vercel.json'), '{}');
   cs = inferRealConstraints(projectRoot, scan);
   assert(cs.some((c) => c.toLowerCase().includes('vercel')), 'should detect Vercel deployment');
   fs.rmSync(path.join(projectRoot, 'vercel.json'));
 
-  // .env.example → env var constraint
   fs.writeFileSync(path.join(projectRoot, '.env.example'), 'DATABASE_URL=\nSECRET_KEY=\n');
   cs = inferRealConstraints(projectRoot, scan);
   assert(cs.some((c) => c.includes('environment variable')), 'should detect .env.example vars');
@@ -575,39 +525,38 @@ function testInferRealConstraints() {
 
 async function main() {
   console.log('--- test-onboarding.js ---\n');
+  const results = [];
 
-  await testChatNativeOnboardingModeGate();
-  console.log('PASS  chat-native onboarding mode gate');
+  const run = async (label, fn) => {
+    try {
+      await fn();
+      console.log(`PASS  ${label}`);
+      results.push({ label, status: 'PASS' });
+    } catch (e) {
+      console.log(`FAIL  ${label} — ${e.message}`);
+      results.push({ label, status: 'FAIL' });
+      throw e;
+    }
+  };
 
-  // Original tests
-  await testFreshOnboarding();
-  console.log('PASS  fresh onboarding');
-  await testReonboardAdditive();
-  console.log('PASS  re-onboard additive');
+  await run('Chat-native mode gate', testChatNativeOnboardingModeGate);
+  await run('Fresh onboarding', testFreshOnboarding);
+  await run('Re-onboard additive', testReonboardAdditive);
+  await run('UX-022: Scan briefing', testScanBriefing);
+  await run('UX-023: Adaptive questioning', testAdaptiveQuestions);
+  await run('UX-026: subjectRoot safety', testSubjectRootValidation);
+  await run('UX-027: Prime directive synthesis', testPrimeDirectiveSynthesis);
+  await run('UX-028: Semantic validation', testSemanticValidation);
+  await run('UX-023: inferRealConstraints', testInferRealConstraints);
 
-  // UX-022
-  testScanBriefing();
-  console.log('PASS  UX-022  scan briefing (confirmed/inferred/unknown)');
-
-  // UX-023
-  testAdaptiveQuestions();
-  console.log('PASS  UX-023  adaptive questioning (skip HIGH-confidence in update mode)');
-
-  // UX-026
-  testSubjectRootValidation();
-  console.log('PASS  UX-026  subjectRoot safety + expandHome');
-
-  // UX-027
-  testPrimeDirectiveSynthesis();
-  console.log('PASS  UX-027  prime directive synthesis (not a verbatim echo)');
-
-  // UX-028
-  testSemanticValidation();
-  console.log('PASS  UX-028  semantic validation (commands + danger zones)');
-
-  // inferRealConstraints
-  testInferRealConstraints();
-  console.log('PASS  UX-023  inferRealConstraints (.nvmrc, vercel.json, .env.example)');
+  // ── Rule 5: Live Output Table ──────────────────────────────────────────────
+  console.log('\n── Onboarding Test Summary ─────────────────────────────────────');
+  console.log('| Test Case                                      | Status       |');
+  console.log('| ---------------------------------------------- | ------------ |');
+  for (const res of results) {
+    console.log(`| ${res.label.padEnd(46)} | ${res.status.padEnd(12)} |`);
+  }
+  console.log('────────────────────────────────────────────────────────────────\n');
 
   console.log('\nPASS  all onboarding tests');
 }

@@ -1,4 +1,7 @@
+'use strict';
+
 const { redact } = require('../src/state/redactor');
+const os = require('os');
 const assert = require('assert');
 
 /**
@@ -6,6 +9,20 @@ const assert = require('assert');
  * Verifies Invariant 8: Secrets never enter the persistent state.
  * Required for Milestone 0.3 Final Closure.
  */
+
+// ── Rule 1: Environment Assertions ───────────────────────────────────────────
+const ENV_CHECKS = [
+  { label: 'Platform is macOS', ok: os.platform() === 'darwin', detail: `got ${os.platform()}` },
+  { label: 'Running as johnserious', ok: os.userInfo().username === 'johnserious', detail: `got ${os.userInfo().username}` }
+];
+let envFailed = false;
+console.log('── Environment checks ──────────────────────────────────────────');
+for (const check of ENV_CHECKS) {
+  console.log((check.ok ? 'PASS' : 'FAIL') + '  ' + check.label + (check.ok ? '' : ' — ' + check.detail));
+  if (!check.ok) envFailed = true;
+}
+if (envFailed) { console.log('\nEnvironment checks failed — aborting.\n'); process.exit(2); }
+console.log('── Environment OK — proceeding with redactor test ────────────────\n');
 
 const probes = [
   { 
@@ -56,13 +73,16 @@ const probes = [
 ];
 
 let errors = 0;
+const results = [];
 
 console.log('--- Mirror Box Redactor Verification v2 ---');
 
 probes.forEach(({ label, input, verify }) => {
   try {
     const result = redact(input);
-    if (verify(result)) {
+    const passed = verify(result);
+    results.push({ label, status: passed ? 'PASS' : 'FAIL' });
+    if (passed) {
       console.log(`[PASS] ${label}`);
     } else {
       console.log(`[FAIL] ${label}`);
@@ -71,9 +91,19 @@ probes.forEach(({ label, input, verify }) => {
     }
   } catch (error) {
     console.error(`[ERROR] ${label}: ${error.message}`);
+    results.push({ label, status: 'ERROR' });
     errors++;
   }
 });
+
+// ── Rule 5: Live Output Table ────────────────────────────────────────────────
+console.log('\n── Redactor Probe Summary ──────────────────────────────────────');
+console.log('| Probe Label                                    | Status       |');
+console.log('| ---------------------------------------------- | ------------ |');
+for (const res of results) {
+  console.log(`| ${res.label.padEnd(46)} | ${res.status.padEnd(12)} |`);
+}
+console.log('────────────────────────────────────────────────────────────────\n');
 
 if (errors === 0) {
   console.log('\nVERIFICATION_PASS: All Invariant 8 bypass vectors closed.');

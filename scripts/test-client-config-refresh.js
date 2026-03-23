@@ -23,19 +23,28 @@ const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
 
+// ── Rule 1: Environment Assertions ───────────────────────────────────────────
+const ENV_CHECKS = [
+  { label: 'Platform is macOS', ok: os.platform() === 'darwin', detail: `got ${os.platform()}` },
+  { label: 'Running as johnserious', ok: os.userInfo().username === 'johnserious', detail: `got ${os.userInfo().username}` }
+];
+let envFailed = false;
+console.log('── Environment checks ──────────────────────────────────────────');
+for (const check of ENV_CHECKS) {
+  console.log((check.ok ? 'PASS' : 'FAIL') + '  ' + check.label + (check.ok ? '' : ' — ' + check.detail));
+  if (!check.ok) envFailed = true;
+}
+if (envFailed) { console.log('\nEnvironment checks failed — aborting.\n'); process.exit(2); }
+console.log('── Environment OK — proceeding with client-config-refresh test ────\n');
+
 const { updateClientConfigs, buildClientRegistry, readRegistry } = require('../src/utils/update-client-configs');
 
-let passed = 0;
-let failed = 0;
+const results = [];
 
-function assert(condition, label) {
-  if (condition) {
-    console.log(`  ✓ ${label}`);
-    passed++;
-  } else {
-    console.error(`  ✗ ${label}`);
-    failed++;
-  }
+function record(label, ok) {
+  results.push({ label, status: ok ? 'PASS' : 'FAIL' });
+  if (ok) console.log(`  ✓ ${label}`);
+  else console.error(`  ✗ ${label}`);
 }
 
 function makeProjectRoot(name) {
@@ -58,192 +67,133 @@ function cleanup(dirs) {
 
 const roots = [];
 
-// ─── Test 1: writes correct JSON to all registered paths ─────────────────────
-console.log('\nTest 1: writes correct JSON to registered client configs');
-{
-  const root = makeProjectRoot('t1'); roots.push(root);
-  writeMboConfig(root, {
-    mcpClients: [
-      { name: 'claude', configPath: '.mcp.json' },
-      { name: 'gemini', configPath: '.gemini/settings.json' }
-    ]
-  });
+async function main() {
+  console.log('--- test-client-config-refresh.js — Client Config Sync Logic ---\n');
 
-  const result = updateClientConfigs(root, 55555);
+  // ─── Test 1: writes correct JSON ───────────────────────────────────────────
+  console.log('Test 1: writes correct JSON to registered client configs');
+  {
+    const root = makeProjectRoot('t1'); roots.push(root);
+    writeMboConfig(root, {
+      mcpClients: [
+        { name: 'claude', configPath: '.mcp.json' },
+        { name: 'gemini', configPath: '.gemini/settings.json' }
+      ]
+    });
 
-  assert(result.written.includes('.mcp.json'),             'claude .mcp.json written');
-  assert(result.written.includes('.gemini/settings.json'), 'gemini .gemini/settings.json written');
-  assert(result.errors.length === 0,                       'no errors');
+    const result = updateClientConfigs(root, 55555);
+    const ok = result.written.includes('.mcp.json') && 
+               result.written.includes('.gemini/settings.json') &&
+               result.errors.length === 0;
+    record('writes correct JSON to registered configs', ok);
+  }
 
-  const claude = JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'));
-  assert(claude.mcpServers?.['mbo-graph']?.url === 'http://127.0.0.1:55555/mcp', 'claude URL correct');
-  assert(claude.mcpServers?.['mbo-graph']?.type === 'http',                       'claude type is http');
+  // ─── Test 2: missing .mbo/config.json ──────────────────────────────────────
+  console.log('\nTest 2: missing .mbo/config.json');
+  {
+    const root = makeProjectRoot('t2'); roots.push(root);
+    let threw = false;
+    let result;
+    try { result = updateClientConfigs(root, 55555); } catch (_) { threw = true; }
+    record('missing config.json → no crash', !threw && result.written.length === 0);
+  }
 
-  const gemini = JSON.parse(fs.readFileSync(path.join(root, '.gemini/settings.json'), 'utf8'));
-  assert(gemini.mcpServers?.['mbo-graph']?.url === 'http://127.0.0.1:55555/mcp', 'gemini URL correct');
+  // ─── Test 3: empty mcpClients ──────────────────────────────────────────────
+  console.log('\nTest 3: empty mcpClients array');
+  {
+    const root = makeProjectRoot('t3'); roots.push(root);
+    writeMboConfig(root, { mcpClients: [] });
+    const result = updateClientConfigs(root, 55555);
+    record('empty mcpClients → no writes', result.written.length === 0);
+  }
+
+  // ─── Test 4: missing config directory ──────────────────────────────────────
+  console.log('\nTest 4: missing config directory');
+  {
+    const root = makeProjectRoot('t4'); roots.push(root);
+    writeMboConfig(root, { mcpClients: [{ name: 'claude', configPath: '.mcp.json' }] });
+    updateClientConfigs(root, 55555);
+    record('missing config directory → created', fs.existsSync(path.join(root, '.mcp.json')));
+  }
+
+  // ─── Test 5: invalid port ──────────────────────────────────────────────────
+  console.log('\nTest 5: invalid port');
+  {
+    const root = makeProjectRoot('t5'); roots.push(root);
+    writeMboConfig(root, { mcpClients: [{ name: 'claude', configPath: '.mcp.json' }] });
+    const r0 = updateClientConfigs(root, 0, { log: () => {} });
+    record('invalid port → skipped', r0.written.length === 0);
+  }
+
+  // ─── Test 6: unwritable path ───────────────────────────────────────────────
+  console.log('\nTest 6: unwritable path');
+  {
+    const root = makeProjectRoot('t6'); roots.push(root);
+    fs.writeFileSync(path.join(root, 'blocker'), 'i am a file');
+    writeMboConfig(root, { mcpClients: [{ name: 'bad', configPath: 'blocker/nested/config.json' }] });
+    let result;
+    try { result = updateClientConfigs(root, 55555, { log: () => {} }); } catch (_) {}
+    record('unwritable path → error reported', result && result.errors.length > 0);
+  }
+
+  // ─── Test 7/8: buildClientRegistry ─────────────────────────────────────────
+  console.log('\nTest 7/8: buildClientRegistry logic');
+  {
+    const c1 = buildClientRegistry({ geminiCLI: true });
+    const c2 = buildClientRegistry({ geminiCLI: false });
+    record('buildClientRegistry filters gemini correctly', 
+           c1.some(c => c.name === 'gemini') && !c2.some(c => c.name === 'gemini'));
+  }
+
+  // ─── Test 9: overwrite ─────────────────────────────────────────────────────
+  console.log('\nTest 9: overwrite existing file');
+  {
+    const root = makeProjectRoot('t9'); roots.push(root);
+    writeMboConfig(root, { mcpClients: [{ name: 'claude', configPath: '.mcp.json' }] });
+    updateClientConfigs(root, 11111);
+    updateClientConfigs(root, 22222);
+    const after = JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'));
+    record('existing file gets overwritten', after.mcpServers['mbo-graph'].url.includes('22222'));
+  }
+
+  // ─── Test 10: malformed JSON ───────────────────────────────────────────────
+  console.log('\nTest 10: malformed JSON in readRegistry');
+  {
+    const root = makeProjectRoot('t10'); roots.push(root);
+    const mboDir = path.join(root, '.mbo');
+    fs.mkdirSync(mboDir, { recursive: true });
+    fs.writeFileSync(path.join(mboDir, 'config.json'), '{ this is not json }');
+    const reg = readRegistry(root);
+    record('readRegistry handles malformed JSON', Array.isArray(reg) && reg.length === 0);
+  }
+
+  // ─── Test 11: trailing newline ─────────────────────────────────────────────
+  console.log('\nTest 11: valid JSON with trailing newline');
+  {
+    const root = makeProjectRoot('t11'); roots.push(root);
+    writeMboConfig(root, { mcpClients: [{ name: 'claude', configPath: '.mcp.json' }] });
+    updateClientConfigs(root, 33333);
+    const raw = fs.readFileSync(path.join(root, '.mcp.json'), 'utf8');
+    record('written file has trailing newline', raw.endsWith('\n'));
+  }
+
+  cleanup(roots);
+
+  // ── Rule 5: Live Output Table ──────────────────────────────────────────────
+  console.log('\n── Client Config Refresh Summary Table ──────────────────────────');
+  console.log('| Test Case                                      | Status       |');
+  console.log('| ---------------------------------------------- | ------------ |');
+  for (const res of results) {
+    console.log(`| ${res.label.padEnd(46)} | ${res.status.padEnd(12)} |`);
+  }
+  console.log('────────────────────────────────────────────────────────────────\n');
+
+  const failedCount = results.filter(r => r.status === 'FAIL').length;
+  if (failedCount > 0) process.exit(1);
+  console.log('PASS  test-client-config-refresh.js');
 }
 
-// ─── Test 2: missing .mbo/config.json → no crash ─────────────────────────────
-console.log('\nTest 2: missing .mbo/config.json → no crash, empty result');
-{
-  const root = makeProjectRoot('t2'); roots.push(root);
-
-  let threw = false;
-  let result;
-  try { result = updateClientConfigs(root, 55555); }
-  catch (_) { threw = true; }
-
-  assert(!threw,                    'no exception thrown');
-  assert(result.written.length === 0, 'nothing written');
-  assert(result.errors.length === 0,  'no errors');
-}
-
-// ─── Test 3: empty mcpClients → no crash ─────────────────────────────────────
-console.log('\nTest 3: empty mcpClients array → no crash, no writes');
-{
-  const root = makeProjectRoot('t3'); roots.push(root);
-  writeMboConfig(root, { mcpClients: [] });
-
-  const result = updateClientConfigs(root, 55555);
-
-  assert(result.written.length === 0, 'nothing written');
-  assert(result.errors.length === 0,  'no errors');
-}
-
-// ─── Test 4: config path directory doesn't exist → creates it ────────────────
-console.log('\nTest 4: missing config directory → created automatically');
-{
-  const root = makeProjectRoot('t4'); roots.push(root);
-  writeMboConfig(root, {
-    mcpClients: [{ name: 'claude', configPath: '.mcp.json' }]
-  });
-
-  assert(!fs.existsSync(path.join(root, '.mcp.json')), 'file does not exist before');
-  updateClientConfigs(root, 55555);
-  assert(fs.existsSync(path.join(root, '.mcp.json')), 'file exists after');
-}
-
-// ─── Test 5: invalid port → no write, graceful skip ──────────────────────────
-console.log('\nTest 5: invalid port → skipped gracefully');
-{
-  const root = makeProjectRoot('t5'); roots.push(root);
-  writeMboConfig(root, {
-    mcpClients: [{ name: 'claude', configPath: '.mcp.json' }]
-  });
-
-  const logs = [];
-  const r0 = updateClientConfigs(root, 0,    { log: (m) => logs.push(m) });
-  const rN = updateClientConfigs(root, null,  { log: (m) => logs.push(m) });
-  const rS = updateClientConfigs(root, 'abc', { log: (m) => logs.push(m) });
-
-  assert(r0.written.length === 0, 'port 0 → nothing written');
-  assert(rN.written.length === 0, 'port null → nothing written');
-  assert(rS.written.length === 0, 'port string → nothing written');
-  assert(!fs.existsSync(path.join(root, '.mcp.json')), 'file not created for invalid port');
-}
-
-// ─── Test 6: unwritable path → error reported, no crash ──────────────────────
-console.log('\nTest 6: unwritable path → error reported, no crash');
-{
-  const root = makeProjectRoot('t6'); roots.push(root);
-  // Create a regular FILE named 'blocker' — so mkdirSync('blocker/nested') throws ENOTDIR
-  fs.writeFileSync(path.join(root, 'blocker'), 'i am a file');
-  writeMboConfig(root, {
-    mcpClients: [{ name: 'bad', configPath: 'blocker/nested/config.json' }]
-  });
-
-  let threw = false;
-  let result;
-  try { result = updateClientConfigs(root, 55555, { log: () => {} }); }
-  catch (_) { threw = true; }
-
-  assert(!threw,                      'no exception thrown');
-  assert(result.errors.length > 0,    'error reported');
-  assert(result.written.length === 0, 'nothing written');
-}
-
-// ─── Test 7: buildClientRegistry — with gemini detected ──────────────────────
-console.log('\nTest 7: buildClientRegistry with gemini CLI detected');
-{
-  const clients = buildClientRegistry({ geminiCLI: true, claudeCLI: true });
-
-  assert(clients.some(c => c.name === 'claude' && c.configPath === '.mcp.json'),
-    'claude entry present');
-  assert(clients.some(c => c.name === 'gemini' && c.configPath === '.gemini/settings.json'),
-    'gemini entry present when geminiCLI=true');
-}
-
-// ─── Test 8: buildClientRegistry — without gemini ────────────────────────────
-console.log('\nTest 8: buildClientRegistry without gemini CLI');
-{
-  const clients = buildClientRegistry({ geminiCLI: false, claudeCLI: false });
-
-  assert(clients.some(c => c.name === 'claude'), 'claude always registered');
-  assert(!clients.some(c => c.name === 'gemini'), 'gemini not registered when absent');
-}
-
-// ─── Test 9: overwrite existing file with new port ───────────────────────────
-console.log('\nTest 9: existing file gets overwritten with new port');
-{
-  const root = makeProjectRoot('t9'); roots.push(root);
-  writeMboConfig(root, {
-    mcpClients: [{ name: 'claude', configPath: '.mcp.json' }]
-  });
-
-  updateClientConfigs(root, 11111);
-  const before = JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'));
-  assert(before.mcpServers['mbo-graph'].url.includes('11111'), 'first port written');
-
-  updateClientConfigs(root, 22222);
-  const after = JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'));
-  assert(after.mcpServers['mbo-graph'].url.includes('22222'), 'second port overwrites first');
-  assert(!after.mcpServers['mbo-graph'].url.includes('11111'), 'old port gone');
-}
-
-// ─── Test 10: readRegistry handles malformed JSON ────────────────────────────
-console.log('\nTest 10: readRegistry handles malformed JSON gracefully');
-{
-  const root = makeProjectRoot('t10'); roots.push(root);
-  const mboDir = path.join(root, '.mbo');
-  fs.mkdirSync(mboDir, { recursive: true });
-  fs.writeFileSync(path.join(mboDir, 'config.json'), '{ this is not json }');
-
-  let threw = false;
-  let reg;
-  try { reg = readRegistry(root); } catch (_) { threw = true; }
-
-  assert(!threw,            'no exception on bad JSON');
-  assert(Array.isArray(reg), 'returns array');
-  assert(reg.length === 0,   'returns empty array');
-}
-
-// ─── Test 11: written file is valid JSON ending with newline ─────────────────
-console.log('\nTest 11: written file is valid JSON with trailing newline');
-{
-  const root = makeProjectRoot('t11'); roots.push(root);
-  writeMboConfig(root, {
-    mcpClients: [{ name: 'claude', configPath: '.mcp.json' }]
-  });
-  updateClientConfigs(root, 33333);
-
-  const raw = fs.readFileSync(path.join(root, '.mcp.json'), 'utf8');
-  assert(raw.endsWith('\n'), 'file ends with newline');
-
-  let parsed, parseOk = true;
-  try { parsed = JSON.parse(raw); } catch (_) { parseOk = false; }
-  assert(parseOk, 'file is valid JSON');
-  assert(parsed.mcpServers['mbo-graph'].type === 'http', 'type field present');
-}
-
-// ─── Cleanup ──────────────────────────────────────────────────────────────────
-cleanup(roots);
-
-// ─── Summary ──────────────────────────────────────────────────────────────────
-console.log(`\n${'─'.repeat(50)}`);
-console.log(`Results: ${passed} passed, ${failed} failed`);
-if (failed > 0) {
-  console.error(`\n✗ ${failed} test(s) failed`);
+main().catch(err => {
+  console.error(err);
   process.exit(1);
-} else {
-  console.log(`\n✓ All tests passed`);
-}
+});

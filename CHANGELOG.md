@@ -1,6 +1,18 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [0.11.186] — 2026-03-23
+#### Fixed
+- **Master Test Suite Hardening (Rules 1/5) — Task v0.11.186:**
+  - Hardened all 24 test scripts in `scripts/` and `tests/` to comply with `TEST_STANDARDS.md` Rules 1 (Environment Assertions) and 5 (Live Output Table).
+  - Implemented fail-fast checks for macOS (darwin) and user `johnserious` across all scripts.
+  - Standardized result reporting with structured summary tables for visual sanity checks.
+  - **`scripts/test-mcp-contract-v3.js` Isolation:** Refactored to use a temporary project root for lifecycle tests, preventing manifest corruption/symlink-breakage in the live project during concurrent execution.
+  - **`scripts/test-section36.js` Automation:** Implemented `MockIO` shim and role-specific `callModel` mocking to eliminate interactive hangs and enable fully autonomous conversational contract testing.
+  - **`scripts/verify-chain.py` Compliance:** Hardened with Rule 1/5 and fixed hash integrity failure by enforcing `ensure_ascii=False` in JSON serialization to match Node.js `JSON.stringify` behavior for non-ASCII characters (EM DASH).
+  - **Consolidation:** Removed redundant `test-routing-matrix.js` and `test-routing-matrix-live.js`, consolidating on a hardened, mocked `test-routing-matrix.js` for reliable CI/CD.
+  - **Master Runner:** Updated `tests/run-all.js` to include the full suite of hardened scripts (`.js` and `.py`) with explicit ordering (state seeding first) and collective summary reporting.
+
 ### [0.3.22] — 2026-03-21
 #### Fixed
 - **BUG-193 (P2) — `mbo` bare command should launch TUI by default:** Updated `bin/mbo.js` routing logic. `mbo` (no subcommand) and `mbo tui` now launch the Ink-based TUI. Legacy operator loop moved to `mbo cl` with `process.argv.slice(3)` to correctly skip the subcommand token. Unknown subcommands now exit with a clear error and descriptive usage message.

@@ -52,4 +52,4 @@ Halt immediately if:
 - **Architectural ambiguity** → output `<CLARIFICATION_REQUIRED>` block and wait.
 
 ---
-*Last updated: 2026-03-11*
+*Last updated: 2026-03-23*
