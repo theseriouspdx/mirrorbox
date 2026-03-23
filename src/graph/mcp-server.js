@@ -297,6 +297,44 @@ class GraphService {
           },
         },
         {
+          name: 'graph_metadata_sniff',
+          description: 'Lightweight per-file classification and complexity triage from existing graph nodes. Read-only — does not trigger a scan.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              files: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Relative file paths to sniff.',
+              },
+            },
+            required: ['files'],
+          },
+        },
+        {
+          name: 'graph_get_knowledge_pack',
+          description: 'Assemble a task-scoped context bundle: anchor nodes for the given files, 1-hop dependency nodes, and spec sections matching the pattern. Read-only — does not trigger a scan.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              files: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Relative file paths — task anchors.',
+              },
+              pattern: {
+                type: 'string',
+                description: 'Free-text search term for spec section matching.',
+              },
+              max_nodes: {
+                type: 'number',
+                description: 'Maximum nodes in pack. Default 40, hard cap 80.',
+              },
+            },
+            required: ['files', 'pattern'],
+          },
+        },
+        {
           name: 'get_token_usage',
           description: 'Cumulative token usage per role/model. Optional run_id filter.',
           inputSchema: {
@@ -481,6 +519,52 @@ class GraphService {
           await this.scanner.ingestRuntimeTrace(traceAbsPath, this.root);
           return { content: [{ type: 'text', text: `Runtime trace ingested from ${args.traceFile}.` }] };
         });
+      }
+      case 'graph_metadata_sniff': {
+        const files = Array.isArray(args.files) ? args.files : [];
+        const results = files.map(f => {
+          const relPath = f.startsWith('file://') ? f.slice(7) : f;
+          const nodeId = `file://${relPath}`;
+          const node = this.graphStore.getNode(nodeId);
+          if (!node) return { path: relPath, found: false };
+          const meta = node.metadata || {};
+          const size = meta.size || 0;
+          const sizeBucket = size < 1000 ? 'tiny' : size < 5000 ? 'small' : size < 20000 ? 'medium' : 'large';
+          const symbolCount = this.db.get(
+            'SELECT COUNT(*) as count FROM nodes WHERE path = ? AND type != ?',
+            [relPath, 'file']
+          )?.count || 0;
+          const importCount = this.db.get(
+            'SELECT COUNT(*) as count FROM edges WHERE source_id = ? AND relation = ?',
+            [nodeId, 'IMPORTS']
+          )?.count || 0;
+          const complexity = symbolCount > 20 || importCount > 15 ? 3 : symbolCount > 8 || importCount > 6 ? 2 : 1;
+          const name = node.name || '';
+          const classification =
+            /spec|SPEC/.test(relPath)   ? 'spec'   :
+            /test|\.test\./.test(name)  ? 'test'   :
+            /config|\.json$/.test(name) ? 'config' :
+            /util|helper/.test(relPath) ? 'util'   : 'core';
+          return {
+            path: relPath,
+            found: true,
+            size_bucket: sizeBucket,
+            complexity_tier: complexity,
+            import_count: importCount,
+            node_count: symbolCount,
+            classification,
+            stale: Boolean(meta.stale),
+            last_modified: meta.last_modified || null,
+          };
+        });
+        return { content: [{ type: 'text', text: JSON.stringify({ results }, null, 2) }] };
+      }
+      case 'graph_get_knowledge_pack': {
+        const files = Array.isArray(args.files) ? args.files : [];
+        const pattern = String(args.pattern || '');
+        const maxNodes = Math.min(Number(args.max_nodes) || 40, 80);
+        const pack = this.graphStore.getKnowledgePack(files, pattern, maxNodes);
+        return { content: [{ type: 'text', text: JSON.stringify(pack, null, 2) }] };
       }
       case 'get_token_usage': {
         const rows = this.db.getTokenUsage({ runId: args?.run_id });
