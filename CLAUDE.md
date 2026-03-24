@@ -29,7 +29,18 @@ If the server is down: `mbo mcp start` (then wait ~2s and retry).
 
 ---
 
-## 2. Governance — Non-Negotiable Rules
+## 2. Universal Agent Mandate
+
+**Apply this instruction to every task you delegate to any agent — Claude Code, Codex, Gemini, or any other.**
+
+> Identify all failure modes in your solution and solve for each one before submitting.
+
+Paste it verbatim into every task prompt. It is not optional. It applies at every stage: plan derivation, code derivation, review, tiebreaking. The MBO DID pipeline enforces this via `ADVERSARIAL_MANDATE` (DDR-004/005 in `src/auth/did-prompts.js`). Your ad-hoc agent calls must enforce it manually.
+
+---
+
+## 3. Governance — Non-Negotiable Rules
+
 
 | Rule | Detail |
 |------|--------|
@@ -43,7 +54,7 @@ If the server is down: `mbo mcp start` (then wait ~2s and retry).
 
 ---
 
-## 3. Key Paths
+## 4. Key Paths
 
 ```
 .dev/governance/BUGS.md            Active bug ledger (next: BUG-200)
@@ -58,7 +69,7 @@ scripts/graph_call.js              Graph tool CLI helper (this session)
 
 ---
 
-## 4. Session Startup Checklist
+## 5. Session Startup Checklist
 
 1. Call `graph_server_info` — confirm index is fresh (< 1h) and scanning = false.
 2. Read `.dev/governance/BUGS.md` tail — note next bug number.
@@ -67,7 +78,7 @@ scripts/graph_call.js              Graph tool CLI helper (this session)
 
 ---
 
-## 5. Open Work (as of 2026-03-23)
+## 6. Open Work (as of 2026-03-23)
 
 | ID | Task | Status |
 |----|------|--------|

@@ -1,5 +1,7 @@
 // DDR-004: Universal adversarial mandate injected into every prompt.
+// DDR-005: Failure-mode-first — identify before building, not after.
 const ADVERSARIAL_MANDATE = `\
+Before finalising anything: identify all failure modes in your solution and solve for each one.
 Once your plan and diff are complete, find every way to break them and fix each one.
 When you receive the other agent's work, attack it the same way.
 Reconcile the best of both into a single combined output, attack that, and fix it before sending.`;
