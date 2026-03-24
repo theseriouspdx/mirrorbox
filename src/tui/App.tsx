@@ -34,6 +34,11 @@ function formatResult(result: any): string {
   if (status === 'code_agreed') return 'Code derivation complete. Running dry run.';
   if (status === 'pass') return 'Validation passed.';
   if (status === 'audit_pending') return result.prompt || 'Audit package ready. Type "approved" or "reject".';
+  if (status === 'smoke_test_pending') return result.prompt || '[SMOKE TEST] Verify the change. Type: pass  /  fail <reason>  /  partial <notes>';
+  if (status === 'complete') return result.message || 'Task complete.';
+  if (status === 'partial') return result.message || 'Task marked partial.';
+  if (status === 'retry') return result.message || 'Smoke test failed. Type \'go\' to retry from planning.';
+  if (status === 'abort') return result.message || 'Task aborted after max smoke test failures.';
   if (status === 'blocked') return result.reason || result.prompt || 'Task blocked.';
   if (status === 'aborted') return result.reason || 'Operation aborted.';
   if (status === 'error') return result.reason || 'Pipeline failed.';
@@ -77,6 +82,7 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
   const [currentTask, setCurrentTask] = useState<string | null>(null);
   const [filesInScope, setFilesInScope] = useState<string[]>([]);
   const [auditPending, setAuditPending] = useState(false);
+  const [smokePending, setSmokePending] = useState(false);
   const [stageStartTime, setStageStartTime] = useState(Date.now());
   const [stageTokenTotals, setStageTokenTotals] = useState<StageUsageMap>({});
   const prevStageRef = useRef<MboStage>('idle');
@@ -390,6 +396,36 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       }
       return;
     }
+    // Stage 10: smoke test gate — handle pass / fail / partial verdicts.
+    if (smokePending || operator.stateSummary?.pendingSmoke) {
+      if (lower === 'pass' || lower.startsWith('fail') || lower.startsWith('partial')) {
+        appendOperator('❯ ' + trimmed);
+        setPipelineRunning(true);
+        try {
+          const verdict = await operator.handleSmokeVerdict(trimmed);
+          setSmokePending(false);
+          if (verdict.status === 'complete' || verdict.status === 'partial') {
+            appendOperator(verdict.message || 'Smoke test complete.');
+          } else if (verdict.status === 'retry') {
+            appendOperator(verdict.message || "Smoke test failed. Type 'go' to retry from planning.");
+          } else if (verdict.status === 'abort') {
+            appendOperator(verdict.message || 'Task aborted after max smoke test failures.');
+          } else if (verdict.status === 'smoke_test_pending') {
+            // Unrecognised input — re-surface prompt
+            setSmokePending(true);
+            appendOperator(verdict.prompt || '[SMOKE TEST] Type: pass  /  fail <reason>  /  partial <notes>');
+          }
+        } catch (err: any) {
+          appendOperator('[SMOKE TEST ERROR] ' + (err?.message || String(err)));
+        } finally {
+          setPipelineRunning(false);
+        }
+        return;
+      }
+      appendOperator('[SMOKE TEST] Verify the change works as intended, then type: pass  /  fail <reason>  /  partial <notes>');
+      return;
+    }
+
     if (auditPending || operator.stateSummary?.pendingAudit) {
       if (lower === 'approved') {
         appendOperator('❯ approved');
@@ -399,7 +435,14 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
           await operator.runStage8(ctx.classification || {}, ctx.routing || {});
           operator.stateSummary.pendingAudit = null;
           operator.stateSummary.pendingAuditContext = null;
-          appendOperator('Audit approved. State synced. Intelligence graph updated.');
+          appendOperator('State synced. Intelligence graph updated.');
+          // Stage 10: smoke test gate — human verifies before task is marked complete.
+          const smokeResult = await operator.runStage10(
+            ctx.classification || {},
+            ctx.modifiedFiles || []
+          );
+          setSmokePending(true);
+          appendOperator(smokeResult.prompt || '[SMOKE TEST] Type: pass  /  fail <reason>  /  partial <notes>');
         } catch (err: any) {
           appendOperator('[AUDIT ERROR] ' + (err?.message || String(err)));
         } finally {

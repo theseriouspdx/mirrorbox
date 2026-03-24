@@ -178,6 +178,8 @@ class Operator {
       filesInScope: [],
       recoveryAttempts: 0,
       blockCounter: 0,
+      smokeTestAttempts: 0,       // BUG-012: resets per task; abort after MAX_SMOKE_RETRIES+1 consecutive fails
+      pendingSmoke: null,         // Stage 10 state: { classification, modifiedFiles, taskName }
       progressSummary: '',
       graphSummary: '',
       pendingDecision: null,
@@ -1386,6 +1388,119 @@ User request: "${userMessage}"`;
 
     this._setStage('idle');
     this.stateSummary.currentTask = null; // BUG-174: clear placeholder; never surface heuristic label after cycle completion
+  }
+
+  /**
+   * Section 15: Stage 10 — Smoke Test
+   *
+   * Post-execution human verification gate. Called after Stage 8 (state sync +
+   * Intelligence Graph update). Sets pendingSmoke and returns the smoke test
+   * prompt. The TUI dispatches the human's pass/fail/partial response to
+   * handleSmokeVerdict().
+   *
+   * @param {object} classification - Task classification object
+   * @param {string[]} modifiedFiles - Files changed by this task
+   */
+  async runStage10(classification, modifiedFiles = []) {
+    this._setStage('smoke_test');
+    const taskName = classification.rationale || this.stateSummary.currentTask || 'unknown task';
+    const fileList = (modifiedFiles.length > 0 ? modifiedFiles : (classification.files || [])).join(', ') || 'none';
+
+    this.stateSummary.pendingSmoke = { classification, modifiedFiles, taskName };
+    eventStore.append('SMOKE_TEST_STARTED', 'operator', { taskName, modifiedFiles }, 'mirror');
+
+    return {
+      status: 'smoke_test_pending',
+      prompt: `[SMOKE TEST] Task: ${taskName}\nFiles changed: ${fileList}\nPlease verify the change works as intended.\nType: pass  /  fail <reason>  /  partial <what worked, what didn't>`,
+      taskName,
+      modifiedFiles
+    };
+  }
+
+  /**
+   * Section 15: Stage 10 — Smoke Test Verdict Handler
+   *
+   * Processes the human's pass/fail/partial verdict.
+   * BUG-012: max 2 retries (3rd consecutive fail → hard abort, no further retries).
+   *
+   * pass    → task marked complete; smokeTestAttempts reset.
+   * partial → task marked partial; human decides whether to iterate.
+   * fail    → increment smokeTestAttempts; if < MAX+1 → inject failure reason and
+   *           return status:'retry' so TUI can re-trigger planning via 'go'.
+   *           If attempt count reaches MAX+1 → status:'abort'.
+   *
+   * @param {string} verdictStr - Raw human input: 'pass', 'fail <reason>', 'partial <notes>'
+   */
+  async handleSmokeVerdict(verdictStr) {
+    const MAX_SMOKE_RETRIES = 2; // BUG-012: default 2 retries → 3rd fail = abort
+    const smoke = this.stateSummary.pendingSmoke || {};
+    const taskName = smoke.taskName || this.stateSummary.currentTask || 'unknown';
+    const lower = verdictStr.trim().toLowerCase();
+
+    if (lower === 'pass') {
+      this.stateSummary.pendingSmoke = null;
+      this.stateSummary.smokeTestAttempts = 0;
+      this.stateSummary.currentTask = null;
+      this._setStage('idle');
+      eventStore.append('SMOKE_TEST_PASSED', 'human', { taskName }, 'mirror');
+      return { status: 'complete', message: `✓ Task complete: ${taskName}` };
+    }
+
+    if (lower.startsWith('partial')) {
+      const notes = verdictStr.trim().slice('partial'.length).trim();
+      this.stateSummary.pendingSmoke = null;
+      this.stateSummary.smokeTestAttempts = 0;
+      this._setStage('idle');
+      eventStore.append('SMOKE_TEST_PARTIAL', 'human', { taskName, notes }, 'mirror');
+      return {
+        status: 'partial',
+        message: `Task marked partial: ${taskName}.${notes ? ' Notes: ' + notes : ''} You can iterate with a follow-up request.`
+      };
+    }
+
+    if (lower.startsWith('fail')) {
+      const reason = verdictStr.trim().slice('fail'.length).trim();
+      this.stateSummary.smokeTestAttempts = (this.stateSummary.smokeTestAttempts || 0) + 1;
+      eventStore.append('SMOKE_TEST_FAILED', 'human', {
+        taskName, reason, attempt: this.stateSummary.smokeTestAttempts
+      }, 'mirror');
+
+      if (this.stateSummary.smokeTestAttempts > MAX_SMOKE_RETRIES) {
+        // Third consecutive fail → hard abort (BUG-012)
+        this.stateSummary.pendingSmoke = null;
+        this.stateSummary.smokeTestAttempts = 0;
+        this.stateSummary.currentTask = null;
+        this._setStage('idle');
+        eventStore.append('SMOKE_TEST_ABORTED', 'operator', { taskName, reason, maxRetriesExceeded: true }, 'mirror');
+        return {
+          status: 'abort',
+          message: `Task aborted after ${MAX_SMOKE_RETRIES + 1} consecutive smoke test failures.\nTask: ${taskName}\nFinal reason: ${reason || '(none)'}`
+        };
+      }
+
+      // Retry: inject failure reason into executorLogs, restore pendingDecision for 'go'
+      const attemptsLeft = MAX_SMOKE_RETRIES - this.stateSummary.smokeTestAttempts + 1;
+      this.stateSummary.executorLogs = `[SMOKE TEST FAIL — attempt ${this.stateSummary.smokeTestAttempts}/${MAX_SMOKE_RETRIES}] ${reason || '(no reason given)'}`;
+      if (smoke.classification) {
+        this.stateSummary.pendingDecision = { classification: smoke.classification, routing: {} };
+      }
+      this.stateSummary.pendingSmoke = null;
+      this._setStage('idle');
+      return {
+        status: 'retry',
+        attempt: this.stateSummary.smokeTestAttempts,
+        maxRetries: MAX_SMOKE_RETRIES,
+        attemptsLeft,
+        reason,
+        message: `Smoke test failed (${this.stateSummary.smokeTestAttempts}/${MAX_SMOKE_RETRIES} retries used). Failure reason injected into planner context.\nType 'go' to restart from planning.`
+      };
+    }
+
+    // Unrecognised input — re-surface the prompt
+    return {
+      status: 'smoke_test_pending',
+      prompt: `[SMOKE TEST] Unrecognised verdict. Type: pass  /  fail <reason>  /  partial <notes>`
+    };
   }
 
   getPrimeDirective() {
