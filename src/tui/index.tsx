@@ -5,7 +5,6 @@ import { createRequire } from 'module';
 import path from 'path';
 import fs from 'fs';
 import { App } from './App.js';
-import { MouseFilterStream } from './mouseFilter.js';
 
 const require = createRequire(import.meta.url);
 
@@ -86,7 +85,6 @@ async function main() {
     sessionLog.writeMeta('tui cleanup');
     sessionLog.close();
     process.stdout.write('\x1b[?25h');
-    process.stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l');
   };
 
   process.on('exit', cleanup);
@@ -104,13 +102,6 @@ async function main() {
     }
   }
 
-  const mouseFilter = new MouseFilterStream();
-  process.stdin.pipe(mouseFilter);
-  (mouseFilter as any).setRawMode = process.stdin.setRawMode?.bind(process.stdin);
-  (mouseFilter as any).ref = process.stdin.ref?.bind(process.stdin);
-  (mouseFilter as any).unref = process.stdin.unref?.bind(process.stdin);
-  (mouseFilter as any).isTTY = process.stdin.isTTY;
-
   const { waitUntilExit, unmount } = render(
     <App
       operator={operator}
@@ -122,7 +113,7 @@ async function main() {
         unmount();
       }}
     />,
-    { stdin: mouseFilter as any, exitOnCtrlC: false }
+    { stdin: process.stdin, exitOnCtrlC: false }
   );
 
   await waitUntilExit();

@@ -1729,17 +1729,20 @@ The output will be used as the new system context.`;
     const lower = text.toLowerCase();
     if (!this.lastClarificationPrompt) return null;
 
-    const wantsClarification = /^(i\s+do\s*n't\s+know|i\s+dont\s+know|what does that mean\??|what do you mean\??|i\s*'?m confused|i am confused|help)$/i.test(lower);
+    const wantsClarification = /^(i\s+do\s*n't\s+know|i\s+dont\s+know|what does that mean\??|what do you mean\??|what\??|huh\??|i\s*'?m confused|i am confused|help|explain|that doesn'?t make sense|i don'?t understand|what should i do|what now|how\??)$/i.test(lower);
     if (!wantsClarification) return null;
 
     const last = this.lastClarificationPrompt;
-    let prompt = `I was referring to my previous instruction: ${last}`;
 
+    // BUG-210: Explain the prior prompt in plain language with concrete examples
     if (/at least one file path/i.test(last)) {
-      prompt = 'I mean I need to know which file or code area you want changed before I can run the standard write workflow. Examples: `src/tui/App.tsx`, `the startup task loader`, or `the mouse selection bug`. You can also give me a task ID such as `v0.15.03` and I will activate that task directly.';
+      return { status: 'ready', prompt: 'The workflow needs to know which files to change. You can:\n• Name specific files: `src/tui/App.tsx`\n• Describe the area: `the task activation logic`\n• Activate a tracked task instead: type `/tasks` to browse, or type a task ID like `v0.15.03`\n• Or type `run next task` to activate the top task from the ledger.' };
+    }
+    if (/low confidence|parse failure/i.test(last)) {
+      return { status: 'ready', prompt: 'I wasn\'t sure what you meant. Try being more specific:\n• Describe a change: `add error handling to the setup wizard`\n• Ask a question: `how does the pipeline work?`\n• Activate a task: `/tasks` or type a task ID like `v0.15.03`\n• Run the next task: `run next task`' };
     }
 
-    return { status: 'ready', prompt };
+    return { status: 'ready', prompt: `My previous message said: "${last.slice(0, 200)}"\n\nIn plain terms: the workflow is asking for more information before it can proceed. You can provide what was asked, type \`/tasks\` to pick a tracked task instead, or type \`run next task\` to start the top active task.` };
   }
 
   /**

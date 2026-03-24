@@ -49,6 +49,40 @@ function formatResult(result: any): string {
   return 'Operator update received.';
 }
 
+function isClarificationNeeded(text: string): boolean {
+  const lower = String(text || '').trim().toLowerCase();
+  // Detect requests for clarification or expressions of confusion
+  const patterns = [
+    /i\s*do\s*n't\s*know/,
+    /i\s*dont\s*know/,
+    /what does that mean/,
+    /what do you mean/,
+    /i\s*'?m\s*confused/,
+    /i am confused/,
+    /i don't understand/,
+    /i don't get it/,
+    /can you explain that/,
+    /what was that asking for/,
+    /^\?+$/,  // Just question marks
+    /^huh[\?!]*$/,  // huh or huh? or huh!
+    /^what[\?!]*$/,  // what or what? or what!
+    /^help[\?!]*$/,  // help or help? or help!
+    /^unclear$/,
+    /^not clear$/,
+    /^\.{2,}$/,  // Multiple dots
+    /run next task/,  // Ambiguous command when there's a clarification pending
+  ];
+  return patterns.some(p => p.test(lower));
+}
+
+function detectClarificationFollowup(userInput: string, lastClarification: string | null): { isClarificationResponse: boolean; wrappedPrompt: string } | null {
+  if (!lastClarification) return null;
+  if (!isClarificationNeeded(userInput)) return null;
+
+  const wrappedPrompt = `The user is responding to this previous clarification I gave them: "${lastClarification}". Their response: "${userInput}". Please explain in plain language with concrete examples what I was asking for and what they should type next.`;
+  return { isClarificationResponse: true, wrappedPrompt };
+}
+
 function loadStats(statsManager: any): TuiStats {
   try {
     return JSON.parse(JSON.stringify(statsManager.stats));
@@ -120,6 +154,7 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
   const [operatorLines, setOperatorLines] = useState<string[]>([]);
   const [pipelineEntries, setPipelineEntries] = useState<PipelineEntry[]>([]);
   const [executorLines, setExecutorLines] = useState<string[]>([]);
+  const [lastClarificationMessage, setLastClarificationMessage] = useState<string | null>(null);
 
   const appendOperator = useCallback((text: string) => {
     const nextLines = String(text || '').split('\n');
@@ -131,19 +166,6 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
     const onResize = () => setResizeTick((n) => n + 1);
     process.stdout.on('resize', onResize);
     return () => { process.stdout.off('resize', onResize); };
-  }, []);
-
-  // Enable SGR mouse tracking so scroll wheel events reach MouseFilterStream (BUG-185/186)
-  useEffect(() => {
-    process.stdout.write('\x1b[?1002h\x1b[?1006h');
-    const disable = () => process.stdout.write('\x1b[?1002l\x1b[?1006l');
-    process.on('exit', disable);
-    process.on('SIGINT', disable);
-    return () => {
-      disable();
-      process.off('exit', disable);
-      process.off('SIGINT', disable);
-    };
   }, []);
 
   // Startup task surface — on mount, show top active tasks from projecttracking.md (BUG-189)
@@ -261,11 +283,17 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
     setOverlayMode(null);
     setOverlayDraftSeed(null);
     setActiveTab(1);
+    setLastClarificationMessage(null);
     appendOperator(`[TASK] Activated ${taskId}: ${title}`);
     setPipelineRunning(true);
 
     try {
       const result = await operator.processMessage(prompt);
+      if (result && result.needsClarification && result.question) {
+        setLastClarificationMessage(result.question);
+      } else {
+        setLastClarificationMessage(null);
+      }
       if (result && result.status !== 'started') {
         const formatted = formatResult(result);
         if (formatted) appendOperator(formatted);
@@ -448,6 +476,25 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       }
       return;
     }
+    // BUG-210: Catch task-activation phrases that would otherwise fall through to the classifier
+    if (/^(run|start|do|activate|execute)\s+(the\s+)?(next|first|top)\s+task$/i.test(trimmed)) {
+      try {
+        const ledger = parseTaskLedger(projectRoot);
+        const next = ledger.active[0];
+        if (next) {
+          await activateTask({
+            taskId: next.id,
+            title: next.title,
+            prompt: buildTaskActivationPrompt(next),
+          });
+        } else {
+          appendOperator('No active tasks found in projecttracking.md.');
+        }
+      } catch (err: any) {
+        appendOperator('[TASK ERROR] ' + (err?.message || String(err)));
+      }
+      return;
+    }
 
     const explicitTaskId = extractTaskId(trimmed);
     if (explicitTaskId) {
@@ -555,7 +602,25 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
     setPipelineRunning(true);
 
     try {
-      const result = await operator.processMessage(trimmed);
+      // BUG-210: Check if this is a follow-up to a pending clarification
+      const clarificationCheck = detectClarificationFollowup(trimmed, lastClarificationMessage);
+      const messageToProcess = clarificationCheck ? clarificationCheck.wrappedPrompt : trimmed;
+
+      const result = await operator.processMessage(messageToProcess);
+
+      // Track clarifications from the result so TUI can detect follow-ups
+      if (result && result.needsClarification && result.question) {
+        setLastClarificationMessage(result.question);
+      } else if (result && result.status === 'ready') {
+        // Clear clarification once answered successfully
+        setLastClarificationMessage(null);
+      } else if (result && result.status !== 'started') {
+        // Other successful responses clear the pending clarification
+        if (!clarificationCheck) {
+          setLastClarificationMessage(null);
+        }
+      }
+
       if (result && result.status !== 'started') {
         const formatted = formatResult(result);
         if (formatted) appendOperator(formatted);
@@ -565,7 +630,7 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
     } finally {
       setPipelineRunning(false);
     }
-  }, [appendOperator, exit, onSetupRequest, operator, pipelineRunning]);
+  }, [appendOperator, exit, onSetupRequest, operator, pipelineRunning, lastClarificationMessage]);
 
   const termRows = stdout?.rows ?? 40;
   const currentStageUsage = stageTokenTotals[stage] || { model: activeModel, tokens: 0 };

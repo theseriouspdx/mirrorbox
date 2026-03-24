@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useStdout } from 'ink';
 import TextInput from 'ink-text-input';
 import { C } from '../colors.js';
 import {
@@ -76,6 +76,12 @@ function typeColor(type: string): string {
   return C.purple;
 }
 
+function extractBugNumber(links: string): string | null {
+  if (!links) return null;
+  const match = links.match(/BUG-(\d+)/);
+  return match ? `BUG-${match[1]}` : null;
+}
+
 function taskBriefingLines(task: TaskRecord | null): string[] {
   if (!task) return ['(no task selected)'];
   const assumptions = summarizeTaskAssumptions(task);
@@ -136,17 +142,26 @@ function createSummaryLines(draft: DraftState): string[] {
 }
 
 function activatePrompt(step: ActivateStep): string {
-  if (step === 'context') return 'Add context or correct assumptions before activation (optional):';
-  if (step === 'files') return 'Add extra files or paths to inspect (optional, comma-separated):';
-  return 'Type yes to activate this task, or no to revise the preflight notes:';
+  if (step === 'context') return 'Review the assumptions above. Add corrections or extra context (optional, Enter to skip):';
+  if (step === 'files') return 'Add extra files or paths to inspect (optional, comma-separated, Enter to skip):';
+  return 'Type yes to activate this task, or no to go back:';
 }
 
 function activationSummaryLines(task: TaskRecord | null, activation: ActivationState): string[] {
   if (!task) return ['(no task selected)'];
+  const assumptions = summarizeTaskAssumptions(task);
+  const acceptance = summarizeTaskAcceptance(task);
   return [
     `Task: ${task.id}`,
-    `Goal: ${task.title}`,
-    `Context / corrections: ${activation.context || '(none)'}`,
+    `Goal: ${task.title.slice(0, 100)}${task.title.length > 100 ? '…' : ''}`,
+    '',
+    'Assumptions (from SPEC / governance):',
+    ...assumptions.map((a) => `  • ${a.slice(0, 100)}${a.length > 100 ? '…' : ''}`),
+    '',
+    'Acceptance criteria:',
+    ...acceptance.map((a) => `  • ${a.slice(0, 100)}${a.length > 100 ? '…' : ''}`),
+    '',
+    `Your corrections: ${activation.context || '(none yet)'}`,
     `Extra files: ${activation.files || '(none)'}`,
   ];
 }
@@ -180,7 +195,13 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
   const ledger = useMemo(() => parseTaskLedger(projectRoot), [projectRoot, refreshTick]);
   const docs = useMemo(() => readGovernanceDocs(projectRoot), [projectRoot, refreshTick]);
   const tasks = ledger.active;
-  const selectedTask = tasks[selectedIndex] || ledger.active[0] || null;
+
+  // Separate bugs from features for display, but maintain a flat index for navigation
+  const bugTasks = tasks.filter((t) => t.type?.toLowerCase() === 'bug');
+  const otherTasks = tasks.filter((t) => t.type?.toLowerCase() !== 'bug');
+  const flatTaskList = [...bugTasks, ...otherTasks];
+
+  const selectedTask = flatTaskList[selectedIndex] || flatTaskList[0] || null;
   const briefingTask = selectedTaskId
     ? ledger.active.find((task) => task.id === selectedTaskId) || selectedTask
     : selectedTask;
@@ -287,7 +308,7 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
       return;
     }
     if (key.upArrow) setSelectedIndex((value) => Math.max(0, value - 1));
-    if (key.downArrow) setSelectedIndex((value) => Math.min(tasks.length - 1, value + 1));
+    if (key.downArrow) setSelectedIndex((value) => Math.min(flatTaskList.length - 1, value + 1));
     if ((key.return || input === 'g' || input === 'G') && selectedTask) {
       setSelectedTaskId(selectedTask.id);
       setMode('briefing');
@@ -506,6 +527,43 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
     );
   }
 
+  const { stdout } = useStdout();
+  const terminalWidth = stdout?.columns || 80;
+
+  // Column widths with padding
+  const idWidth = 12;
+  const typeWidth = 8;
+  const statusWidth = 12;
+  const ownerWidth = 12;
+  const gapWidth = 5; // 5 gaps of 1 char each
+  const paddingWidth = 4; // 2 padding left + right
+  const totalFixedWidth = idWidth + typeWidth + statusWidth + ownerWidth + gapWidth + paddingWidth;
+  const availableTitleWidth = Math.max(20, terminalWidth - totalFixedWidth);
+
+  const renderTaskRow = (task: TaskRecord, flatIndex: number) => {
+    const selected = flatIndex === selectedIndex;
+
+    const bugNum = task.type?.toLowerCase() === 'bug' ? extractBugNumber(task.links) : null;
+    const idDisplay = bugNum ? bugNum : task.id;
+    const idColContent = `${selected ? '▶ ' : '  '}${idDisplay.padEnd(idWidth - 2).slice(0, idWidth - 2)}`;
+
+    // Truncate title to fit available width with ellipsis
+    const titleMaxLen = Math.max(10, availableTitleWidth);
+    const truncatedTitle = task.title.length > titleMaxLen
+      ? task.title.slice(0, titleMaxLen - 1) + '…'
+      : task.title;
+
+    return (
+      <Box key={task.id} gap={1}>
+        <Text color={selected ? C.white : C.teal} bold={selected}>{idColContent}</Text>
+        <Text color={selected ? C.white : typeColor(task.type)}>{task.type.padEnd(typeWidth).slice(0, typeWidth)}</Text>
+        <Text color={selected ? C.white : statusColor(task.status)} bold={selected || task.status === 'IN_PROGRESS'}>{task.status.padEnd(statusWidth).slice(0, statusWidth)}</Text>
+        <Text color={selected ? C.white : C.purple}>{(task.owner || '—').padEnd(ownerWidth).slice(0, ownerWidth)}</Text>
+        <Text color={C.white} bold={selected}>{truncatedTitle}</Text>
+      </Box>
+    );
+  };
+
   return (
       <Box flexDirection="column" paddingX={2} paddingY={1} borderStyle="double" borderColor={C.teal} flexGrow={1}>
       <Box justifyContent="space-between">
@@ -514,27 +572,32 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
       </Box>
       <Text color={C.teal} dimColor>{SEP}</Text>
       <Box gap={1}>
-        <Text color={C.gray} bold>{'ID'.padEnd(12)}</Text>
-        <Text color={C.gray} bold>{'TYPE'.padEnd(8)}</Text>
-        <Text color={C.gray} bold>{'STATUS'.padEnd(12)}</Text>
-        <Text color={C.gray} bold>{'OWNER'.padEnd(12)}</Text>
+        <Text color={C.gray} bold>{'ID'.padEnd(idWidth)}</Text>
+        <Text color={C.gray} bold>{'TYPE'.padEnd(typeWidth)}</Text>
+        <Text color={C.gray} bold>{'STATUS'.padEnd(statusWidth)}</Text>
+        <Text color={C.gray} bold>{'OWNER'.padEnd(ownerWidth)}</Text>
         <Text color={C.gray} bold>TITLE</Text>
       </Box>
-      <Text color={C.purple} dimColor>{'─'.repeat(12)} {'─'.repeat(8)} {'─'.repeat(12)} {'─'.repeat(12)} {'─'.repeat(30)}</Text>
+      <Text color={C.purple} dimColor>{('─'.repeat(idWidth))} {('─'.repeat(typeWidth))} {('─'.repeat(statusWidth))} {('─'.repeat(ownerWidth))} {('─'.repeat(30))}</Text>
       {tasks.length === 0 ? (
         <Text color={C.gray} dimColor>(no tasks)</Text>
-      ) : tasks.map((task, index) => {
-        const selected = index === selectedIndex;
-        return (
-          <Box key={task.id} gap={1}>
-            <Text color={selected ? C.white : C.teal} bold={selected}>{selected ? '▶ ' : '  '}{task.id.padEnd(10).slice(0, 10)}</Text>
-            <Text color={selected ? C.white : typeColor(task.type)}>{task.type.padEnd(8).slice(0, 8)}</Text>
-            <Text color={selected ? C.white : statusColor(task.status)} bold={selected || task.status === 'IN_PROGRESS'}>{task.status.padEnd(12).slice(0, 12)}</Text>
-            <Text color={selected ? C.white : C.purple}>{(task.owner || '—').padEnd(12).slice(0, 12)}</Text>
-            <Text color={C.white} wrap="truncate-end" bold={selected}>{task.title}</Text>
-          </Box>
-        );
-      })}
+      ) : (
+        <>
+          {bugTasks.length > 0 && (
+            <>
+              <Text color={C.error} bold>BUGS</Text>
+              {bugTasks.map((task, idx) => renderTaskRow(task, idx))}
+            </>
+          )}
+          {otherTasks.length > 0 && (
+            <>
+              {bugTasks.length > 0 && <Text color={C.gray} dimColor></Text>}
+              <Text color={C.teal} bold>TASKS</Text>
+              {otherTasks.map((task, idx) => renderTaskRow(task, bugTasks.length + idx))}
+            </>
+          )}
+        </>
+      )}
       <Text color={C.teal} dimColor>{SEP}</Text>
       {createMessage ? <Text color={C.teal}>{createMessage}</Text> : null}
       <Text color={C.gray} dimColor>{ledger.active.length} active · completed tasks hidden from this view · [Esc] returns to main screen · docs: {docs.length}</Text>

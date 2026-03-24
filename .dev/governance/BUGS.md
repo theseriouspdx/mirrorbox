@@ -2,89 +2,11 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-215
+**Next bug number:** BUG-221
 **Bug ID rule:** `BUG-001`–`BUG-184` are legacy-format entries and must not be renumbered. Starting with `BUG-185`, new bug headings must use dual identification: `BUG-### / v0.LL.NN`.
 **Version lane rule:** assign the version tag by subsystem, not by the most visible current series. Use the canonical lane definitions in `.dev/governance/VERSIONING.md`. The suffix after the second decimal resets within each lane (`v0.13.01`, `v0.13.02`, then separately `v0.14.01`). `v1.x` task lanes are invalid.
 
 ---
-
-### BUG-212 / v0.3.29 — Terminal mouse selection still does not work in the TUI because mouse-tracking mode remains enabled
-**Severity:** P1
-**Status:** OPEN
-**Task:** v0.3.29
-**Assigned:** codex
-**Found:** 2026-03-24
-**Description:**
-The current TUI still enables terminal mouse tracking globally, which means Terminal.app drag selection remains unreliable even though input-side mouse filtering was added. The previous fix only filtered mouse sequences after the terminal had already been placed into tracking mode. Native text selection must work from the operator's terminal without fighting the TUI.
-**Acceptance:**
-- Normal drag text selection works in Terminal.app while the TUI is open.
-- Scroll/navigation behavior remains usable without reintroducing selection-clearing regressions.
-- TUI shutdown still restores terminal state cleanly.
-
-### BUG-213 / v0.3.30 — Task activation and assumption gate present internal ledger language instead of a clear operator-facing workflow
-**Severity:** P1
-**Status:** OPEN
-**Task:** v0.3.30
-**Assigned:** codex
-**Found:** 2026-03-24
-**Description:**
-The activation preflight says the operator can correct assumptions, but it does not actually show those assumptions before asking for corrections. Later, the assumption gate surfaces terse internal ledger rows and `pin:/exclude:/go` instructions without enough plain-English explanation. This makes the workflow hard to understand and hard to correct.
-**Acceptance:**
-- Activation preflight visibly lists the assumptions and acceptance criteria it is asking the operator to review.
-- The assumption gate explains each assumption in plain English and tells the operator exactly how to correct or challenge it.
-- The operator has a clear path to proceed, revise, or ask for clarification without guessing the protocol.
-
-### BUG-214 / v0.3.31 — Main TUI surface lacks a direct task-selection affordance and duplicates pipeline state in the operator panel
-**Severity:** P2
-**Status:** OPEN
-**Task:** v0.3.31
-**Assigned:** codex
-**Found:** 2026-03-24
-**Description:**
-The main operator screen shows active tasks, but there is no first-class selection affordance comparable to `/tasks`. At the same time, the operator panel repeats stage chips that already belong to the pipeline panel, creating visual clutter and wasting vertical space that the input bar and content area need. The main screen should support direct task selection while keeping stage ownership with the pipeline panel.
-**Acceptance:**
-- The main operator screen provides a direct way to select an active task without opening `/tasks`.
-- The operator panel no longer duplicates pipeline-stage chips that are already shown elsewhere.
-- The bottom input area remains fully visible and readable at the default terminal footprint.
-
-### BUG-208 / v0.3.27 — TUI active-task parsing drops real READY rows when projecttracking uses the legacy 9-column layout
-**Severity:** P1
-**Status:** OPEN
-**Task:** v0.3.27
-**Assigned:** codex
-**Found:** 2026-03-24
-**Description:**
-The TUI startup surface and `/projecttracking` command can show `Next Task` while also claiming there are no active tasks. In mirrored runtime repos such as `MBO_Alpha`, `.dev/governance/projecttracking.md` still uses the older 9-column task table (`Task ID` through `Acceptance` without `Last Backup SHA/File`), but `src/tui/governance.ts` currently discards any row with fewer than 10 parsed columns. As a result, legitimate `READY` rows such as `v0.15.03` are ignored, the startup task list is empty, and the operator appears disconnected from the canonical ledger.
-**Acceptance:**
-- TUI startup surfaces active tasks from both 9-column and 10-column `projecttracking.md` layouts.
-- `/projecttracking` and `/tasks` show `READY` rows from mirrored runtime repos correctly.
-- Regression coverage proves both ledger formats are parsed without dropping active rows.
-
-### BUG-209 / v0.3.28 — TUI natural-language task activation does not recognize explicit task IDs such as `v0.15.03`
-**Severity:** P2
-**Status:** OPEN
-**Task:** v0.3.28
-**Assigned:** codex
-**Found:** 2026-03-24
-**Description:**
-When the operator types a direct task-selection utterance such as `lets do v0.15.03`, the TUI does not activate the matching `projecttracking.md` row. Instead the input falls through to general workflow classification, which asks for file scope and loses the task-selection intent. The TUI should recognize explicit task IDs in direct operator input and activate the corresponding task briefing without forcing the operator into the `/tasks` overlay first.
-**Acceptance:**
-- Inputs containing a valid active task ID (for example `v0.15.03`) activate that task directly from the operator input bar.
-- If the task ID exists only in completed tasks, the TUI responds with a clear status instead of routing to generic classification.
-- If the task ID does not exist, the TUI says so plainly.
-
-### BUG-210 / v0.11.193 — Operator clarification flow does not answer self-referential follow-up questions about its own last message
-**Severity:** P1
-**Status:** OPEN
-**Task:** v0.11.193
-**Assigned:** codex
-**Found:** 2026-03-24
-**Description:**
-If the workflow responds with a clarification such as `The standard route requires at least one file path to proceed` and the operator replies `I don't know what that means`, the system treats the follow-up as a brand-new intent instead of explaining the immediately prior message in context. This is below the expected baseline for a CLI LLM assistant and causes avoidable confusion during workflow recovery. The operator should detect self-referential clarification requests, explain the prior instruction in plain language, preserve the current task context, and offer concrete next-step examples.
-**Acceptance:**
-- Follow-ups such as `I don't know what that means`, `what does that mean?`, and similar clarification requests resolve against the assistant's immediately prior prompt when applicable.
-- The explanation is plain-language and provides concrete examples of the expected next input.
-- Existing task/workflow context is preserved rather than being discarded into a fresh classification path.
 
 ### BUG-203 / v0.12.02 — MBO graph server not registered as MCP connector in Cowork sessions
 **Severity:** P2
@@ -109,3 +31,31 @@ first-class tool alongside Desktop Commander.
 - Agent can call `graph_get_knowledge_pack`, `graph_search`, `graph_query_callers` directly without falling back to raw file reads for context assembly.
 - Session startup guidance notes `/graph` as the first command to run.
 
+### BUG-218 / v0.2.13 — `mbo` bare command has no auto-update check before launching the TUI
+**Severity:** P2
+**Status:** OPEN
+**Task:** v0.2.13
+**Assigned:** unassigned
+**Found:** 2026-03-24
+**Description:**
+When an end user runs `mbo` on a target project, the CLI launches the TUI immediately using whatever version is currently installed in `node_modules`. There is no version check against the npm registry (or a local source) and no auto-update path. If MBO ships a fix, the user continues running stale code until they manually reinstall. For a self-updating orchestrator, the bare `mbo` command should check for a newer version and update before launching.
+**Acceptance:**
+- `mbo` checks for a newer published version before launching the TUI.
+- If a newer version is available, it updates automatically (or prompts the user).
+- The check adds minimal latency (cached/async where possible).
+- Offline or registry-unreachable scenarios degrade gracefully to running the installed version.
+
+### BUG-220 / v0.3.35 — First Ctrl+C in TUI double-quit should display "press Ctrl+C again to exit"
+**Severity:** P2
+**Status:** OPEN
+**Task:** v0.3.35
+**Assigned:** unassigned
+**Found:** 2026-03-24
+**Description:**
+The TUI uses a double Ctrl+C confirmation pattern for exit. On the first press the TUI should display
+a visible message such as "Press Ctrl+C again to exit" so the user knows to press again. Currently
+the first press has no visible feedback, making the double-quit pattern opaque.
+**Acceptance:**
+- First Ctrl+C press displays a visible "press Ctrl+C again to exit" message in the TUI.
+- Second Ctrl+C within a short window exits cleanly.
+- If no second press arrives within ~2 seconds, the message clears and the TUI returns to normal.

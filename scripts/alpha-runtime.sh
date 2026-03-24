@@ -87,6 +87,19 @@ sync_alpha() {
   rsync -a --files-from="$existing_tmp" "$CONTROLLER_ROOT/" "$ALPHA_ROOT/"
   rm -f "$tmp" "$existing_tmp"
 
+  # BUG-217: Reinstall the npm package so npx mbo runs the latest code
+  echo "[alpha-runtime] Rebuilding npm package..."
+  local pkg
+  pkg="$(cd "$CONTROLLER_ROOT" && npm pack --quiet 2>/dev/null | tail -n 1)"
+  if [[ -n "$pkg" && -f "$CONTROLLER_ROOT/$pkg" ]]; then
+    echo "[alpha-runtime] Installing $pkg into $ALPHA_ROOT"
+    (cd "$ALPHA_ROOT" && npm install "$CONTROLLER_ROOT/$pkg" --no-save 2>&1 | tail -n 3)
+    rm -f "$CONTROLLER_ROOT/$pkg"
+    echo "[alpha-runtime] Package updated"
+  else
+    echo "[alpha-runtime] Warning: npm pack failed, skipping package install" >&2
+  fi
+
   echo "[alpha-runtime] Sync complete"
 }
 

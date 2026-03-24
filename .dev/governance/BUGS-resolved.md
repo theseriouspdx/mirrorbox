@@ -6,6 +6,66 @@
 
 ---
 
+### BUG-219 / v0.3.34: StatsPanel right-side column truncated stage labels and bled text across lines | RESOLVED 2026-03-24
+- **Location:** `src/tui/components/StatsPanel.tsx`
+- **Severity:** P1
+- **Resolution:** Added SHORT_LABELS map with compact stage names, applied `wrap="truncate-end"` to all text elements, shortened section headers ("Model", "Session", "History" instead of verbose forms).
+- **Task:** v0.3.34
+
+### BUG-214 / v0.3.31: Main TUI operator panel duplicated pipeline stage chips | RESOLVED 2026-03-24
+- **Location:** `src/tui/components/OperatorPanel.tsx`
+- **Severity:** P2
+- **Resolution:** Removed the `stageHistory` chip row from OperatorPanel. Stage tracking belongs exclusively to the PipelinePanel and StatsPanel.
+- **Task:** v0.3.31
+
+### BUG-213 / v0.3.30: Task activation preflight did not show assumptions before asking for corrections | RESOLVED 2026-03-24
+- **Location:** `src/tui/components/TasksOverlay.tsx`
+- **Severity:** P1
+- **Resolution:** `activationSummaryLines()` now shows assumptions from SPEC/governance and acceptance criteria before asking for corrections. Prompts use plain English ("Review the assumptions above") instead of internal jargon.
+- **Task:** v0.3.30
+
+### BUG-210 / v0.11.193: Operator clarification flow did not explain its own prior prompt | RESOLVED 2026-03-24
+- **Location:** `src/auth/operator.js`, `src/tui/App.tsx`
+- **Severity:** P1
+- **Resolution:** Added `run next task` and similar phrases to TUI input handler to activate the top active task directly instead of falling through to classification. Expanded `_handleClarificationFollowup` to recognize more patterns and provide specific, plain-language explanations with concrete examples for each clarification type.
+- **Task:** v0.11.193
+
+### BUG-209 / v0.3.28: TUI did not recognize explicit task IDs in direct input | RESOLVED 2026-03-24 (pre-existing fix)
+- **Location:** `src/tui/App.tsx`, `src/tui/governance.ts`
+- **Severity:** P2
+- **Resolution:** `extractTaskId` regex and `findTaskById` already implemented in prior session. Verified working.
+- **Task:** v0.3.28
+
+### BUG-208 / v0.3.27: TUI dropped READY rows from 9-column projecttracking tables | RESOLVED 2026-03-24 (pre-existing fix)
+- **Location:** `src/tui/governance.ts`
+- **Severity:** P1
+- **Resolution:** `normalizeTaskColumns` already handles 9→10 column conversion. Bug was resolved by BUG-204 governance selection fix.
+- **Task:** v0.3.27
+
+### BUG-217 / v0.2.12: `mbo alpha` did not reinstall the npm package after syncing source files | RESOLVED 2026-03-24
+- **Location:** `scripts/alpha-runtime.sh`
+- **Severity:** P1
+- **Resolution:** Added `npm pack` + `npm install <tarball>` step after rsync in `sync_alpha()`. `npx mbo` now runs the latest controller code after a single `mbo alpha` invocation.
+- **Task:** v0.2.12
+
+### BUG-216 / v0.3.33: /tasks overlay did not show BUG-### identifiers for bug-type tasks | RESOLVED 2026-03-24
+- **Location:** `src/tui/components/TasksOverlay.tsx`
+- **Severity:** P2
+- **Resolution:** Added `extractBugNumber()` helper that parses BUG-### from `task.links`. Bug-type rows now display the BUG number instead of the version-lane task ID in the ID column. Tasks are also grouped into BUGS and TASKS sections.
+- **Task:** v0.3.33
+
+### BUG-215 / v0.3.32: /tasks overlay row overflow caused sloppy column alignment and orphaned character wrapping | RESOLVED 2026-03-24
+- **Location:** `src/tui/components/TasksOverlay.tsx`
+- **Severity:** P1
+- **Resolution:** Added terminal-width-aware title truncation. Column widths are now constants, available title width is computed from `stdout.columns` minus fixed columns, and titles are truncated with ellipsis. Rows no longer overflow or wrap mid-word.
+- **Task:** v0.3.32
+
+### BUG-212 / v0.3.29: Terminal mouse selection did not work because TUI kept mouse-tracking mode enabled | RESOLVED 2026-03-24
+- **Location:** `src/tui/index.tsx`, `src/tui/App.tsx`
+- **Severity:** P1
+- **Resolution:** Removed MouseFilterStream entirely and all SGR mouse tracking escape sequences (`\x1b[?1002h`, `\x1b[?1006h`, etc.) from both index.tsx and App.tsx. TUI now uses plain `process.stdin` for input. Terminal drag-select works natively.
+- **Task:** v0.3.29
+
 ### BUG-211 / v0.2.11: Alpha mirror testing lacked a single dev-only entrypoint and the package shipped test-only artifacts | RESOLVED 2026-03-24
 - **Location:** `bin/mbo.js`, `package.json`, `.npmignore`
 - **Severity:** P1

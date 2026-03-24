@@ -1,7 +1,22 @@
 import React from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import { type MboStage, type TuiStats, PIPELINE_STAGE_SEQUENCE, STAGE_COLORS, STAGE_LABELS } from '../types.js';
 import { C } from '../colors.js';
+
+// BUG-219: Shorter labels that fit the 35% side panel at 80-col terminals (~24 chars usable)
+const SHORT_LABELS: Record<string, string> = {
+  classification: 'CLASSIFY',
+  context_pinning: 'ASSUMPTIONS',
+  planning: 'PLANNING',
+  tiebreaker_plan: 'TIE-PLAN',
+  code_derivation: 'CODE',
+  tiebreaker_code: 'TIE-CODE',
+  dry_run: 'DRY RUN',
+  implement: 'IMPLEMENT',
+  audit_gate: 'AUDIT',
+  state_sync: 'SYNC',
+  knowledge_update: 'GRAPH',
+};
 
 interface Props {
   stage: MboStage;
@@ -38,6 +53,7 @@ function getTotals(scope: 'session' | 'lifetime', stats: TuiStats) {
 }
 
 export function StatsPanel({ stage, stats, filesInScope, auditPending, activeModel, stageTokenTotals }: Props) {
+  const { stdout } = useStdout();
   const totals = getTotals('session', stats);
   const savings = totals.rawCostEst - totals.costEst;
   const stageIndex = PIPELINE_STAGE_SEQUENCE.indexOf(stage);
@@ -53,35 +69,34 @@ export function StatsPanel({ stage, stats, filesInScope, auditPending, activeMod
           const snapshot = stageTokenTotals[entry] || {};
           const color = isCurrent ? STAGE_COLORS[entry] : isPast ? C.done : C.purple;
           const prefix = isCurrent ? '▶ ' : isPast ? '✓ ' : '  ';
-          const tokenText = snapshot.tokens ? ' · ' + fmtTokens(snapshot.tokens) : '';
+          const label = SHORT_LABELS[entry] || STAGE_LABELS[entry] || entry;
+          const tokenText = snapshot.tokens ? ' ' + fmtTokens(snapshot.tokens) : '';
           return (
-            <Text key={entry} color={color} bold={isCurrent} dimColor={!isCurrent && !isPast}>
-              {prefix}
-              {STAGE_LABELS[entry]}
-              {tokenText}
+            <Text key={entry} color={color} bold={isCurrent} dimColor={!isCurrent && !isPast} wrap="truncate-end">
+              {prefix}{label}{tokenText}
             </Text>
           );
         })}
       </Box>
 
       <Box marginTop={1} flexDirection="column">
-        <Text color={C.purple} dimColor>── Active Model</Text>
-        <Text color={C.teal} dimColor>{activeModel || 'unassigned'}</Text>
+        <Text color={C.purple} dimColor wrap="truncate-end">── Model</Text>
+        <Text color={C.teal} dimColor wrap="truncate-end">{activeModel || 'unassigned'}</Text>
       </Box>
 
       <Box marginTop={1} flexDirection="column">
-        <Text color={C.purple} dimColor>── session total</Text>
-        <Text color="green">{fmtTokens(totals.optimized)} tok · {fmtCost(totals.costEst)}</Text>
-        {savings > 0.0001 ? <Text color="green" dimColor>saved {fmtCost(savings)} vs single-model</Text> : null}
-        <Text color={C.teal} dimColor>cache {stats.session.cache.hits}↑ {stats.session.cache.misses}✗</Text>
+        <Text color={C.purple} dimColor wrap="truncate-end">── Session</Text>
+        <Text color="green" wrap="truncate-end">{fmtTokens(totals.optimized)} tok · {fmtCost(totals.costEst)}</Text>
+        {savings > 0.0001 ? <Text color="green" dimColor wrap="truncate-end">saved {fmtCost(savings)}</Text> : null}
+        <Text color={C.teal} dimColor wrap="truncate-end">cache {stats.session.cache.hits}↑ {stats.session.cache.misses}✗</Text>
       </Box>
 
       {recentHistory.length > 0 ? (
         <Box marginTop={1} flexDirection="column">
-          <Text color={C.purple} dimColor>── Recent Stage History</Text>
+          <Text color={C.purple} dimColor wrap="truncate-end">── History</Text>
           {recentHistory.map((snapshot, index) => (
-            <Text key={snapshot.stage + '-' + index} color={C.white} dimColor>
-              {STAGE_LABELS[snapshot.stage]} · {snapshot.model || 'unknown'} · {fmtTokens(snapshot.tokens)}
+            <Text key={snapshot.stage + '-' + index} color={C.white} dimColor wrap="truncate-end">
+              {SHORT_LABELS[snapshot.stage] || snapshot.stage} · {(snapshot.model || '?').slice(0, 12)} · {fmtTokens(snapshot.tokens)}
             </Text>
           ))}
         </Box>
@@ -89,9 +104,9 @@ export function StatsPanel({ stage, stats, filesInScope, auditPending, activeMod
 
       {filesInScope.length > 0 ? (
         <Box marginTop={1} flexDirection="column">
-          <Text color={C.purple} dimColor>── Files in Scope</Text>
+          <Text color={C.purple} dimColor wrap="truncate-end">── Files</Text>
           {filesInScope.slice(0, 6).map((file) => (
-            <Text key={file} color={C.white} dimColor>{file.split('/').pop()}</Text>
+            <Text key={file} color={C.white} dimColor wrap="truncate-end">{file.split('/').pop()}</Text>
           ))}
           {filesInScope.length > 6 ? <Text color={C.purple} dimColor>+{filesInScope.length - 6} more</Text> : null}
         </Box>
@@ -100,12 +115,12 @@ export function StatsPanel({ stage, stats, filesInScope, auditPending, activeMod
       {auditPending ? (
         <Box marginTop={1} flexDirection="column">
           <Text color={C.audit} bold>AUDIT PENDING</Text>
-          <Text color={C.audit} dimColor>Return to Operator and answer approved or reject.</Text>
+          <Text color={C.audit} dimColor wrap="truncate-end">Type approved or reject.</Text>
         </Box>
       ) : null}
 
       <Box flexGrow={1} />
-      <Text color={C.purple} dimColor>/tm for session + project statistics</Text>
+      <Text color={C.purple} dimColor wrap="truncate-end">/tm for stats</Text>
     </Box>
   );
 }

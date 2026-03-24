@@ -141,19 +141,6 @@ export function OperatorPanel({
         <Text color={C.gray} dimColor>{trimLine(activeModel || 'no model selected', 22)}</Text>
       </Box>
 
-      {stats?.session?.stageHistory && stats.session.stageHistory.length > 0 && (
-        <Box flexDirection="row" flexWrap="wrap" gap={1} marginBottom={1}>
-          {stats.session.stageHistory.slice(-4).map((snap, i) => (
-            <Box key={snap.stage + '-' + i} borderStyle="single" borderColor={C.purple} paddingX={1}>
-              <Text color={C.gray} dimColor>
-                {(STAGE_SHORT[snap.stage] || snap.stage).slice(0, 10)}
-                {snap.tokens > 0 ? ' · ' + fmtTok(snap.tokens) : ''}
-              </Text>
-            </Box>
-          ))}
-        </Box>
-      )}
-
       <Box flexDirection="column" flexGrow={1}>
         {visibleLines.map((line, index) => (
           <Text key={topLine + index} color={hasContent ? C.white : borderColor} dimColor={!hasContent} wrap="wrap">
