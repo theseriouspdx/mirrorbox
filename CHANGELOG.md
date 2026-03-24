@@ -1,6 +1,13 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [0.11.190] — 2026-03-24
+#### Fixed
+- **Test suite hardening and verification — Task v0.11.190:**
+  - `scripts/test-tui-governance-task-creation.js`: Fixed the manual transpiler to handle ESM `import`/`createRequire` and TypeScript type annotations (generics, object-literal return types, union types).
+  - Verified targeted governance and runtime changes (`mbo test`, `test-workflow-audit-governance-sync.js`, `test-runtime-governance-bootstrap.js`).
+  - Reconciled projecttracking.md with the latest COMPLETED statuses for BUG-200/201/202.
+
 ### [0.3.25] — 2026-03-24
 #### Fixed
 - **BUG-202, BUG-201 (P1/P2) — Runtime task numbering and ownership defaults:**

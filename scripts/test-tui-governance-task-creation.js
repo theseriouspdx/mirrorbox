@@ -55,21 +55,45 @@ fs.writeFileSync(path.join(governanceDir, 'projecttracking.md'), [
 ].join('\n'), 'utf8');
 
 function transpileGovernanceModule(source) {
-  return source
+  let code = source
     .split('\n')
-    .filter(line => !line.startsWith('import '))
-    .filter(line => !line.startsWith('const require = createRequire'))
-    .join('\n')
-    .replace(/export interface[\s\S]*?\n}\n/g, '')
-    .replace(/export type [^\n]+\n/g, '')
-    .replace(/export /g, '')
-    .replace(/const GOVERNANCE_FILENAMES: Array<[^=]+ = \[/, 'const GOVERNANCE_FILENAMES = [')
-    .replace(/: (?:string|number|boolean|any|void|TaskRecord|GovernanceDoc|TaskDraftInput|TaskActivationInput|GovernanceDocKey|'active' \| 'recent' \| null)(?:\[\])?(?=[,;=)\s\{])/g, '')
-    .replace(/: \{[^\}]+\}(?:\[\])?(?=[,;=)\s\{])/g, '')
-    .replace(/<[A-Za-z0-9_ ,|' ]+>/g, '')
-    .replace(/ as [^,;\)\s]+/g, '')
-    .replace(/\(cell: string\)/g, '(cell)')
-    .concat('\nmodule.exports = { deriveNextTaskId, createTaskFromDraft };\n');
+    // Remove ESM/Node module helpers and imports
+    .filter(line => !line.trim().startsWith('import '))
+    .filter(line => !line.includes('createRequire(import.meta.url)'))
+    .join('\n');
+
+  // Strip 'export' keyword
+  code = code.replace(/\bexport\s+/g, '');
+
+  // Strip interfaces and types (multiline)
+  code = code.replace(/interface [^{]+\{[\s\S]*?\n\}/g, '');
+  code = code.replace(/type [^;]+;/g, '');
+
+  // 1. Strip generics: <...>
+  // Use negative lookahead to avoid stripping comparison operators (< 9, <= 9)
+  code = code.replace(/<(?![ =])[^>]+>/g, '');
+
+  // 2. Strip return types in function declarations
+  // Handle object return types: ): { ... } {
+  code = code.replace(/\): \{[^\}]+\}(?=\s*\{)/g, ')');
+  // Handle simple return types: ): Type {
+  code = code.replace(/\): [a-zA-Z0-9_| '\[\]]+(?=\s*\{)/g, ')');
+
+  // 3. Strip variable/parameter types: name: Type
+  // Use a targeted list of types to avoid matching colons in object literals/ternaries.
+  const knownTypes = [
+    'string', 'number', 'boolean', 'any', 'void', 'null',
+    'TaskRecord', 'GovernanceDoc', 'TaskDraftInput', 'TaskActivationInput', 'GovernanceDocKey',
+    'Array', 'Set', "'active' \\| 'recent' \\| null"
+  ];
+  // Allow optional space before the terminal character in lookahead
+  const typeRegex = new RegExp(': (?:' + knownTypes.join('|') + ')(?:\\[\\])?(?=\\s*[,;=)\\n])', 'g');
+  code = code.replace(typeRegex, '');
+
+  // 4. Strip 'as' assertions
+  code = code.replace(/\s+as\s+[A-Za-z0-9_.]+/g, '');
+
+  return code + '\nmodule.exports = { deriveNextTaskId, createTaskFromDraft };\n';
 }
 
 function loadGovernanceHelpers() {
