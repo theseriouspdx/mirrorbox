@@ -6,7 +6,7 @@
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
 **Current Version:** 0.3.23
-**Next Task:** v0.15.03
+**Next Task:** v0.2.08
 **V4 Gate:** The v0.4x series has zero tasks until ALL of the following clear: v0.13.01, v0.14.01, v0.15.01, v0.16.01. After all four clear, Operator defines v0.4.0-RC.x candidate build tasks. v0.4.0 ships when and only when the Operator has privately demoed MBO and is personally convinced it is ready for external eyes. v0.41.x tasks are created from what surfaces after the public demo — not before it. See AGENTS.md §17H.
 **Policy:** This file is the single source of truth for work state.
 
@@ -15,6 +15,7 @@
 ## Active Tasks
 | Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
 |---|---|---|---|---|---|---|---|---|
+| v0.2.08 | bug | Output-Contract hardening: Log interleaving and entropy-score fudge factor | READY | unassigned | - | 2026-03-24 | BUG-199 | Sequential planner streaming; verified entropy score accuracy; resilient status-label parsing. |
 | v0.3.23 | bug | TUI build failure: missing `if (auditPending)` outer guard in `handleInput` causes premature function-body close | COMPLETED | claude | - | 2026-03-23 | BUG-196, src/tui/App.tsx | `src/tui/App.tsx` `handleInput` arrow function body now closes at line 453 (`}, [deps])`); esbuild build succeeds; e2e run unblocked. |
 | v0.11.186 | audit | Test suite audit: classify all test scripts against TEST_STANDARDS.md Rules 1-7 and harden or remove failures | COMPLETED | claude | - | 2026-03-23 | docs/TEST_STANDARDS.md, scripts/test-*.js, scripts/verify-*.js | Baseline: 25 scripts ran on 2026-03-21, all returned exit 0. Each script must be evaluated against all 7 rules in docs/TEST_STANDARDS.md: (1) has env assertion block that fails fast on wrong machine, (2) executes code rather than inspecting source text, (3) uses live system state not mocked data, (4) exits 0/1/2 with correct semantics, (5) prints a live output table for inspectable state, (6) is permanent and named correctly, (7) covers one feature surface with a clear name. Classify each as REAL (passes all 7), SHALLOW (exits 0 vacuously), or STUB (no assertions). Shallow and stub scripts must be hardened to meet all 7 rules or removed. Output: written audit report committed to docs/, updated scripts committed, all 25 scripts re-run and passing. |
 | v0.15.01 | plan | Code cleanup gate and module: topology cleanup, syntax polish, snippet quality, and auditor-facing code refinement before V4 | COMPLETED | claude | claude/v0.15.01 | 2026-03-23 | docs/v0.15-cleanup-plan.md | 5-phase cleanup plan written to docs/v0.15-cleanup-plan.md; defines sequence, standards, auditability criteria, stop conditions, and proposed tasks v0.15.02–v0.15.06 |
