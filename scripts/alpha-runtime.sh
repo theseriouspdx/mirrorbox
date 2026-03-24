@@ -68,11 +68,24 @@ sync_alpha() {
   echo "[alpha-runtime] Syncing tracked files from $CONTROLLER_ROOT -> $ALPHA_ROOT"
 
   local tmp
+  local existing_tmp
   tmp="$(mktemp)"
+  existing_tmp="$(mktemp)"
   git -C "$CONTROLLER_ROOT" ls-files > "$tmp"
 
-  rsync -a --files-from="$tmp" "$CONTROLLER_ROOT/" "$ALPHA_ROOT/"
-  rm -f "$tmp"
+  # This session may intentionally remove tracked files (for example `.dev/bak/**`).
+  # Filter out deleted paths so Alpha sync mirrors the current worktree instead of
+  # failing on stale index entries.
+  (
+    cd "$CONTROLLER_ROOT"
+    while IFS= read -r rel; do
+      [[ -e "$rel" ]] && printf '%s
+' "$rel"
+    done < "$tmp"
+  ) > "$existing_tmp"
+
+  rsync -a --files-from="$existing_tmp" "$CONTROLLER_ROOT/" "$ALPHA_ROOT/"
+  rm -f "$tmp" "$existing_tmp"
 
   echo "[alpha-runtime] Sync complete"
 }

@@ -6,6 +6,12 @@
 
 ---
 
+### BUG-211 / v0.2.11: Alpha mirror testing lacked a single dev-only entrypoint and the package shipped test-only artifacts | RESOLVED 2026-03-24
+- **Location:** `bin/mbo.js`, `package.json`, `.npmignore`
+- **Severity:** P1
+- **Resolution:** Added a controller-repo-only `mbo alpha` subcommand that syncs tracked files into `MBO_Alpha` and launches the mirrored runtime, automatically hides that path when the Alpha helper script is absent from a packaged install, removed the shipped `mboalpha` bin alias, and excluded `tests/` plus Alpha/workflow-audit scripts from the published tarball.
+- **Task:** v0.2.11
+
 ### BUG-207 / v0.11.192: Governance/public changelog boundary drift | RESOLVED 2026-03-24
 - **Location:** `CHANGELOG.md`, `.dev/governance/AGENTS.md`, `.dev/governance/SESSION_AUDIT_PROMPT.md`, `scripts/mbo-workflow-audit.js`, `scripts/generate-run-artifacts.js`, `src/tui/governance.ts`, `src/cli/bug-audit.js`
 - **Severity:** P1

@@ -6,6 +6,7 @@ const path = require('path');
 const rl_  = require('readline');
 const { execSync, spawnSync } = require('child_process');
 const http = require('http');
+const https = require('https');
 const crypto = require('crypto');
 
 const { detectProviders }           = require('./detect-providers');
@@ -697,6 +698,18 @@ function validateConfig() {
   }
 }
 
+function loadExistingConfig() {
+  try {
+    if (fs.existsSync(CONFIG_PATH)) return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  } catch (_) {}
+  return null;
+}
+
+function maskKey(key) {
+  if (!key || key.length < 8) return '(set)';
+  return key.slice(0, 4) + '…' + key.slice(-4);
+}
+
 async function runSetup() {
   if (!process.stdout.isTTY) {
     process.stderr.write('ERROR: mbo setup requires a TTY. Missing ~/.mbo/config.json.\n');
@@ -707,9 +720,16 @@ async function runSetup() {
     process.exit(1);
   }
 
+  const existingConfig = loadExistingConfig();
+  const isReconfigure = !!(existingConfig && Object.keys(existingConfig).length > 0);
+
   console.log('');
   console.log(m('╔════════════════════════════════════════╗'));
-  console.log(m('║') + wb('  Mirror Box Orchestrator — Setup      ') + m('║'));
+  if (isReconfigure) {
+    console.log(m('║') + wb('  Mirror Box Orchestrator — Reconfigure') + m('║'));
+  } else {
+    console.log(m('║') + wb('  Mirror Box Orchestrator — Setup      ') + m('║'));
+  }
   console.log(m('╚════════════════════════════════════════╝'));
   console.log(dim('\nScanning your system...\n'));
 
@@ -738,7 +758,19 @@ async function runSetup() {
 
   const rl = rl_.createInterface({ input: process.stdin, output: process.stdout });
   try {
-    if (!d.openrouterKey) {
+    // API keys — show current value (masked) and offer update
+    if (d.openrouterKey) {
+      const update = await ask(rl, `OpenRouter API key ${dim('[' + maskKey(d.openrouterKey) + ']')} — update? [y/N]: `);
+      if (update.toLowerCase() === 'y' || update.toLowerCase() === 'yes') {
+        const key = await ask(rl, 'New OpenRouter API key: ');
+        if (key) {
+          d.openrouterKey = key;
+          process.env.OPENROUTER_API_KEY = key;
+          appendExportIfMissing(detectShell(), 'OPENROUTER_API_KEY', key);
+          console.log(dim('  → Saved to shell profile.'));
+        }
+      }
+    } else {
       const key = await ask(rl, 'OpenRouter API key (Enter to skip): ');
       if (key) {
         d.openrouterKey = key;
@@ -747,7 +779,18 @@ async function runSetup() {
         console.log(dim('  → Saved to shell profile.'));
       }
     }
-    if (!d.anthropicKey) {
+    if (d.anthropicKey) {
+      const update = await ask(rl, `Anthropic API key ${dim('[' + maskKey(d.anthropicKey) + ']')} — update? [y/N]: `);
+      if (update.toLowerCase() === 'y' || update.toLowerCase() === 'yes') {
+        const key = await ask(rl, 'New Anthropic API key: ');
+        if (key) {
+          d.anthropicKey = key;
+          process.env.ANTHROPIC_API_KEY = key;
+          appendExportIfMissing(detectShell(), 'ANTHROPIC_API_KEY', key);
+          console.log(dim('  → Saved to shell profile.'));
+        }
+      }
+    } else {
       const key = await ask(rl, 'Anthropic API key (Enter to skip): ');
       if (key) {
         d.anthropicKey = key;
@@ -759,7 +802,20 @@ async function runSetup() {
 
     const catalog = await fetchOpenRouterCatalog();
     const defaults = buildDefaultConfig(d);
-    console.log(cy('\n── Recommended Config ─────────────────────────────────────'));
+
+    // Overlay existing stage assignments so reconfigure shows current values as defaults
+    if (isReconfigure) {
+      const stageKeys = ['classifier', 'operator', 'planner', 'architecturePlanner',
+        'componentPlanner', 'reviewer', 'patchGenerator', 'tiebreaker', 'onboarding'];
+      for (const key of stageKeys) {
+        if (existingConfig[key]) defaults[key] = cloneRoute(existingConfig[key]);
+      }
+      if (existingConfig.executor) defaults.executor = { ...existingConfig.executor };
+      if (typeof existingConfig.devServer === 'string') defaults.devServer = existingConfig.devServer;
+      if (existingConfig.streaming) defaults.streaming = { ...existingConfig.streaming };
+    }
+
+    console.log(cy(isReconfigure ? '\n── Current Config ──────────────────────────────────────────' : '\n── Recommended Config ─────────────────────────────────────'));
     console.log(`  Classifier:  ${wb(formatRoute(defaults.classifier))}`);
     console.log(`  Operator:    ${wb(formatRoute(defaults.operator))}`);
     console.log(`  Planner A:   ${wb(formatRoute(defaults.architecturePlanner))}`);
@@ -789,17 +845,35 @@ async function runSetup() {
     cfg = syncStageConfig(cfg);
 
     console.log(cy('\n── Streaming (Section 33) ──────────────────────────────────'));
-    const streamGlobal = await ask(rl, '  Enable real-time output streaming? [Y/n]: ');
-    cfg.streaming = {
-      enabled: streamGlobal.toLowerCase() !== 'n' && streamGlobal.toLowerCase() !== 'no',
-      roles: {},
-    };
+    const currentStreaming = cfg.streaming?.enabled !== false;
+    const streamPrompt = currentStreaming
+      ? '  Enable real-time output streaming? [Y/n]: '
+      : '  Enable real-time output streaming? [y/N]: ';
+    const streamGlobal = await ask(rl, streamPrompt);
+    const streamEnabled = streamGlobal === ''
+      ? currentStreaming
+      : streamGlobal.toLowerCase() !== 'n' && streamGlobal.toLowerCase() !== 'no';
+    cfg.streaming = { enabled: streamEnabled, roles: {} };
 
-    const devCmd = await ask(rl, `${m('Dev server command')} ${dim('(e.g. "npm run dev", Enter to skip): ')}`);
+    const currentDevServer = cfg.devServer || '';
+    const devServerHint = currentDevServer
+      ? dim(`[${currentDevServer}] `)
+      : dim('(e.g. "npm run dev", Enter to skip) ');
+    const devCmd = await ask(rl, `${m('Dev server command')} ${devServerHint}: `);
     if (devCmd) cfg.devServer = devCmd;
+    else if (currentDevServer) cfg.devServer = currentDevServer;
 
     console.log(cy('\n── Project Configuration ──────────────────────────────────'));
     const projectRoot = process.env.MBO_PROJECT_ROOT || process.cwd();
+    const localConfigDir = path.join(projectRoot, '.mbo');
+    const localConfigPath = path.join(localConfigDir, 'config.json');
+    let localCfg = {};
+    try {
+      if (fs.existsSync(localConfigPath)) localCfg = JSON.parse(fs.readFileSync(localConfigPath, 'utf8'));
+    } catch (_) {
+      localCfg = {};
+    }
+
     let defaultRoots = ['src'];
     try {
       if (!fs.existsSync(path.join(projectRoot, 'src'))) {
@@ -814,16 +888,14 @@ async function runSetup() {
       // ignore project scan-root detection failure
     }
 
-    const rootInput = await ask(rl, `  Scan roots (comma separated) [${defaultRoots.join(',')}]: `);
+    const existingRoots = localCfg.scanRoots && localCfg.scanRoots.length > 0 ? localCfg.scanRoots : defaultRoots;
+    const rootInput = await ask(rl, `  Scan roots (comma separated) [${existingRoots.join(',')}]: `);
     const scanRoots = rootInput ? rootInput.split(',').map((segment) => segment.trim()).filter(Boolean) : defaultRoots;
 
-    const localConfigDir = path.join(projectRoot, '.mbo');
-    const localConfigPath = path.join(localConfigDir, 'config.json');
-    let localCfg = {};
-    try {
-      if (fs.existsSync(localConfigPath)) localCfg = JSON.parse(fs.readFileSync(localConfigPath, 'utf8'));
-    } catch (_) {
-      localCfg = {};
+    // Use existing scanRoots as the default if present
+    if (!rootInput && localCfg.scanRoots && localCfg.scanRoots.length > 0) {
+      scanRoots.length = 0;
+      scanRoots.push(...localCfg.scanRoots);
     }
     localCfg.scanRoots = scanRoots;
     localCfg.mcpClients = require('../utils/update-client-configs').buildClientRegistry(d);

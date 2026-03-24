@@ -163,6 +163,13 @@ function parseTableRow(line: string): string[] {
   return line.split('|').slice(1, -1).map((cell: string) => cell.trim());
 }
 
+function normalizeTaskColumns(cols: string[]): string[] | null {
+  if (cols.length >= 10) return cols;
+  // Legacy task ledgers omitted the backup-ref column and stored 9 fields.
+  if (cols.length === 9) return [...cols.slice(0, 8), '-', cols[8]];
+  return null;
+}
+
 function findBugSection(text: string, bugId: string): string {
   if (!text || !bugId) return '';
   const escaped = escapeRegex(bugId);
@@ -319,8 +326,8 @@ export function parseTaskLedger(projectRoot: string): { active: TaskRecord[]; re
     if (!section || !line.startsWith('|')) continue;
     if (/^\|[-\s|]+\|$/.test(line) || /Task ID.*Type.*Title/i.test(line)) continue;
 
-    const cols = parseTableRow(rawLine);
-    if (cols.length < 10) continue;
+    const cols = normalizeTaskColumns(parseTableRow(rawLine));
+    if (!cols) continue;
     const task: TaskRecord = {
       id: cols[0] || '',
       type: cols[1] || '',
@@ -368,6 +375,20 @@ export function deriveNextTaskId(projectRoot: string, lane: string): string {
     .filter((n) => Number.isFinite(n));
   const next = matches.length ? Math.max(...matches) + 1 : 1;
   return `v${normalizedLane}.${String(next)}`;
+}
+
+export function findTaskById(projectRoot: string, taskId: string): { task: TaskRecord | null; section: 'active' | 'recent' | null } {
+  const normalized = String(taskId || '').trim();
+  if (!normalized) return { task: null, section: null };
+
+  const ledger = parseTaskLedger(projectRoot);
+  const activeTask = ledger.active.find((task) => String(task.id).trim().toLowerCase() === normalized.toLowerCase());
+  if (activeTask) return { task: activeTask, section: 'active' };
+
+  const recentTask = ledger.recent.find((task) => String(task.id).trim().toLowerCase() === normalized.toLowerCase());
+  if (recentTask) return { task: recentTask, section: 'recent' };
+
+  return { task: null, section: null };
 }
 
 export function appendTaskRecord(projectRoot: string, task: TaskRecord): void {

@@ -169,6 +169,7 @@ class Operator {
   constructor(mode = 'runtime', options = {}) {
     this.mode = mode;
     this.sessionHistory = [];
+    this.lastClarificationPrompt = null;
     this.stateSummary = {
       worldId: 'mirror',
       currentTask: null,
@@ -1595,6 +1596,14 @@ The output will be used as the new system context.`;
     await this.checkContextLifecycle();
     const input = userMessage.trim().toLowerCase();
 
+    const clarificationFollowup = this._handleClarificationFollowup(userMessage);
+    if (clarificationFollowup) {
+      this.sessionHistory.push({ role: 'user', content: userMessage });
+      this.sessionHistory.push({ role: 'assistant', content: clarificationFollowup.prompt });
+      this.saveHistory();
+      return clarificationFollowup;
+    }
+
     // BUG-013: Intercept input if sandbox is focused
     if (this.sandboxFocus) {
       eventStore.append('SANDBOX_INPUT', 'human', { input: userMessage }, 'mirror');
@@ -1632,8 +1641,11 @@ The output will be used as the new system context.`;
     const classification = await this.classifyRequest(userMessage);
 
     if (classification.needsClarification) {
+      this.lastClarificationPrompt = classification.rationale || '';
       return { needsClarification: true, question: classification.rationale };
     }
+
+    this.lastClarificationPrompt = null;
 
     const routing = await this.determineRouting(classification);
     this.stateSummary.pendingDecision = { classification, routing };
@@ -1710,6 +1722,24 @@ The output will be used as the new system context.`;
     }
 
     return stage1_5;
+  }
+
+  _handleClarificationFollowup(userMessage) {
+    const text = String(userMessage || '').trim();
+    const lower = text.toLowerCase();
+    if (!this.lastClarificationPrompt) return null;
+
+    const wantsClarification = /^(i\s+do\s*n't\s+know|i\s+dont\s+know|what does that mean\??|what do you mean\??|i\s*'?m confused|i am confused|help)$/i.test(lower);
+    if (!wantsClarification) return null;
+
+    const last = this.lastClarificationPrompt;
+    let prompt = `I was referring to my previous instruction: ${last}`;
+
+    if (/at least one file path/i.test(last)) {
+      prompt = 'I mean I need to know which file or code area you want changed before I can run the standard write workflow. Examples: `src/tui/App.tsx`, `the startup task loader`, or `the mouse selection bug`. You can also give me a task ID such as `v0.15.03` and I will activate that task directly.';
+    }
+
+    return { status: 'ready', prompt };
   }
 
   /**

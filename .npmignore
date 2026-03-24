@@ -37,6 +37,15 @@ Thumbs.db
 scripts/test-*.js
 scripts/scratch/
 
+tests/
+scripts/alpha-runtime.sh
+scripts/alpha-e2e-driver.js
+scripts/mbo-install-alpha.sh
+scripts/mbo-run-alpha.sh
+scripts/mbo-workflow-audit.js
+scripts/generate-run-artifacts.js
+scripts/debug-models.js
+scripts/mbo-ci-start.sh
 # Dependencies (reinstalled on install)
 node_modules/
 

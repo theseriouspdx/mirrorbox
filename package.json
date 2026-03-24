@@ -5,7 +5,6 @@
   "main": "src/index.js",
   "bin": {
     "mbo": "bin/mbo.js",
-    "mboalpha": "bin/mbo.js",
     "mboauth": "bin/handshake.py"
   },
   "scripts": {

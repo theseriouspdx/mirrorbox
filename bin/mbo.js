@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * bin/mbo.js — MBO global CLI entrypoint
- * Registered as both 'mbo' and 'mboalpha' in package.json bin field.
+ * Registered as the global 'mbo' CLI entrypoint.
  * Delegates to src/index.js. Runs from process.cwd() (the project root).
  *
  * Install: npm install -g .
@@ -13,6 +13,7 @@
  *   mbo mcp           — MCP recovery (reap stale, start fresh, rescan)
  *   mbo mcp kill      — list all MCP processes, pick ones to kill
  *   mbo test          — run the full test suite
+ *   mbo alpha         — sync main -> Alpha and run the mirrored runtime (dev only)
  *   mbo setup         — project setup wizard
  *   mbo teardown      — remove launchd daemon
  *   mbo auth          — auth/config operations
@@ -34,6 +35,7 @@ const PROJECT_ROOT = process.env.MBO_PROJECT_ROOT || findProjectRoot(INVOCATION_
 const entry = path.join(__dirname, '..', 'src', 'index.js');
 const HOME_CONFIG_DIR = path.join(require('os').homedir(), '.mbo');
 const HOME_CONFIG_PATH = path.join(HOME_CONFIG_DIR, 'config.json');
+const ALPHA_RUNTIME_SCRIPT = path.join(PACKAGE_ROOT, 'scripts', 'alpha-runtime.sh');
 
 function printSelfRunWarning(packageRoot) {
   const red = '\x1b[31m';
@@ -65,8 +67,6 @@ function warningPromptPrefix() {
 
 function runSetupCommand() {
   const setup = require('../src/cli/setup');
-  const { checkOnboarding } = require('../src/cli/onboarding');
-  const { detectProviders } = require('../src/cli/detect-providers');
   const warnedPrompt = warningPromptPrefix();
   Promise.resolve()
     .then(async () => {
@@ -74,26 +74,10 @@ function runSetupCommand() {
       // This ensures the setup wizard runs for each new project even on machines that
       // previously ran `mbo setup` for a different project.
       const localConfigPath = path.join(PROJECT_ROOT, '.mbo', 'config.json');
-      const hasLocalConfig = fs.existsSync(localConfigPath) && (() => {
-        try { JSON.parse(fs.readFileSync(localConfigPath, 'utf8')); return true; } catch { return false; }
-      })();
-
-      const providers = await detectProviders();
-      const hasRuntimeProvider = !!(
-        providers.claudeCLI ||
-        providers.geminiCLI ||
-        providers.codexCLI ||
-        providers.openrouterKey ||
-        providers.anthropicKey
-      );
-
-      if (!hasLocalConfig || !hasRuntimeProvider) {
-        await setup.runSetup();
-        // BUG-152: installMCPDaemon is now called INSIDE setup.runSetup()
-      } else {
-        await checkOnboarding(PROJECT_ROOT);
-        await setup.installMCPDaemon(PROJECT_ROOT);
-      }
+      // Always run the full setup wizard when `mbo setup` is invoked explicitly.
+      // runSetup() loads any existing config and pre-populates all prompts so the
+      // user can review and edit their current settings, not just first-time config.
+      await setup.runSetup();
 
       // Keep setup non-blocking in restricted environments where ~/.mbo is not writable.
       try {
@@ -133,6 +117,64 @@ function runTestCommand() {
     process.stderr.write(`[MBO] Failed to launch test runner: ${err.message}\n`);
     process.exit(1);
   });
+}
+
+function hasAlphaRuntime() {
+  return fs.existsSync(ALPHA_RUNTIME_SCRIPT);
+}
+
+function spawnAlphaScript(command, args, { sync = false } = {}) {
+  const commandArgs = [ALPHA_RUNTIME_SCRIPT, command, ...args];
+  const options = {
+    stdio: 'inherit',
+    cwd: PACKAGE_ROOT,
+    env: { ...process.env, MBO_CONTROLLER_ROOT: PACKAGE_ROOT },
+  };
+
+  if (sync) {
+    const result = spawnSync('bash', commandArgs, options);
+    if ((result.status ?? 0) !== 0) {
+      process.exit(result.status ?? 1);
+    }
+    return null;
+  }
+
+  const child = spawn('bash', commandArgs, options);
+  child.on('exit', (code) => process.exit(code ?? 0));
+  child.on('error', (err) => {
+    process.stderr.write(`[MBO] Failed to launch alpha runtime helper: ${err.message}\n`);
+    process.exit(1);
+  });
+  return child;
+}
+
+function runAlphaCommand() {
+  if (!hasAlphaRuntime()) {
+    process.stderr.write('[MBO] `mbo alpha` is only available in the controller/dev checkout.\n');
+    process.exit(1);
+  }
+
+  const alphaArgs = process.argv.slice(3);
+  const firstArg = alphaArgs[0];
+
+  if (firstArg === 'help' || firstArg === '--help' || firstArg === '-h') {
+    spawnAlphaScript('help', []);
+    return;
+  }
+
+  if (firstArg === 'sync') {
+    spawnAlphaScript('sync', alphaArgs.slice(1));
+    return;
+  }
+
+  if (firstArg === 'e2e') {
+    spawnAlphaScript('e2e', alphaArgs.slice(1));
+    return;
+  }
+
+  const runArgs = firstArg === 'run' ? alphaArgs.slice(1) : alphaArgs;
+  spawnAlphaScript('sync', runArgs, { sync: true });
+  spawnAlphaScript('run', runArgs);
 }
 
 function persistInstallMetadataBestEffort() {
@@ -395,7 +437,22 @@ async function runMcpRecoveryCommand() {
   const preHealthPort = getPort();
   const preHealthUrl  = preHealthPort ? `http://127.0.0.1:${preHealthPort}/health` : null;
   const preHealth     = preHealthUrl ? run('curl', ['-sS', '-m', '3', preHealthUrl], { capture: true }) : null;
-  const daemonHealthy = preHealth && !!parseHealthyBody(preHealth);
+  // Healthy means status=ok AND project_root matches this invocation's PROJECT_ROOT.
+  // Without the project_root check, a server running for a *different* project (e.g.
+  // MBO_Alpha) would be mistakenly treated as healthy for the current project and
+  // teardown/setup would be skipped, leaving the wrong server in place.
+  const daemonHealthy = (() => {
+    const body = parseHealthyBody(preHealth);
+    if (!body) return false;
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed.project_root && path.resolve(parsed.project_root) !== path.resolve(PROJECT_ROOT)) {
+        process.stdout.write(`[MBO MCP] found healthy server on port ${preHealthPort} but it belongs to a different project (${parsed.project_root}) — will start fresh\n`);
+        return false;
+      }
+    } catch (_) {}
+    return true;
+  })();
 
   if (daemonHealthy) {
     process.stdout.write(`[MBO MCP] daemon already healthy on port ${preHealthPort} — skipping teardown/setup\n`);
@@ -782,6 +839,8 @@ if (process.argv[2] === 'setup') {
   }
 } else if (process.argv[2] === 'test') {
   runTestCommand();
+} else if (process.argv[2] === 'alpha') {
+  runAlphaCommand();
 } else if (process.argv[2] === 'auth') {
   // Auth/config operations are global and allowed from any directory.
   runAuthCommand(process.argv);
@@ -837,11 +896,12 @@ if (process.argv[2] === 'setup') {
 } else {
   // BUG-193: unknown subcommand help message
   process.stderr.write(`[MBO] Unknown command: "${process.argv[2]}"\n`);
-  process.stderr.write('Usage: mbo [tui|cl|mcp|test|setup|teardown|auth|init]\n');
+  process.stderr.write(`Usage: mbo [tui|cl|mcp|test${hasAlphaRuntime() ? '|alpha' : ''}|setup|teardown|auth|init]\n`);
   process.stderr.write('  mbo          — launch TUI (default)\n');
   process.stderr.write('  mbo cl       — legacy operator loop\n');
   process.stderr.write('  mbo mcp      — MCP recovery\n');
   process.stderr.write('  mbo test     — run the full test suite\n');
+  if (hasAlphaRuntime()) process.stderr.write('  mbo alpha    — sync main -> Alpha and run the mirrored runtime (dev only)\n');
   process.stderr.write('  mbo setup    — project setup wizard\n');
   process.exit(1);
 }

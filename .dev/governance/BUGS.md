@@ -2,11 +2,50 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-208
+**Next bug number:** BUG-212
 **Bug ID rule:** `BUG-001`–`BUG-184` are legacy-format entries and must not be renumbered. Starting with `BUG-185`, new bug headings must use dual identification: `BUG-### / v0.LL.NN`.
 **Version lane rule:** assign the version tag by subsystem, not by the most visible current series. Use the canonical lane definitions in `.dev/governance/VERSIONING.md`. The suffix after the second decimal resets within each lane (`v0.13.01`, `v0.13.02`, then separately `v0.14.01`). `v1.x` task lanes are invalid.
 
 ---
+
+### BUG-208 / v0.3.27 — TUI active-task parsing drops real READY rows when projecttracking uses the legacy 9-column layout
+**Severity:** P1
+**Status:** OPEN
+**Task:** v0.3.27
+**Assigned:** codex
+**Found:** 2026-03-24
+**Description:**
+The TUI startup surface and `/projecttracking` command can show `Next Task` while also claiming there are no active tasks. In mirrored runtime repos such as `MBO_Alpha`, `.dev/governance/projecttracking.md` still uses the older 9-column task table (`Task ID` through `Acceptance` without `Last Backup SHA/File`), but `src/tui/governance.ts` currently discards any row with fewer than 10 parsed columns. As a result, legitimate `READY` rows such as `v0.15.03` are ignored, the startup task list is empty, and the operator appears disconnected from the canonical ledger.
+**Acceptance:**
+- TUI startup surfaces active tasks from both 9-column and 10-column `projecttracking.md` layouts.
+- `/projecttracking` and `/tasks` show `READY` rows from mirrored runtime repos correctly.
+- Regression coverage proves both ledger formats are parsed without dropping active rows.
+
+### BUG-209 / v0.3.28 — TUI natural-language task activation does not recognize explicit task IDs such as `v0.15.03`
+**Severity:** P2
+**Status:** OPEN
+**Task:** v0.3.28
+**Assigned:** codex
+**Found:** 2026-03-24
+**Description:**
+When the operator types a direct task-selection utterance such as `lets do v0.15.03`, the TUI does not activate the matching `projecttracking.md` row. Instead the input falls through to general workflow classification, which asks for file scope and loses the task-selection intent. The TUI should recognize explicit task IDs in direct operator input and activate the corresponding task briefing without forcing the operator into the `/tasks` overlay first.
+**Acceptance:**
+- Inputs containing a valid active task ID (for example `v0.15.03`) activate that task directly from the operator input bar.
+- If the task ID exists only in completed tasks, the TUI responds with a clear status instead of routing to generic classification.
+- If the task ID does not exist, the TUI says so plainly.
+
+### BUG-210 / v0.11.193 — Operator clarification flow does not answer self-referential follow-up questions about its own last message
+**Severity:** P1
+**Status:** OPEN
+**Task:** v0.11.193
+**Assigned:** codex
+**Found:** 2026-03-24
+**Description:**
+If the workflow responds with a clarification such as `The standard route requires at least one file path to proceed` and the operator replies `I don't know what that means`, the system treats the follow-up as a brand-new intent instead of explaining the immediately prior message in context. This is below the expected baseline for a CLI LLM assistant and causes avoidable confusion during workflow recovery. The operator should detect self-referential clarification requests, explain the prior instruction in plain language, preserve the current task context, and offer concrete next-step examples.
+**Acceptance:**
+- Follow-ups such as `I don't know what that means`, `what does that mean?`, and similar clarification requests resolve against the assistant's immediately prior prompt when applicable.
+- The explanation is plain-language and provides concrete examples of the expected next input.
+- Existing task/workflow context is preserved rather than being discarded into a fresh classification path.
 
 ### BUG-203 / v0.12.02 — MBO graph server not registered as MCP connector in Cowork sessions
 **Severity:** P2
@@ -30,5 +69,4 @@ first-class tool alongside Desktop Commander.
 - MBO graph server is registered and available in Cowork sessions for this project (requires Cowork MCP plugin support).
 - Agent can call `graph_get_knowledge_pack`, `graph_search`, `graph_query_callers` directly without falling back to raw file reads for context assembly.
 - Session startup guidance notes `/graph` as the first command to run.
-
 

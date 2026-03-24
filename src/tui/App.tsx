@@ -12,7 +12,7 @@ import { StatsPanel } from './components/StatsPanel.js';
 import { StatsOverlay } from './components/StatsOverlay.js';
 import { TasksOverlay, type TaskActivationPayload } from './components/TasksOverlay.js';
 import { InputBar } from './components/InputBar.js';
-import { parseTaskLedger, readGovernanceSummary } from './governance.js';
+import { buildTaskActivationPrompt, findTaskById, parseTaskLedger, readGovernanceSummary } from './governance.js';
 
 import {
   type MboStage,
@@ -86,6 +86,11 @@ function isBugAuditCommand(value: string): boolean {
   return BUG_AUDIT_COMMANDS.has(normalized);
 }
 
+function extractTaskId(value: string): string | null {
+  const match = String(value || '').match(/\bv0(?:\.\d+)+\b/i);
+  return match ? match[0] : null;
+}
+
 export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -115,6 +120,11 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
   const [operatorLines, setOperatorLines] = useState<string[]>([]);
   const [pipelineEntries, setPipelineEntries] = useState<PipelineEntry[]>([]);
   const [executorLines, setExecutorLines] = useState<string[]>([]);
+
+  const appendOperator = useCallback((text: string) => {
+    const nextLines = String(text || '').split('\n');
+    setOperatorLines((prev) => [...prev, ...nextLines]);
+  }, []);
 
   const [, setResizeTick] = useState(0);
   useEffect(() => {
@@ -246,11 +256,6 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       if (operator.onChunk) operator.onChunk = null;
     };
   }, [operator, stage]);
-
-  const appendOperator = useCallback((text: string) => {
-    const nextLines = String(text || '').split('\n');
-    setOperatorLines((prev) => [...prev, ...nextLines]);
-  }, []);
 
   const activateTask = useCallback(async ({ taskId, title, prompt }: TaskActivationPayload) => {
     setOverlayMode(null);
@@ -443,6 +448,26 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       }
       return;
     }
+
+    const explicitTaskId = extractTaskId(trimmed);
+    if (explicitTaskId) {
+      const found = findTaskById(projectRoot, explicitTaskId);
+      if (found.task && found.section === 'active') {
+        await activateTask({
+          taskId: found.task.id,
+          title: found.task.title,
+          prompt: buildTaskActivationPrompt(found.task),
+        });
+        return;
+      }
+      if (found.task && found.section === 'recent') {
+        appendOperator(`[TASK] ${found.task.id} is already ${found.task.status}. Choose an active task or reopen it explicitly.`);
+        return;
+      }
+      appendOperator(`[TASK] No task with id ${explicitTaskId} was found in projecttracking.md.`);
+      return;
+    }
+
     // Stage 10: smoke test gate — handle pass / fail / partial verdicts.
     if (smokePending || operator.stateSummary?.pendingSmoke) {
       if (lower === 'pass' || lower.startsWith('fail') || lower.startsWith('partial')) {
