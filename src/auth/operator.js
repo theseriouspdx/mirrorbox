@@ -1637,8 +1637,29 @@ The output will be used as the new system context.`;
 
     this.sessionHistory.push({ role: 'user', content: userMessage });
     this.saveHistory();
-    
-    const classification = await this.classifyRequest(userMessage);
+
+    // BUG-221: Task activation prompts from buildTaskActivationPrompt() are pre-scoped —
+    // bypass the classifier entirely so they never hit the file-path requirement gate.
+    const taskActivationMatch = String(userMessage || '').match(/^Activate task (v\d+\.\d+\.\d+)\./);
+    let classification;
+    if (taskActivationMatch) {
+      // Extract proposed files from the prompt itself (lines after "Proposed files:")
+      const filesSection = String(userMessage).split('Proposed files:')[1] || '';
+      const proposedFiles = filesSection
+        .split('\n')
+        .map(l => l.replace(/^[\s-]*/, '').trim())
+        .filter(l => l && l !== 'none identified yet' && !l.startsWith('Operator') && !l.startsWith('SPEC'));
+      classification = {
+        route: proposedFiles.length > 0 ? 'standard' : 'analysis',
+        files: proposedFiles,
+        taskId: taskActivationMatch[1],
+        confidence: 1.0,
+        rationale: `Governance task activation: ${taskActivationMatch[1]}`,
+        complexity: 'moderate',
+      };
+    } else {
+      classification = await this.classifyRequest(userMessage);
+    }
 
     if (classification.needsClarification) {
       this.lastClarificationPrompt = classification.rationale || '';

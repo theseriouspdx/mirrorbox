@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Box, useApp, useInput, useStdout } from 'ink';
+import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import { createRequire } from 'module';
 
 import { StatusBar } from './components/StatusBar.js';
@@ -106,6 +106,12 @@ function newId(): string {
 type OverlayMode = 'tasks' | 'docs' | 'create' | null;
 type StageUsageMap = Record<string, { model?: string; tokens?: number }>;
 
+// BUG-221: Minimum terminal size for usable TUI layout
+const MIN_COLS = 100;
+const MIN_ROWS = 30;
+// Right stats panel fixed width (chars) — enough for stage labels + token stats
+const STATS_PANEL_WIDTH = 30;
+
 const BUG_AUDIT_COMMANDS = new Set([
   '/bugs',
   'bugs',
@@ -122,6 +128,12 @@ function isBugAuditCommand(value: string): boolean {
 
 function extractTaskId(value: string): string | null {
   const match = String(value || '').match(/\bv0(?:\.\d+)+\b/i);
+  return match ? match[0] : null;
+}
+
+// BUG-221: Extract BUG-### from task title/description for display
+function extractBugNumber(text: string): string | null {
+  const match = String(text || '').match(/\bBUG-(\d+)\b/i);
   return match ? match[0] : null;
 }
 
@@ -156,6 +168,9 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
   const [executorLines, setExecutorLines] = useState<string[]>([]);
   const [lastClarificationMessage, setLastClarificationMessage] = useState<string | null>(null);
 
+  // BUG-221: Numbered task shortcuts displayed on startup (index 0→'1', 1→'2', etc.)
+  const startupTasksRef = useRef<Array<{ id: string; title: string }>>([]);
+
   const appendOperator = useCallback((text: string) => {
     const nextLines = String(text || '').split('\n');
     setOperatorLines((prev) => [...prev, ...nextLines]);
@@ -188,11 +203,17 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       }
 
       if (ledger.active.length > 0) {
-        const top = ledger.active.slice(0, 3);
-        for (const t of top) {
-          lines.push(`  [${t.status}] ${t.id}  ${t.title.slice(0, 60)}${t.title.length > 60 ? '…' : ''}`);
+        // BUG-221: Show numbered shortcuts so users can type 1/2/3 to activate
+        const top = ledger.active.slice(0, 5);
+        startupTasksRef.current = top.map((t) => ({ id: t.id, title: t.title }));
+        for (let i = 0; i < top.length; i++) {
+          const t = top[i];
+          const bug = t.type === 'bug' ? extractBugNumber(t.title) || extractBugNumber(t.acceptance || '') : null;
+          const bugTag = bug ? ` (${bug})` : '';
+          lines.push(`  [${i + 1}] ${t.id}${bugTag}  ${t.title.slice(0, 55)}${t.title.length > 55 ? '…' : ''}`);
         }
-        if (ledger.active.length > 3) lines.push(`  … and ${ledger.active.length - 3} more — type /tasks to view all`);
+        if (ledger.active.length > 5) lines.push(`  … and ${ledger.active.length - 5} more — type /tasks to view all`);
+        lines.push('  Type a number (1-5) or task ID to activate. /tasks for full list.');
       } else {
         lines.push('  No active tasks in the selected governance ledger.');
       }
@@ -496,6 +517,25 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       return;
     }
 
+    // BUG-221: Numbered shortcut — single digit activates startup task list item
+    if (/^[1-5]$/.test(trimmed)) {
+      const idx = parseInt(trimmed, 10) - 1;
+      const shortcut = startupTasksRef.current[idx];
+      if (shortcut) {
+        const found = findTaskById(projectRoot, shortcut.id);
+        if (found.task && found.section === 'active') {
+          await activateTask({
+            taskId: found.task.id,
+            title: found.task.title,
+            prompt: buildTaskActivationPrompt(found.task),
+          });
+          return;
+        }
+      }
+      appendOperator(`[TASK] No task at position ${trimmed}. Type /tasks to browse.`);
+      return;
+    }
+
     const explicitTaskId = extractTaskId(trimmed);
     if (explicitTaskId) {
       const found = findTaskById(projectRoot, explicitTaskId);
@@ -633,7 +673,11 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
   }, [appendOperator, exit, onSetupRequest, operator, pipelineRunning, lastClarificationMessage]);
 
   const termRows = stdout?.rows ?? 40;
+  const termCols = stdout?.columns ?? 120;
   const currentStageUsage = stageTokenTotals[stage] || { model: activeModel, tokens: 0 };
+  // BUG-222: Fixed-width right panel; hide if terminal too narrow
+  const showStatsPanel = termCols >= MIN_COLS;
+  const statsPanelWidth = Math.min(STATS_PANEL_WIDTH, Math.floor(termCols * 0.3));
 
   if (statsOverlay) {
     return (
@@ -660,6 +704,16 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
     );
   }
 
+  // BUG-222: Minimum terminal size warning
+  if (termCols < MIN_COLS || termRows < MIN_ROWS) {
+    return (
+      <Box flexDirection="column" height={termRows} justifyContent="center" alignItems="center">
+        <Text color="yellow" bold>Terminal too small: {termCols}×{termRows}</Text>
+        <Text color="white" dimColor>MBO requires at least {MIN_COLS}×{MIN_ROWS}. Please resize your terminal.</Text>
+      </Box>
+    );
+  }
+
   return (
     <Box flexDirection="column" height={termRows}>
       <StatusBar
@@ -676,7 +730,8 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       <TabBar activeTab={activeTab} stage={stage} auditPending={auditPending} />
 
       <Box flexGrow={1} flexDirection="row">
-        <Box width="65%" flexDirection="column">
+        {/* BUG-222: Left panel takes all remaining space; right panel is fixed-width */}
+        <Box flexGrow={1} flexDirection="column">
           {activeTab === 1 && (
             <OperatorPanel
               lines={operatorLines}
@@ -711,16 +766,18 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
           {activeTab === 4 && <SystemPanel projectRoot={projectRoot} isActive={activeTab === 4} />}
         </Box>
 
-        <Box width="35%" marginLeft={1}>
-          <StatsPanel
-            stage={stage}
-            stats={stats}
-            filesInScope={filesInScope}
-            auditPending={auditPending}
-            activeModel={String(currentStageUsage.model || activeModel || '')}
-            stageTokenTotals={stageTokenTotals}
-          />
-        </Box>
+        {showStatsPanel && (
+          <Box width={statsPanelWidth} marginLeft={1} flexShrink={0}>
+            <StatsPanel
+              stage={stage}
+              stats={stats}
+              filesInScope={filesInScope}
+              auditPending={auditPending}
+              activeModel={String(currentStageUsage.model || activeModel || '')}
+              stageTokenTotals={stageTokenTotals}
+            />
+          </Box>
+        )}
       </Box>
 
       <InputBar

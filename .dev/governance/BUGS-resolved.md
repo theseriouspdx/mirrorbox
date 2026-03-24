@@ -6,6 +6,18 @@
 
 ---
 
+### BUG-222 / v0.3.37: TUI layout 65/35 split wastes space — right panel too wide, no minimum size check | RESOLVED 2026-03-24
+- **Location:** `src/tui/App.tsx`
+- **Severity:** P1
+- **Resolution:** Changed right stats panel from `width="35%"` to fixed width (30 chars, capped at 30% of terminal). Left panel uses `flexGrow={1}`. Added minimum terminal size check (100×30) with warning message. Stats panel hides entirely below 100 columns.
+- **Task:** v0.3.37
+
+### BUG-221 / v0.11.194: Task activation prompts hit "clarification needed: file path" — classifier bypass missing | RESOLVED 2026-03-24
+- **Location:** `src/auth/operator.js`, `src/tui/App.tsx`
+- **Severity:** P0
+- **Resolution:** Added pre-classifier detection of `Activate task vX.Y.Z.` prompts in `processMessage()`. These governance-sourced prompts bypass `classifyRequest()` entirely and return a synthetic classification with proposed files extracted from the prompt. Also added numbered task shortcuts (1-5) to the startup listing with BUG-### display for bug-type tasks.
+- **Task:** v0.11.194, v0.3.36
+
 ### BUG-219 / v0.3.34: StatsPanel right-side column truncated stage labels and bled text across lines | RESOLVED 2026-03-24
 - **Location:** `src/tui/components/StatsPanel.tsx`
 - **Severity:** P1
