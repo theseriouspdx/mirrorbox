@@ -4,13 +4,13 @@ import TextInput from 'ink-text-input';
 import { C } from '../colors.js';
 import {
   appendTaskRecord,
-  buildTaskActivationPrompt,
   createTaskFromDraft,
   parseTaskLedger,
   readGovernanceDocs,
   summarizeTaskAcceptance,
   summarizeTaskAssumptions,
   type GovernanceDoc,
+  type TaskActivationInput,
   type TaskRecord,
 } from '../governance.js';
 import { useAvailableRows, useScrollableLines } from './useScrollableLines.js';
@@ -18,7 +18,7 @@ import { useAvailableRows, useScrollableLines } from './useScrollableLines.js';
 export interface TaskActivationPayload {
   taskId: string;
   title: string;
-  prompt: string;
+  activationInput: TaskActivationInput;
 }
 
 interface Props {
@@ -27,6 +27,7 @@ interface Props {
   onActivate?: (payload: TaskActivationPayload) => void;
   initialView?: 'tasks' | 'docs' | 'create';
   initialDraft?: Partial<DraftState>;
+  initialTaskId?: string;  // When set, opens directly to briefing for this task (§3.3)
 }
 
 type OverlayMode = 'list' | 'briefing' | 'docs' | 'create' | 'activate';
@@ -170,7 +171,7 @@ function parseAdditionalFiles(value: string): string[] {
   return value.split(',').map((item) => item.trim()).filter(Boolean);
 }
 
-export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = 'tasks', initialDraft = {} }: Props) {
+export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = 'tasks', initialDraft = {}, initialTaskId }: Props) {
   const seededDraft: DraftState = {
     ...DEFAULT_DRAFT,
     ...initialDraft,
@@ -180,9 +181,9 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
     ? (initialCreateStep === 'title' ? seededDraft.title : seededDraft.lane)
     : '';
 
-  const [mode, setMode] = useState<OverlayMode>(initialView === 'docs' ? 'docs' : initialView === 'create' ? 'create' : 'list');
+  const [mode, setMode] = useState<OverlayMode>(initialTaskId ? 'briefing' : initialView === 'docs' ? 'docs' : initialView === 'create' ? 'create' : 'list');
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(initialTaskId || null);
   const [docIndex, setDocIndex] = useState(0);
   const [draft, setDraft] = useState<DraftState>(seededDraft);
   const [createStep, setCreateStep] = useState<CreateStep>(initialCreateStep);
@@ -401,15 +402,21 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
 
     const lower = trimmed.toLowerCase();
     if (lower === 'yes' || lower === 'y') {
+      const activationInput: TaskActivationInput = {
+        context: activation.context || undefined,
+        additionalFiles: parseAdditionalFiles(activation.files),
+      };
       const payload: TaskActivationPayload = {
         taskId: briefingTask.id,
         title: briefingTask.title,
-        prompt: buildTaskActivationPrompt(briefingTask, {
-          context: activation.context,
-          additionalFiles: parseAdditionalFiles(activation.files),
-        }),
+        activationInput,
       };
-      if (onActivate) onActivate(payload);
+      if (onActivate) {
+        onActivate(payload);
+      } else {
+        setCreateMessage('Task activation is not available in this context.');
+        return;
+      }
       onClose();
       return;
     }

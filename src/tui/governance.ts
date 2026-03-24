@@ -19,6 +19,8 @@ export interface TaskRecord {
   bugAcceptance?: string;
   specExcerpt?: string;
   proposedFiles?: string[];
+  riskLevel?: 'low' | 'medium' | 'high';   // governance-authored override (Section 37.3F §3)
+  complexity?: 1 | 2 | 3;                   // governance-authored override (Section 37.3F §3)
 }
 
 export interface GovernanceDoc {

@@ -91,8 +91,9 @@ async function main() {
   process.on('SIGINT', () => { cleanup().then(() => process.exit(0)); });
   process.on('SIGTERM', () => { cleanup().then(() => process.exit(0)); });
 
-  const MIN_COLS = 80;
-  const MIN_ROWS = 24;
+  // SPEC 37.3B §3.7: Aligned with App.tsx MIN_COLS/MIN_ROWS
+  const MIN_COLS = 100;
+  const MIN_ROWS = 30;
   if (process.stdout.isTTY) {
     const cols = process.stdout.columns || 0;
     const rows = process.stdout.rows || 0;

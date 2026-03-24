@@ -21,6 +21,7 @@ const {
   getMcpLogDir,
   isWithinPath,
 } = require('../utils/runtime-context');
+const taskReader = require('../utils/task-reader');
 
 const RUNTIME_ROOT = path.resolve(process.env.MBO_PROJECT_ROOT || process.cwd());
 const SESSION_HISTORY_PATH = path.join(RUNTIME_ROOT, '.mbo', 'session_history.json');
@@ -212,6 +213,7 @@ class Operator {
     this.abortController = null;
     this.onChunk = null;
     this._pipelineRunning = false;
+    this._isTransitioning = false;   // SPEC 37.3F §7: async serialization guard
     this.onboardingState = {
       active: false,
       started: false,
@@ -1593,6 +1595,11 @@ The output will be used as the new system context.`;
       return this.processOnboardingMessage(userMessage);
     }
 
+    // SPEC 37.3F §7: Serialization guard — prevents abort-then-activate race
+    if (this._isTransitioning) {
+      return { status: 'error', reason: 'Operator is in transition. Wait for current operation to complete.' };
+    }
+
     await this.checkContextLifecycle();
     const input = userMessage.trim().toLowerCase();
 
@@ -1638,28 +1645,9 @@ The output will be used as the new system context.`;
     this.sessionHistory.push({ role: 'user', content: userMessage });
     this.saveHistory();
 
-    // BUG-221: Task activation prompts from buildTaskActivationPrompt() are pre-scoped —
-    // bypass the classifier entirely so they never hit the file-path requirement gate.
-    const taskActivationMatch = String(userMessage || '').match(/^Activate task (v\d+\.\d+\.\d+)\./);
-    let classification;
-    if (taskActivationMatch) {
-      // Extract proposed files from the prompt itself (lines after "Proposed files:")
-      const filesSection = String(userMessage).split('Proposed files:')[1] || '';
-      const proposedFiles = filesSection
-        .split('\n')
-        .map(l => l.replace(/^[\s-]*/, '').trim())
-        .filter(l => l && l !== 'none identified yet' && !l.startsWith('Operator') && !l.startsWith('SPEC'));
-      classification = {
-        route: proposedFiles.length > 0 ? 'standard' : 'analysis',
-        files: proposedFiles,
-        taskId: taskActivationMatch[1],
-        confidence: 1.0,
-        rationale: `Governance task activation: ${taskActivationMatch[1]}`,
-        complexity: 'moderate',
-      };
-    } else {
-      classification = await this.classifyRequest(userMessage);
-    }
+    // Task activation now uses dedicated activateTask() entry point (Section 37.3F).
+    // BUG-221 regex bypass removed — all freeform messages reach classifyRequest().
+    const classification = await this.classifyRequest(userMessage);
 
     if (classification.needsClarification) {
       this.lastClarificationPrompt = classification.rationale || '';
@@ -1851,6 +1839,205 @@ The output will be used as the new system context.`;
       this.abortController.abort();
     }
     this._pipelineRunning = false;
+  }
+
+  /**
+   * Section 37.3F: Task Activation Pathway
+   * Bypasses LLM classifier for governance-sourced tasks.
+   * TUI passes only taskId + user additions — never a TaskRecord.
+   */
+  async activateTask(taskId, activationInput = {}) {
+    // §1 Preconditions
+    if (this.onboardingState.active) {
+      return { status: 'error', reason: 'Cannot activate tasks during onboarding.' };
+    }
+    if (this._isTransitioning) {
+      return { status: 'error', reason: 'Operator is in transition. Wait for current operation to complete.' };
+    }
+    if (this._pipelineRunning) {
+      return { status: 'error', reason: 'Pipeline is already running.' };
+    }
+
+    this._isTransitioning = true;
+    try {
+      // §2 Canonical fetch — operator re-reads from governance ledger
+      const { task: taskRecord, section } = taskReader.findTaskById(RUNTIME_ROOT, taskId);
+      if (!taskRecord) {
+        return { status: 'error', reason: `TASK_NOT_FOUND: '${taskId}'` };
+      }
+      if (section !== 'active') {
+        return { status: 'error', reason: `TASK_NOT_ACTIVE: '${taskId}' is ${taskRecord.status}.` };
+      }
+
+      // §3 Classification synthesis — deterministic, no LLM
+      const TYPE_ROUTE = { bug: 'standard', feature: 'complex', plan: 'analysis', docs: 'standard', chore: 'standard', audit: 'analysis' };
+      const TYPE_RISK  = { audit: 'high', bug: 'medium', feature: 'medium', plan: 'low', docs: 'low', chore: 'low' };
+      const TYPE_CPLX  = { plan: 3, audit: 2, feature: 2, bug: 1, docs: 1, chore: 1 };
+
+      const type = String(taskRecord.type || '').toLowerCase();
+      const files = [
+        ...(taskRecord.proposedFiles || []),
+        ...((activationInput.additionalFiles || []).map(f => String(f).trim()).filter(Boolean)),
+      ];
+
+      const route = TYPE_ROUTE[type] ?? 'standard';
+
+      const risk = (() => {
+        if (taskRecord.riskLevel && ['low', 'medium', 'high'].includes(taskRecord.riskLevel)) return taskRecord.riskLevel;
+        if (files.some(f => String(f).includes('src/auth/'))) return 'high';
+        return TYPE_RISK[type] ?? 'medium';
+      })();
+
+      const complexity = (() => {
+        const n = Number(taskRecord.complexity);
+        if (n === 1 || n === 2 || n === 3) return n;
+        const fallback = TYPE_CPLX[type] ?? 1;
+        console.error(`[WARN] Task ${taskId} missing complexity. Type fallback: ${fallback}.`);
+        return fallback;
+      })();
+
+      const classification = {
+        route, risk, complexity, files,
+        rationale: `[TASK ACTIVATION] ${taskRecord.id}: ${taskRecord.title}`,
+        confidence: 1.0,
+        _source: 'task_activation',
+        taskId: taskRecord.id,
+        taskType: taskRecord.type,
+      };
+
+      // §5 Structured file-conflict detection (before Stage 1.5)
+      const conflict = this._detectFileConflict(taskRecord);
+      if (conflict) {
+        this.stateSummary.pendingDecision = { classification, conflict: conflict.prompt };
+        return conflict;
+      }
+
+      // §4 Prompt construction — operator-owned, governance-data delimited
+      const prompt = this._buildActivationPrompt(taskRecord, activationInput);
+      this.sessionHistory.push({ role: 'user', content: prompt });
+      this.saveHistory();
+
+      // §6 Routing + checkpoint
+      const routing = await this.determineRouting(classification);
+      stateManager.checkpoint(this.stateSummary);
+
+      // §6 Event logging — CLASSIFICATION_TASK_ACTIVATION
+      eventStore.append('CLASSIFICATION_TASK_ACTIVATION', 'operator', {
+        classification,
+        routing,
+        activationContext: {
+          taskId: taskRecord.id,
+          taskType: taskRecord.type,
+          canonicalFiles: taskRecord.proposedFiles || [],
+          additionalFiles: activationInput.additionalFiles || [],
+          riskLevelSource: taskRecord.riskLevel ? 'explicit' : 'type_default',
+          complexitySource: (Number(taskRecord.complexity) >= 1 && Number(taskRecord.complexity) <= 3) ? 'explicit' : 'type_default',
+        },
+      }, 'mirror');
+
+      // Enter pipeline at Stage 1.5
+      this._pipelineRunning = true;
+      this.stateSummary.currentStage = 'stage_1_5';
+      this.stateSummary.currentTask = taskRecord.title;
+      this.stateSummary.activeAction = `Task activation: ${taskRecord.id}`;
+
+      // Sandbox handling: if sandboxFocus is true, log governance bypass
+      if (this.sandboxFocus) {
+        eventStore.append('SANDBOX_BYPASS_GOVERNANCE', 'operator', { taskId, reason: 'governance_task_activation' }, 'mirror');
+      }
+
+      const knowledgePack = null;
+      const locks = {
+        lockedWorld: this.stateSummary.worldId || 'mirror',
+        lockedFiles: [...files],
+      };
+
+      const planResult = await this.runStage3(classification, routing, knowledgePack ? [knowledgePack] : [], this.stateSummary.executorLogs, locks);
+
+      if (planResult.escalatedToHuman) {
+        this.abortController = null;
+        this._pipelineRunning = false;
+        return {
+          status: 'blocked',
+          reason: planResult.conflict || 'DID could not converge and requires human decision.',
+          didPackage: planResult.didPackage,
+        };
+      }
+
+      if (locks.lockedFiles.length > 0 && (!planResult.plan || !planResult.plan.filesToChange || planResult.plan.filesToChange.length === 0)) {
+        throw new Error('[Operator] File scope lost during planning. Derivation returned empty FILES.');
+      }
+
+      this.stateSummary.pendingDecision = {
+        classification,
+        routing,
+        plan: planResult.plan,
+        knowledgePack,
+        ledger: planResult.ledger || null,
+      };
+
+      return {
+        status: 'started',
+        needsApproval: true,
+        classification,
+        plan: planResult.plan,
+        ledger: planResult.ledger || null,
+      };
+    } catch (err) {
+      console.error(`[Operator] activateTask error: ${err.message}`);
+      return { status: 'error', reason: err.message };
+    } finally {
+      this._isTransitioning = false;
+    }
+  }
+
+  /**
+   * Section 37.3F §4: Operator-owned prompt construction.
+   * Wraps governance-sourced content in <governance-data> delimiters.
+   */
+  _buildActivationPrompt(taskRecord, activationInput) {
+    const wrap = (text) => {
+      const s = String(text || '').slice(0, 2000);
+      if (s.includes('<governance-data>')) throw new Error(`INJECTION_ATTEMPT in task ${taskRecord.id}`);
+      return `<governance-data>\n${s}\n</governance-data>`;
+    };
+    return [
+      `Activate task ${taskRecord.id}.`,
+      `Goal: ${wrap(taskRecord.title)}`,
+      `Type: ${taskRecord.type} | Risk: ${taskRecord.riskLevel || '(type default)'} | Complexity: ${taskRecord.complexity || '(type default)'}`,
+      '',
+      'Proposed files:',
+      ...(taskRecord.proposedFiles?.length > 0 ? taskRecord.proposedFiles.map(f => `- ${f}`) : ['- none identified yet']),
+      '',
+      activationInput.context ? `Operator context:\n${wrap(activationInput.context)}` : '',
+      taskRecord.specExcerpt ? `SPEC excerpt:\n${wrap(taskRecord.specExcerpt)}` : '',
+      taskRecord.description ? `Description:\n${wrap(taskRecord.description)}` : '',
+      taskRecord.bugAcceptance ? `Bug acceptance:\n${wrap(taskRecord.bugAcceptance)}` : '',
+    ].filter(Boolean).join('\n');
+  }
+
+  /**
+   * Section 37.3F §5: Structured file-conflict detection.
+   * Compares specExcerpt file paths vs proposedFiles before Stage 1.5.
+   */
+  _detectFileConflict(taskRecord) {
+    if (!taskRecord.specExcerpt) return null;
+    const specFiles = [...taskRecord.specExcerpt.matchAll(/([A-Za-z0-9_./-]+\.[A-Za-z0-9_-]+)/g)]
+      .map(m => m[1]).filter(f => f.includes('/'));
+    const trackingFiles = taskRecord.proposedFiles || [];
+    if (specFiles.length === 0) return null;
+    const onlyInSpec = [...new Set(specFiles)].filter(f => !trackingFiles.includes(f));
+    const onlyInTracking = trackingFiles.filter(f => !specFiles.includes(f));
+    if (onlyInSpec.length === 0 && onlyInTracking.length === 0) return null;
+    return {
+      status: 'conflict',
+      prompt: [
+        `[FILE CONFLICT] Proposed files differ between SPEC excerpt and tracking ledger.`,
+        `  Tracking only: ${onlyInTracking.join(', ') || 'none'}`,
+        `  SPEC only:     ${onlyInSpec.join(', ') || 'none'}`,
+        `Resolve: type  pin: tracking  |  pin: spec  |  pin: both`,
+      ].join('\n'),
+    };
   }
 
   async handleApproval(decision) {

@@ -12,7 +12,7 @@ import { StatsPanel } from './components/StatsPanel.js';
 import { StatsOverlay } from './components/StatsOverlay.js';
 import { TasksOverlay, type TaskActivationPayload } from './components/TasksOverlay.js';
 import { InputBar } from './components/InputBar.js';
-import { buildTaskActivationPrompt, findTaskById, parseTaskLedger, readGovernanceSummary } from './governance.js';
+import { findTaskById, parseTaskLedger, readGovernanceSummary } from './governance.js';
 
 import {
   type MboStage,
@@ -127,8 +127,13 @@ function isBugAuditCommand(value: string): boolean {
 }
 
 function extractTaskId(value: string): string | null {
-  const match = String(value || '').match(/\bv0(?:\.\d+)+\b/i);
-  return match ? match[0] : null;
+  const trimmed = String(value || '').trim();
+  // Full-string anchors prevent matching within longer freeform text (§3.3)
+  const vMatch = trimmed.match(/^v0(?:\.\d+)+$/i);
+  if (vMatch) return vMatch[0];
+  const bugMatch = trimmed.match(/^BUG-\d+$/i);
+  if (bugMatch) return bugMatch[0].toUpperCase();
+  return null;
 }
 
 // BUG-221: Extract BUG-### from task title/description for display
@@ -155,6 +160,7 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
   const [activeTab, setActiveTab] = useState<ActiveTab>(1);
   const [statsOverlay, setStatsOverlay] = useState(false);
   const [overlayMode, setOverlayMode] = useState<OverlayMode>(null);
+  const [overlayInitialTaskId, setOverlayInitialTaskId] = useState<string | null>(null);
   const [exitPending, setExitPending] = useState(false);
   const exitPendingRef = useRef(false);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -299,17 +305,28 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
     };
   }, [operator, stage]);
 
-  const activateTask = useCallback(async ({ taskId, title, prompt }: TaskActivationPayload) => {
+  const activateTask = useCallback(async ({ taskId, title, activationInput }: TaskActivationPayload) => {
+    if (pipelineRunning || operator._pipelineRunning) {
+      appendOperator('[TASK] Cannot activate while a pipeline is running.');
+      return;
+    }
+    // Hard error if operator doesn't support activateTask — DO NOT fall back to processMessage (§3.2)
+    if (typeof operator.activateTask !== 'function') {
+      appendOperator('[ERROR] Operator does not support activateTask(). Update to v0.14.10+.');
+      return;
+    }
+
     setOverlayMode(null);
     setOverlayDraftSeed(null);
+    setOverlayInitialTaskId(null);
     setActiveTab(1);
     setLastClarificationMessage(null);
     appendOperator(`[TASK] Activated ${taskId}: ${title}`);
     setPipelineRunning(true);
 
     try {
-      const result = await operator.processMessage(prompt);
-      if (result && result.needsClarification && result.question) {
+      const result = await operator.activateTask(taskId, activationInput);
+      if (result?.needsClarification && result.question) {
         setLastClarificationMessage(result.question);
       } else {
         setLastClarificationMessage(null);
@@ -323,7 +340,7 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
     } finally {
       setPipelineRunning(false);
     }
-  }, [appendOperator, operator]);
+  }, [appendOperator, operator, pipelineRunning]);
 
   useInput((input, key) => {
     if (key.ctrl && input === 'c') {
@@ -496,17 +513,14 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       }
       return;
     }
-    // BUG-210: Catch task-activation phrases that would otherwise fall through to the classifier
+    // BUG-210 / SPEC 37.3B: Route "run next task" through overlay preflight dialogue
     if (/^(run|start|do|activate|execute)\s+(the\s+)?(next|first|top)\s+task$/i.test(trimmed)) {
       try {
         const ledger = parseTaskLedger(projectRoot);
         const next = ledger.active[0];
         if (next) {
-          await activateTask({
-            taskId: next.id,
-            title: next.title,
-            prompt: buildTaskActivationPrompt(next),
-          });
+          setOverlayMode('tasks');
+          setOverlayInitialTaskId(next.id);
         } else {
           appendOperator('No active tasks found in projecttracking.md.');
         }
@@ -516,15 +530,13 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       return;
     }
 
+    // SPEC 37.3B: Explicit taskId input routes through overlay preflight
     const explicitTaskId = extractTaskId(trimmed);
     if (explicitTaskId) {
       const found = findTaskById(projectRoot, explicitTaskId);
       if (found.task && found.section === 'active') {
-        await activateTask({
-          taskId: found.task.id,
-          title: found.task.title,
-          prompt: buildTaskActivationPrompt(found.task),
-        });
+        setOverlayMode('tasks');
+        setOverlayInitialTaskId(explicitTaskId);
         return;
       }
       if (found.task && found.section === 'recent') {
@@ -655,9 +667,45 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
   const termRows = stdout?.rows ?? 40;
   const termCols = stdout?.columns ?? 120;
   const currentStageUsage = stageTokenTotals[stage] || { model: activeModel, tokens: 0 };
-  // BUG-222: Fixed-width right panel; hide if terminal too narrow
-  const showStatsPanel = termCols >= MIN_COLS;
+
+  // SPEC 37.3B §3.7: Two-tier graceful degradation
+  // Tier 2: ultra-minimal (input bar + operator output only)
+  // Tier 1: collapse stats panel, amber banner
+  // Tier 0: normal full UI
+  const tier: 0 | 1 | 2 = (termCols < 72 || termRows < 20) ? 2 : termCols < MIN_COLS ? 1 : 0;
+
+  // BUG-222: Fixed-width right panel; hide if terminal too narrow (Tier 0 only)
+  const showStatsPanel = tier === 0;
   const statsPanelWidth = Math.min(STATS_PANEL_WIDTH, Math.floor(termCols * 0.3));
+
+  // SPEC 37.3B §3.7 Tier 2: Minimal UI — input bar + operator output only.
+  // Critical: InputBar MUST remain functional so user can respond to `go` gates.
+  if (tier === 2) {
+    return (
+      <Box flexDirection="column" height={termRows}>
+        <Text color="yellow" bold>⚠ Terminal too small ({termCols}×{termRows}) — minimal mode</Text>
+        <Box flexGrow={1} flexDirection="column">
+          <OperatorPanel
+            lines={operatorLines}
+            stage={stage}
+            pipelineRunning={pipelineRunning}
+            auditPending={auditPending}
+            stats={stats}
+            activeAction={activeAction}
+            activeModel={String(currentStageUsage.model || activeModel || '')}
+            isActive={true}
+          />
+        </Box>
+        <InputBar
+          onSubmit={handleInput}
+          stage={stage}
+          pipelineRunning={pipelineRunning}
+          auditPending={auditPending}
+          onCommandMenuChange={setCommandMenuOpen}
+        />
+      </Box>
+    );
+  }
 
   if (statsOverlay) {
     return (
@@ -674,9 +722,11 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
           projectRoot={projectRoot}
           initialView={overlayMode}
           initialDraft={overlayDraftSeed || undefined}
+          initialTaskId={overlayInitialTaskId || undefined}
           onClose={() => {
             setOverlayMode(null);
             setOverlayDraftSeed(null);
+            setOverlayInitialTaskId(null);
           }}
           onActivate={activateTask}
         />
@@ -707,6 +757,8 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
         pipelineRunning={pipelineRunning}
         exitPending={exitPending}
       />
+
+      {tier === 1 && <Text color="yellow">⚠ Terminal narrow — stats hidden.</Text>}
 
       <TabBar activeTab={activeTab} stage={stage} auditPending={auditPending} />
 
