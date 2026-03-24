@@ -2,11 +2,50 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-212
+**Next bug number:** BUG-215
 **Bug ID rule:** `BUG-001`–`BUG-184` are legacy-format entries and must not be renumbered. Starting with `BUG-185`, new bug headings must use dual identification: `BUG-### / v0.LL.NN`.
 **Version lane rule:** assign the version tag by subsystem, not by the most visible current series. Use the canonical lane definitions in `.dev/governance/VERSIONING.md`. The suffix after the second decimal resets within each lane (`v0.13.01`, `v0.13.02`, then separately `v0.14.01`). `v1.x` task lanes are invalid.
 
 ---
+
+### BUG-212 / v0.3.29 — Terminal mouse selection still does not work in the TUI because mouse-tracking mode remains enabled
+**Severity:** P1
+**Status:** OPEN
+**Task:** v0.3.29
+**Assigned:** codex
+**Found:** 2026-03-24
+**Description:**
+The current TUI still enables terminal mouse tracking globally, which means Terminal.app drag selection remains unreliable even though input-side mouse filtering was added. The previous fix only filtered mouse sequences after the terminal had already been placed into tracking mode. Native text selection must work from the operator's terminal without fighting the TUI.
+**Acceptance:**
+- Normal drag text selection works in Terminal.app while the TUI is open.
+- Scroll/navigation behavior remains usable without reintroducing selection-clearing regressions.
+- TUI shutdown still restores terminal state cleanly.
+
+### BUG-213 / v0.3.30 — Task activation and assumption gate present internal ledger language instead of a clear operator-facing workflow
+**Severity:** P1
+**Status:** OPEN
+**Task:** v0.3.30
+**Assigned:** codex
+**Found:** 2026-03-24
+**Description:**
+The activation preflight says the operator can correct assumptions, but it does not actually show those assumptions before asking for corrections. Later, the assumption gate surfaces terse internal ledger rows and `pin:/exclude:/go` instructions without enough plain-English explanation. This makes the workflow hard to understand and hard to correct.
+**Acceptance:**
+- Activation preflight visibly lists the assumptions and acceptance criteria it is asking the operator to review.
+- The assumption gate explains each assumption in plain English and tells the operator exactly how to correct or challenge it.
+- The operator has a clear path to proceed, revise, or ask for clarification without guessing the protocol.
+
+### BUG-214 / v0.3.31 — Main TUI surface lacks a direct task-selection affordance and duplicates pipeline state in the operator panel
+**Severity:** P2
+**Status:** OPEN
+**Task:** v0.3.31
+**Assigned:** codex
+**Found:** 2026-03-24
+**Description:**
+The main operator screen shows active tasks, but there is no first-class selection affordance comparable to `/tasks`. At the same time, the operator panel repeats stage chips that already belong to the pipeline panel, creating visual clutter and wasting vertical space that the input bar and content area need. The main screen should support direct task selection while keeping stage ownership with the pipeline panel.
+**Acceptance:**
+- The main operator screen provides a direct way to select an active task without opening `/tasks`.
+- The operator panel no longer duplicates pipeline-stage chips that are already shown elsewhere.
+- The bottom input area remains fully visible and readable at the default terminal footprint.
 
 ### BUG-208 / v0.3.27 — TUI active-task parsing drops real READY rows when projecttracking uses the legacy 9-column layout
 **Severity:** P1

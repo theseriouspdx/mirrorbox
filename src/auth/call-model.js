@@ -562,6 +562,7 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
   const sessionId = options.sessionId || null;
   const taskId    = options.taskId    || null;
   const stage     = options.stage     || 'unknown';
+  const resolvedRunId = runId || eventStore.RUN_ID || null;
   const dispatchOptions = { onChunk: options.onChunk, role, sessionId, taskId, stage, outputBudget, model: resolvedModel };
 
   // Task 1.1-H09: Calculate "Raw" Baseline estimate (Without MBO optimization)
@@ -601,18 +602,22 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
 
   // Task 1.1-H09: Cost Calculation & Stats Persistence
   const pricing = await getModelPricing(config.model || 'default');
-  const actualInputTokens = usageData?.prompt_tokens || usageData?.input_tokens || 0;
-  const actualOutputTokens = usageData?.completion_tokens || usageData?.output_tokens || 0;
+  const estimatedPromptTokens = estimatedInput;
+  const estimatedOutputTokens = estimateTokens(String(response || ''));
+  const actualInputTokens = usageData?.prompt_tokens || usageData?.input_tokens || estimatedPromptTokens;
+  const actualOutputTokens = usageData?.completion_tokens || usageData?.output_tokens || estimatedOutputTokens;
   const actualTokens = actualInputTokens + actualOutputTokens;
   const actualCost = (actualInputTokens * pricing.prompt) + (actualOutputTokens * pricing.completion);
-  const rawCostEstimate = rawTokensEstimate * pricing.prompt;
+  const rawInputTokensEstimate = Math.max(rawTokensEstimate, estimatedPromptTokens);
+  const rawOutputTokensEstimate = Math.max(actualOutputTokens, estimatedOutputTokens);
+  const rawCostEstimate = (rawInputTokensEstimate * pricing.prompt) + (rawOutputTokensEstimate * pricing.completion);
 
   statsManager.recordCall({
     role,
     model: config.model || config.provider,
     actualTokens,
     actualCost,
-    rawTokens: rawTokensEstimate,
+    rawTokens: rawInputTokensEstimate,
     rawCost: rawCostEstimate,
     cacheMetrics: promptCache.getMetrics()
   });
@@ -624,7 +629,7 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
       model: resolvedModel,
       actualTokens,
       actualCost,
-      rawTokens: rawTokensEstimate,
+      rawTokens: rawInputTokensEstimate,
       rawCost: rawCostEstimate,
     });
   }
@@ -633,13 +638,13 @@ async function callModel(role, prompt, context = {}, hardState = null, protected
   if (usageData || rawTokensEstimate > 0) {
     db.logTokenUsage({
       id: crypto.randomUUID(),
-      runId,
+      runId: resolvedRunId,
       role,
       model: config.model || config.provider,
       inputTokens: actualInputTokens,
       outputTokens: actualOutputTokens,
       costUsd: actualCost,
-      rawTokensEstimate,
+      rawTokensEstimate: rawInputTokensEstimate,
       rawCostEstimate
     });
   }

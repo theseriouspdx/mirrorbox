@@ -355,8 +355,9 @@ class DBManager {
    *
    * @returns {{ byModel, actualCost, counterfactualCost, routingSavings, maxRateModel, totalCalls }}
    */
-  getCostRollup() {
-    const rows = this.db.prepare(`
+  getCostRollup({ runId = null } = {}) {
+    const where = runId ? 'WHERE run_id = ?' : '';
+    const sql = `
       SELECT
         model,
         SUM(input_tokens)        AS total_input,
@@ -366,9 +367,11 @@ class DBManager {
         SUM(raw_tokens_estimate) AS raw_tokens_estimate,
         COUNT(*)                 AS calls
       FROM token_log
+      ${where}
       GROUP BY model
       ORDER BY actual_cost DESC
-    `).all();
+    `;
+    const rows = this.db.prepare(sql).all(...(runId ? [runId] : []));
 
     const byModel = rows.map(r => ({
       model:       r.model,
@@ -381,6 +384,7 @@ class DBManager {
     }));
 
     const actualCost = byModel.reduce((s, r) => s + r.actualCost, 0);
+    const rawCost = byModel.reduce((s, r) => s + r.rawCost, 0);
     const totalCalls = byModel.reduce((s, r) => s + r.calls, 0);
 
     // BUG-155: Project highest UNIT rate (USD/1k tokens) to avoid task-size bias.
@@ -399,11 +403,12 @@ class DBManager {
 
     const totalSessionTokens = byModel.reduce((s, r) => s + r.totalInput + r.totalOutput, 0);
     const totalRawTokens     = byModel.reduce((s, r) => s + r.rawTokens, 0);
-    const baselineTokens     = totalRawTokens > 0 ? totalRawTokens : totalSessionTokens; // B2: fallback for pre-column sessions
-    const counterfactualCost = (maxRatePer1k / 1000) * baselineTokens;
+    const baselineTokens     = totalRawTokens > 0 ? totalRawTokens : totalSessionTokens; // fallback for pre-column sessions
+    const unitRateCounterfactualCost = (maxRatePer1k / 1000) * baselineTokens;
+    const counterfactualCost = Math.max(rawCost, unitRateCounterfactualCost, actualCost);
     const routingSavings     = Math.max(0, counterfactualCost - actualCost);
 
-    return { byModel, actualCost, counterfactualCost, routingSavings, maxRateModel, totalCalls };
+    return { byModel, actualCost, rawCost, counterfactualCost, routingSavings, maxRateModel, totalCalls, runId: runId || null };
   }
 
   // ─── Server Meta (Task 1.1-10: Graph Trust Contract) ──────────────────────

@@ -1,7 +1,6 @@
 'use strict';
 
 const statsManager = require('../state/stats-manager');
-const db = require('../state/db-manager');
 
 const R = '\x1b[0m';
 const G = '\x1b[32m';
@@ -22,8 +21,30 @@ class TokenmiserDashboard {
     return String(Number.isFinite(v) ? Math.round(v) : 0);
   }
 
+  _getRollup(scope) {
+    try {
+      return statsManager.getRoutingSavings(scope);
+    } catch {
+      return null;
+    }
+  }
+
+  _hasRollupData(rollup) {
+    return !!(rollup && Array.isArray(rollup.byModel) && rollup.byModel.length > 0);
+  }
+
   _getTotals(scope) {
     try {
+      const rollup = this._getRollup(scope);
+      if (this._hasRollupData(rollup)) {
+        return {
+          optimized: rollup.byModel.reduce((sum, row) => sum + (row.totalInput || 0) + (row.totalOutput || 0), 0),
+          notOptimized: rollup.byModel.reduce((sum, row) => sum + (row.rawTokens || 0), 0),
+          costEst: rollup.actualCost || 0,
+          rawCostEst: rollup.rawCost || rollup.counterfactualCost || 0,
+          toolTokens: statsManager?.stats?.[scope]?.toolTokens || 0,
+        };
+      }
       return statsManager.getTotals(scope);
     } catch {
       return { optimized: 0, notOptimized: 0, costEst: 0, rawCostEst: 0, toolTokens: 0 };
@@ -31,6 +52,19 @@ class TokenmiserDashboard {
   }
 
   _getByModel(scope) {
+    const rollup = this._getRollup(scope);
+    if (this._hasRollupData(rollup)) {
+      return rollup.byModel
+        .map((row) => ({
+          model: row.model,
+          optimized: (row.totalInput || 0) + (row.totalOutput || 0),
+          notOptimized: row.rawTokens || 0,
+          costEst: row.actualCost || 0,
+          rawCostEst: row.rawCost || 0,
+        }))
+        .sort((a, b) => (b.costEst - a.costEst) || (b.optimized - a.optimized) || a.model.localeCompare(b.model));
+    }
+
     const models = statsManager?.stats?.[scope]?.models || {};
     return Object.entries(models)
       .map(([model, data]) => ({
@@ -88,13 +122,7 @@ class TokenmiserDashboard {
     const projectTotals = this._getTotals('lifetime');
     const sessionModels = this._getByModel('session');
     const projectModels = this._getByModel('lifetime');
-
-    let routing = null;
-    try {
-      routing = db.getCostRollup();
-    } catch {
-      routing = null;
-    }
+    const routing = this._getRollup('session');
 
     lines.push(`${BOLD}TOKENMISER — Session + Project Stats${R}`);
     lines.push(sep);
@@ -103,8 +131,8 @@ class TokenmiserDashboard {
       const pct = routing.counterfactualCost > 0
         ? ` (${((routing.routingSavings / routing.counterfactualCost) * 100).toFixed(1)}% off)`
         : '';
-      lines.push(`  routing savings       ${G}$${this._formatMoney(routing.routingSavings, 4)}${pct}${R}`);
       lines.push(`  without routing       ${RED}$${this._formatMoney(routing.counterfactualCost, 4)}${R}  [all -> ${routing.maxRateModel}]`);
+      lines.push(`  routing savings       ${G}$${this._formatMoney(routing.routingSavings, 4)}${pct}${R}`);
     }
     lines.push('');
     lines.push(...this._modelLines('BY MODEL — SESSION', sessionModels));

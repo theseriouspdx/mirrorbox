@@ -40,6 +40,8 @@ class StatsManager {
         toolTokens: 0
       },
       sessions: 0,
+      sessionRunId: null,
+      sessionStartedAt: null,
       largestSessionDelta: 0,
       lastUpdate: new Date().toISOString()
     };
@@ -101,6 +103,8 @@ class StatsManager {
     if (!Array.isArray(loaded.session.stageHistory)) loaded.session.stageHistory = [];
 
     if (typeof loaded.sessions !== 'number') loaded.sessions = 0;
+    if (typeof loaded.sessionRunId !== 'string') loaded.sessionRunId = null;
+    if (typeof loaded.sessionStartedAt !== 'string') loaded.sessionStartedAt = null;
     if (typeof loaded.largestSessionDelta !== 'number') loaded.largestSessionDelta = 0;
     if (typeof loaded.lastUpdate !== 'string') loaded.lastUpdate = new Date().toISOString();
 
@@ -134,6 +138,19 @@ class StatsManager {
   resetSession() {
     this.stats.session = { models: {}, roles: {}, cache: { hits: 0, misses: 0 }, toolTokens: 0, stageHistory: [] };
     this.save();
+  }
+
+  startSession({ runId = null } = {}) {
+    this.stats.session = { models: {}, roles: {}, cache: { hits: 0, misses: 0 }, toolTokens: 0, stageHistory: [] };
+    this.stats.sessions = (this.stats.sessions || 0) + 1;
+    this.stats.sessionRunId = runId || null;
+    this.stats.sessionStartedAt = new Date().toISOString();
+    this.stats.lastUpdate = this.stats.sessionStartedAt;
+    this.save();
+  }
+
+  getSessionRunId() {
+    return this.stats.sessionRunId || null;
   }
 
   save() {
@@ -277,12 +294,13 @@ class StatsManager {
    * This is the primary savings story: smart routing saved $X vs. always using the premier model.
    * Delegates to db.getCostRollup() which computes this correctly via per-token rate projection.
    */
-  getRoutingSavings() {
+  getRoutingSavings(scope = 'session') {
     try {
       const db = require('./db-manager');
-      return db.getCostRollup();
+      const runId = scope === 'session' ? this.getSessionRunId() : null;
+      return db.getCostRollup({ runId });
     } catch (_) {
-      return { byModel: [], actualCost: 0, counterfactualCost: 0, routingSavings: 0, maxRateModel: 'unknown', totalCalls: 0 };
+      return { byModel: [], actualCost: 0, rawCost: 0, counterfactualCost: 0, routingSavings: 0, maxRateModel: 'unknown', totalCalls: 0, runId: null };
     }
   }
 

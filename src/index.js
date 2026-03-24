@@ -11,6 +11,8 @@ const { checkOnboarding } = require('./cli/onboarding');
 const { fetchPricing } = require('./utils/pricing');
 const dashboard = require('./cli/tokenmiser-dashboard');
 const statsManager = require('./state/stats-manager');
+const eventStore = require('./state/event-store');
+const { startSessionLog } = require('./utils/session-log');
 const pkg = require('../package.json');
 const { getMcpLogDir } = require('./utils/runtime-context');
 
@@ -84,6 +86,9 @@ function formatOperatorResult(result) {
 }
 async function main() {
   const SAFE_EXIT_COMMANDS = new Set(['end session', 'exit', 'quit']);
+  statsManager.startSession({ runId: eventStore.RUN_ID });
+  const sessionLog = startSessionLog({ projectRoot: PROJECT_ROOT, runId: eventStore.RUN_ID, mode: 'cl' });
+  sessionLog.writeMeta('operator loop initialized');
 
   // §28.5 Step 2 & 28.8: Validate machine config + non-TTY guard
   if (!validateConfig()) {
@@ -133,10 +138,6 @@ async function main() {
 
   // Task 1.1-H09: Fetch pricing and increment session counter
   await fetchPricing();
-  statsManager.resetSession();
-  if (typeof statsManager.stats.sessions !== 'number') statsManager.stats.sessions = 0;
-  statsManager.stats.sessions++;
-  statsManager.save();
 
   // Task 1.1-VERSIONING-GRANULAR: Dynamic UTC versioning
   const now = new Date();
@@ -365,6 +366,8 @@ async function main() {
     clearInterval(aliveTimer);
     await operator.shutdown();
     relay.stop();
+    sessionLog.writeMeta('operator loop closed');
+    sessionLog.close();
     process.exit(0);
   });
 }

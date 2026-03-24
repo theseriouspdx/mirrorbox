@@ -28,7 +28,9 @@ const { initProject } = require(path.join(MBO_ROOT, 'src/cli/init-project'));
 const { Operator } = require(path.join(MBO_ROOT, 'src/auth/operator'));
 const relay = require(path.join(MBO_ROOT, 'src/relay/relay-listener'));
 const statsManager = require(path.join(MBO_ROOT, 'src/state/stats-manager'));
+const eventStore = require(path.join(MBO_ROOT, 'src/state/event-store'));
 const { fetchPricing } = require(path.join(MBO_ROOT, 'src/utils/pricing'));
+const { startSessionLog } = require(path.join(MBO_ROOT, 'src/utils/session-log'));
 
 async function main() {
   if (!validateConfig()) {
@@ -53,9 +55,9 @@ async function main() {
 
   await checkOnboarding(PROJECT_ROOT);
   await fetchPricing();
-  statsManager.resetSession();
-  statsManager.stats.sessions = (statsManager.stats.sessions || 0) + 1;
-  statsManager.save();
+  statsManager.startSession({ runId: eventStore.RUN_ID });
+  const sessionLog = startSessionLog({ projectRoot: PROJECT_ROOT, runId: eventStore.RUN_ID, mode: 'tui' });
+  sessionLog.writeMeta('tui initialized');
 
   try {
     await installMCPDaemon(PROJECT_ROOT);
@@ -81,6 +83,8 @@ async function main() {
     cleanedUp = true;
     try { relay.stop(); } catch {}
     try { await operator.shutdown(); } catch {}
+    sessionLog.writeMeta('tui cleanup');
+    sessionLog.close();
     process.stdout.write('\x1b[?25h');
     process.stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l');
   };
@@ -89,7 +93,6 @@ async function main() {
   process.on('SIGINT', () => { cleanup().then(() => process.exit(0)); });
   process.on('SIGTERM', () => { cleanup().then(() => process.exit(0)); });
 
-  // Ensure the terminal is at least 80 columns wide so the header layout holds (BUG-188)
   const MIN_COLS = 80;
   const MIN_ROWS = 24;
   if (process.stdout.isTTY) {
@@ -101,9 +104,6 @@ async function main() {
     }
   }
 
-  // Pipe stdin through MouseFilterStream so Ink never sees raw SGR mouse sequences.
-  // This prevents host terminal crashes during macOS dictation (BUG-185) and stops
-  // mouse button events from clearing text selections (BUG-186).
   const mouseFilter = new MouseFilterStream();
   process.stdin.pipe(mouseFilter);
   (mouseFilter as any).setRawMode = process.stdin.setRawMode?.bind(process.stdin);
