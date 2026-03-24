@@ -2,7 +2,7 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-223
+**Next bug number:** BUG-224
 **Bug ID rule:** `BUG-001`–`BUG-184` are legacy-format entries and must not be renumbered. Starting with `BUG-185`, new bug headings must use dual identification: `BUG-### / v0.LL.NN`.
 **Version lane rule:** assign the version tag by subsystem, not by the most visible current series. Use the canonical lane definitions in `.dev/governance/VERSIONING.md`. The suffix after the second decimal resets within each lane (`v0.13.01`, `v0.13.02`, then separately `v0.14.01`). `v1.x` task lanes are invalid.
 
@@ -59,3 +59,21 @@ the first press has no visible feedback, making the double-quit pattern opaque.
 - First Ctrl+C press displays a visible "press Ctrl+C again to exit" message in the TUI.
 - Second Ctrl+C within a short window exits cleanly.
 - If no second press arrives within ~2 seconds, the message clears and the TUI returns to normal.
+
+### BUG-223 / v0.3.38 — InputBar text editing: forward delete does nothing, mid-cursor insert misplaces characters
+**Severity:** P1
+**Status:** OPEN
+**Task:** v0.3.38
+**Assigned:** unassigned
+**Found:** 2026-03-24
+**Description:**
+The TUI input bar (using `ink-text-input@6.0.0`) has two editing defects: (1) the Delete key (forward
+delete) does nothing — only Backspace works, forcing the user to go to end-of-text to erase; (2) when
+moving the cursor to mid-string and typing a character, it inserts at the wrong position (e.g. placing
+cursor before `13.02` and typing `.` produces `13..02` instead of `.13.02`). Both are likely limitations
+of the `ink-text-input` library. Fix options: patch the library, replace with a custom input component,
+or upgrade to a version that handles these cases.
+**Acceptance:**
+- Forward Delete key removes the character after the cursor.
+- Inserting a character at any cursor position places it correctly.
+- Arrow keys, Home, End move the cursor without side effects.
