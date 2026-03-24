@@ -2638,9 +2638,9 @@ CONSENSUS INTENT:
   }
 
   async shutdown() {
-    // Section 17: Generate handoff on clean shutdown
+    // Section 17: Sync canonical session state on clean shutdown
     stateManager.checkpoint('mirror');
-    stateManager.generateHandoff();
+    stateManager.finalizeSessionState();
   }
 
   /**

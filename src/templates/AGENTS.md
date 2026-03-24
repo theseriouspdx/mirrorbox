@@ -43,7 +43,7 @@ All changes must pass through the 11-stage pipeline. No code touches the reposit
 3. **Invariant 12 (HardState Budget):** HardState must not exceed 5,000 tokens.
 4. **Invariant 13 (Pre-Mutation Checkpoints):** Before any mutation, create an immutable checkpoint.
 5. **Invariant 15 (Non-Destructive Recovery):** `rm -f` and delete/recreate patterns are prohibited.
-6. **Invariant 16 (Atomic Session-End Backup):** On session close, persist event flush, graph delta, and handoff record.
+6. **Invariant 16 (Atomic Session-End Backup):** On session close, persist event flush, graph delta, and canonical governance state.
 
 ---
 

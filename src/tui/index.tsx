@@ -53,6 +53,7 @@ async function main() {
 
   await checkOnboarding(PROJECT_ROOT);
   await fetchPricing();
+  statsManager.resetSession();
   statsManager.stats.sessions = (statsManager.stats.sessions || 0) + 1;
   statsManager.save();
 

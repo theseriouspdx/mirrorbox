@@ -1,16 +1,11 @@
-/**
- * src/cli/tokenmiser-dashboard.js — TUI Dashboard & Stats Overlay
- * Implements Agent Header and SHIFT+T overlay per Task 1.1-H10 & 1.1-H11.
- */
-
 'use strict';
 
 const statsManager = require('../state/stats-manager');
 const db = require('../state/db-manager');
 
 const R = '\x1b[0m';
-const G = '\x1b[32m'; // Green
-const RED = '\x1b[31m'; // Red
+const G = '\x1b[32m';
+const RED = '\x1b[31m';
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
 
@@ -27,216 +22,117 @@ class TokenmiserDashboard {
     return String(Number.isFinite(v) ? Math.round(v) : 0);
   }
 
-  /**
-   * Renders the top status bar for an agent/operator panel.
-   */
-  renderHeader() {
-    const sTotal = statsManager.getTotals('session');
+  _getTotals(scope) {
+    try {
+      return statsManager.getTotals(scope);
+    } catch {
+      return { optimized: 0, notOptimized: 0, costEst: 0, rawCostEst: 0, toolTokens: 0 };
+    }
+  }
 
+  _getByModel(scope) {
+    const models = statsManager?.stats?.[scope]?.models || {};
+    return Object.entries(models)
+      .map(([model, data]) => ({
+        model,
+        optimized: data.optimized || 0,
+        notOptimized: data.notOptimized || 0,
+        costEst: data.costEst || 0,
+        rawCostEst: data.rawCostEst || 0,
+      }))
+      .sort((a, b) => (b.costEst - a.costEst) || (b.optimized - a.optimized) || a.model.localeCompare(b.model));
+  }
+
+  _scopeLines(label, totals) {
+    const savings = Math.max(0, (totals.rawCostEst || 0) - (totals.costEst || 0));
+    return [
+      `${BOLD}${label}${R}`,
+      `  smart-routed tokens   ${G}${this._fmtInt(totals.optimized)}${R}`,
+      `  raw baseline tokens   ${RED}${this._fmtInt(totals.notOptimized)}${R}`,
+      `  tool context tokens   ${this._fmtInt(totals.toolTokens || 0)}`,
+      `  actual cost           ${G}$${this._formatMoney(totals.costEst, 4)}${R}`,
+      `  raw baseline cost     ${RED}$${this._formatMoney(totals.rawCostEst, 4)}${R}`,
+      `  savings               ${G}$${this._formatMoney(savings, 4)}${R}`,
+    ];
+  }
+
+  _modelLines(label, rows) {
+    const lines = [`${BOLD}${label}${R}`];
+    if (!rows.length) {
+      lines.push(`${DIM}  No model calls recorded yet.${R}`);
+      return lines;
+    }
+
+    const header = `${'Model'.padEnd(36)} ${'Smart'.padStart(9)} ${'Raw'.padStart(9)} ${'Cost'.padStart(10)}`;
+    lines.push(`${DIM}${header}${R}`);
+    lines.push(DIM + '  ' + '─'.repeat(68) + R);
+    for (const row of rows) {
+      lines.push(
+        `${row.model.slice(0, 36).padEnd(36)} ${this._fmtInt(row.optimized).padStart(9)} ${this._fmtInt(row.notOptimized).padStart(9)} ${(`$${this._formatMoney(row.costEst, 4)}`).padStart(10)}`
+      );
+    }
+    return lines;
+  }
+
+  renderHeader() {
+    const sTotal = this._getTotals('session');
     const actualStr = `${G}TM [${this._fmtInt(sTotal.optimized)}] / $${this._formatMoney(sTotal.costEst)}${R}`;
     const rawStr = `${RED}[${this._fmtInt(sTotal.notOptimized)}] / $${this._formatMoney(sTotal.rawCostEst)}${R}`;
-
     return `${actualStr} ${DIM}|${R} ${rawStr}\n`;
   }
 
-  /**
-   * Toggles the global stats overlay.
-   */
-  toggleOverlay(rl) {
-    this.overlayActive = !this.overlayActive;
-    if (this.overlayActive) {
-      this.drawOverlay();
-    } else {
-      process.stdout.write('\x1b[2J\x1b[H'); // Clear and move to top
-      process.stdout.write('[SYSTEM] Overlay closed.\n');
-      rl.prompt();
-    }
-  }
-
-  /**
-   * v0.2.05: /token and /tm — per-model drill-down table + routing savings.
-   * Returns a string suitable for operator panel output.
-   */
   renderTmCommand() {
     const lines = [];
-    const SEP = '─'.repeat(68);
+    const sep = '─'.repeat(72);
+    const sessionTotals = this._getTotals('session');
+    const projectTotals = this._getTotals('lifetime');
+    const sessionModels = this._getByModel('session');
+    const projectModels = this._getByModel('lifetime');
 
-    // Section 1: Routing savings (Option B — primary savings story)
+    let routing = null;
     try {
-      const rollup = db.getCostRollup();
-      lines.push(`${BOLD}TOKENMISER — Routing Savings${R}`);
-      lines.push(SEP);
-      if (rollup.totalCalls === 0) {
-        lines.push(`${DIM}No callModel data yet this session.${R}`);
-      } else {
-        const fmt = (v, p = 6) => `$${this._formatMoney(v, p)}`;
-        lines.push(`  Actual cost (smart routing)   ${G}${fmt(rollup.actualCost, 4)}${R}`);
-        lines.push(`  Counterfactual (all → ${rollup.maxRateModel.slice(0, 20)})`);
-        lines.push(`                                ${RED}${fmt(rollup.counterfactualCost, 4)}${R}`);
-        const savingsPct = rollup.counterfactualCost > 0
-          ? ` (${((rollup.routingSavings / rollup.counterfactualCost) * 100).toFixed(1)}% off)`
-          : '';
-        lines.push(`  ${BOLD}Routing savings${R}               ${G}${BOLD}${fmt(rollup.routingSavings, 4)}${savingsPct}${R}`);
-      }
-    } catch (_) {
-      lines.push(`${DIM}Routing data unavailable.${R}`);
+      routing = db.getCostRollup();
+    } catch {
+      routing = null;
     }
 
-    lines.push('');
-    lines.push(`${BOLD}BY MODEL — Session${R}`);
-    lines.push(SEP);
-
-    // Section 2: Per-model breakdown
-    try {
-      const usage = db.getTokenUsage();
-      if (!usage || usage.length === 0) {
-        lines.push(`${DIM}No model calls recorded yet.${R}`);
-      } else {
-        const hdr = `${'Model'.padEnd(36)} ${'Calls'.padStart(5)} ${'Tok-In'.padStart(8)} ${'Tok-Out'.padStart(8)} ${'Cost'.padStart(10)}`;
-        lines.push(`${DIM}${hdr}${R}`);
-        lines.push(DIM + '─'.repeat(72) + R);
-        for (const row of usage) {
-          const costStr = row.cost > 0 ? `$${this._formatMoney(row.cost, 4)}` : `${G}$0.0000${R}`;
-          const line = `${row.model.padEnd(36)} ${String(row.calls).padStart(5)} ${this._fmtInt(row.input).padStart(8)} ${this._fmtInt(row.output).padStart(8)} ${costStr.padStart(10)}`;
-          lines.push(line);
-        }
-        lines.push(DIM + '─'.repeat(72) + R);
-        const totIn  = usage.reduce((s, r) => s + (r.input  || 0), 0);
-        const totOut = usage.reduce((s, r) => s + (r.output || 0), 0);
-        const totCost = usage.reduce((s, r) => s + (r.cost  || 0), 0);
-        const totCalls = usage.reduce((s, r) => s + (r.calls || 0), 0);
-        lines.push(`${'TOTAL'.padEnd(36)} ${String(totCalls).padStart(5)} ${this._fmtInt(totIn).padStart(8)} ${this._fmtInt(totOut).padStart(8)} ${G}$${this._formatMoney(totCost, 4)}${R}`);
-      }
-    } catch (_) {
-      lines.push(`${DIM}Model usage data unavailable.${R}`);
+    lines.push(`${BOLD}TOKENMISER — Session + Project Stats${R}`);
+    lines.push(sep);
+    lines.push(...this._scopeLines('SESSION', sessionTotals));
+    if (routing && routing.totalCalls > 0) {
+      const pct = routing.counterfactualCost > 0
+        ? ` (${((routing.routingSavings / routing.counterfactualCost) * 100).toFixed(1)}% off)`
+        : '';
+      lines.push(`  routing savings       ${G}$${this._formatMoney(routing.routingSavings, 4)}${pct}${R}`);
+      lines.push(`  without routing       ${RED}$${this._formatMoney(routing.counterfactualCost, 4)}${R}  [all -> ${routing.maxRateModel}]`);
     }
-
     lines.push('');
-    lines.push(`${DIM}SHIFT+T for lifetime stats and session history.${R}`);
+    lines.push(...this._modelLines('BY MODEL — SESSION', sessionModels));
+    lines.push('');
+    lines.push(...this._scopeLines(`PROJECT (${this._fmtInt(statsManager.stats.sessions || 0)} sessions)`, projectTotals));
+    lines.push('');
+    lines.push(...this._modelLines('BY MODEL — PROJECT', projectModels));
+    lines.push('');
+    lines.push(`${DIM}Use /tm or SHIFT+T to open this view. In the TUI, press Esc to return.${R}`);
     return lines.join('\n');
   }
 
   drawOverlay() {
-    const s = statsManager.stats.session;
-    const l = statsManager.stats.lifetime;
-    const sTotal = statsManager.getTotals('session');
-    const lTotal = statsManager.getTotals('lifetime');
-    const carbon = statsManager.getCarbonImpact('lifetime');
-
-    process.stdout.write('\x1b[2J\x1b[H'); // Clear screen and move to top
-    process.stdout.write(`
-${BOLD}TOKENMISER${R}
-${BOLD}────────────────────────────────────────────────────────────────────────${R}
-${BOLD}SESSION${R}
-Model          | optimized      | not optimized  | cost (est)
-───────────────┼────────────────┼────────────────┼─────────────
-${Object.entries(s.models).map(([m, data]) =>
-`${m.padEnd(14)} | ${this._fmtInt(data.optimized).padStart(14)} | ${this._fmtInt(data.notOptimized).padStart(14)} | $${this._formatMoney(data.costEst, 4)}`
-).join('\n')}
-───────────────┼────────────────┼────────────────┼─────────────
-${BOLD}Total Session${R}  | ${this._fmtInt(sTotal.optimized).padStart(14)} | ${this._fmtInt(sTotal.notOptimized).padStart(14)} | $${this._formatMoney(sTotal.costEst, 4)}
-
-${BOLD}LIFETIME${R}
-Model          | optimized      | not optimized  | cost (est)
-───────────────┼────────────────┼────────────────┼─────────────
-${Object.entries(l.models).map(([m, data]) =>
-`${m.padEnd(14)} | ${this._fmtInt(data.optimized).padStart(14)} | ${this._fmtInt(data.notOptimized).padStart(14)} | $${this._formatMoney(data.costEst, 4)}`
-).join('\n')}
-───────────────┼────────────────┼────────────────┼─────────────
-${BOLD}Total Lifetime${R} | ${this._fmtInt(lTotal.optimized).padStart(14)} | ${this._fmtInt(lTotal.notOptimized).padStart(14)} | $${this._formatMoney(lTotal.costEst, 4)}
-
-${BOLD}Project Carbon impact:${R} ${DIM}${this._formatMoney(carbon, 4)}g CO2 avoided${R}
-
-${BOLD}TOOL CONTEXT TOKENS${R}
-Session tool ctx  : ${this._fmtInt(s.toolTokens || 0)}
-Lifetime tool ctx : ${this._fmtInt(l.toolTokens || 0)}
-Session total     : ${this._fmtInt((sTotal.optimized || 0) + (s.toolTokens || 0))} ${DIM}(callModel + tool)${R}
-${BOLD}────────────────────────────────────────────────────────────────────────${R}
-
-${BOLD}ROUTING SAVINGS${R}
-${(() => {
-  try {
-    const rollup = db.getCostRollup();
-    if (rollup.totalCalls === 0) return `${DIM}No callModel data yet.${R}`;
-    const fmt = (v) => `$${this._formatMoney(v, 6)}`;
-    const rows = rollup.byModel.map(r =>
-      `${r.model.padEnd(36)} | ${String(r.calls).padStart(5)} calls | ${fmt(r.actualCost)}`
-    ).join('\n');
-    return [
-      `Model                                | Calls | Actual cost`,
-      `─────────────────────────────────────┼───────┼─────────────`,
-      rows,
-      `─────────────────────────────────────┼───────┼─────────────`,
-      `${'Actual total'.padEnd(36)}   ${String(rollup.totalCalls).padStart(5)}         ${fmt(rollup.actualCost)}`,
-      `${'Counterfactual (all → ' + rollup.maxRateModel + ')'}`,
-      `${''.padEnd(36)}                       ${fmt(rollup.counterfactualCost)}`,
-      `${G}${BOLD}Routing savings${R}${''.padEnd(22)}                       ${G}${fmt(rollup.routingSavings)}${R}`,
-    ].join('\n');
-  } catch (_) {
-    return `${DIM}Routing data unavailable.${R}`;
+    process.stdout.write('\x1b[2J\x1b[H');
+    process.stdout.write(this.renderTmCommand() + '\n');
+    process.stdout.write(`${DIM}Press SHIFT+T to close this overlay.${R}\n`);
   }
-})()}
-${BOLD}────────────────────────────────────────────────────────────────────────${R}
-${DIM}Press SHIFT+T to close this overlay.${R}
-`);
-  }
-  /**
-   * v0.2.05: /tm slash command — per-model drill-down table.
-   * Shows model name, tokens-in, tokens-out, cost, call count.
-   * Local models show tokens + $0.00 — that's the correct display.
-   */
-  renderTmCommand() {
-    try {
-      const rollup = db.getCostRollup();
-      if (rollup.totalCalls === 0) {
-        return `${DIM}No token data yet. Run a task first.${R}\n`;
-      }
 
-      const COL = { model: 36, calls: 7, tokIn: 10, tokOut: 10, cost: 12 };
-      const sep = '─'.repeat(COL.model + COL.calls + COL.tokIn + COL.tokOut + COL.cost + 4);
-      const header = [
-        'Model'.padEnd(COL.model),
-        'Calls'.padStart(COL.calls),
-        'Tok-In'.padStart(COL.tokIn),
-        'Tok-Out'.padStart(COL.tokOut),
-        'Cost'.padStart(COL.cost),
-      ].join(' ');
-
-      const rows = rollup.byModel.map(r => {
-        const costStr = r.actualCost === 0 ? `${DIM}$0.000000${R}` : `${G}$${this._formatMoney(r.actualCost)}${R}`;
-        return [
-          r.model.slice(0, COL.model).padEnd(COL.model),
-          String(r.calls).padStart(COL.calls),
-          this._fmtInt(r.totalInput).padStart(COL.tokIn),
-          this._fmtInt(r.totalOutput).padStart(COL.tokOut),
-          costStr,
-        ].join(' ');
-      });
-
-      const totalCostStr = rollup.actualCost === 0
-        ? `${DIM}$0.000000${R}`
-        : `${G}$${this._formatMoney(rollup.actualCost)}${R}`;
-
-      const savingsLine = rollup.routingSavings > 0.000001
-        ? `\n${G}${BOLD}Routing savings${R}  $${this._formatMoney(rollup.routingSavings, 4)} saved vs all-${rollup.maxRateModel}\n`
-        : `\n${DIM}Routing savings  $0.0000 (single model or no API calls yet)${R}\n`;
-
-      return [
-        `${BOLD}TM — Token Breakdown by Model${R}`,
-        sep,
-        `${DIM}${header}${R}`,
-        sep,
-        ...rows,
-        sep,
-        `${'TOTAL'.padEnd(COL.model)} ${String(rollup.totalCalls).padStart(COL.calls)}` +
-          `${' '.repeat(COL.tokIn + COL.tokOut + 2)} ${totalCostStr}`,
-        savingsLine,
-      ].join('\n') + '\n';
-    } catch (_) {
-      return `${DIM}Token data unavailable.${R}\n`;
+  toggleOverlay(rl) {
+    this.overlayActive = !this.overlayActive;
+    if (this.overlayActive) {
+      this.drawOverlay();
+      return;
     }
+    process.stdout.write('\x1b[2J\x1b[H');
+    process.stdout.write('[SYSTEM] Overlay closed.\n');
+    rl.prompt();
   }
-
 }
 
 module.exports = new TokenmiserDashboard();

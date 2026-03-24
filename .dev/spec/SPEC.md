@@ -936,6 +936,13 @@ Using diverse vendors is intentional. A plan produced by Claude reviewed adversa
 
 Timeout values are in seconds. `verification` timeout is not configurable.
 
+### 11.1A Setup Materialization and Vendor Diversity (`v0.13.02`, `v0.14.06`)
+
+- `mbo setup` and `/setup` MUST write explicit runtime routes for every active model role used by the pipeline: `classifier`, `architecturePlanner`, `componentPlanner`, `reviewer`, `patchGenerator`, `tiebreaker`, and `onboarding`.
+- Compatibility aliases such as `planner` MAY be retained, but they do not replace explicit per-role materialization.
+- Falling back silently because one of these role routes was never written is a configuration defect, not the canonical operating mode.
+- Setup and config validation SHOULD warn when both planner roles and the reviewer resolve to the same vendor. This warning is non-fatal, but it MUST explain that vendor diversity is preferred to reduce correlated error.
+
 ---
 
 ## Section 12 — Permissions
@@ -953,7 +960,7 @@ Timeout values are in seconds. `verification` timeout is not configurable.
 
 ### The Invariant
 
-Only the patch generator writes project source files. Only the orchestrator core writes state files (`mirrorbox.db`, `state.json`, `CHANGELOG.md`, governance ledgers under `.dev/governance/`, and optional session handoff artifacts under `.dev/sessions/`). No model holds a file handle. All writes go through the orchestrator's `writeFile` function, which enforces:
+Only the patch generator writes project source files. Only the orchestrator core writes state files (`mirrorbox.db`, `state.json`, `CHANGELOG.md`, governance ledgers under `.dev/governance/`, and runtime logs under `.mbo/logs/`). No model holds a file handle. All writes go through the orchestrator's `writeFile` function, which enforces:
 
 1. Target path must be within project root
 2. Target path must appear in the approved file list
@@ -1227,6 +1234,8 @@ The agreed plan and code are applied in an ephemeral sandbox container before th
 4. Runtime behavior observed and compared against pre-patch baseline
 5. If the task produces a running application: sandbox server stays live for interactive review
 
+When onboarding has provided project verification commands, Stage 4.5 MUST execute those commands as the first-class validation surface instead of substituting a syntax-only stub. The system MUST capture stdout, stderr, and exit code and surface them in the dry-run record.
+
 **The sandbox stays running** until the human types `go`, `abort`, or `replan`. For Tier 1 and above, the human can interact with the live result before approving -- resize the browser, click the button, double-click the icon, whatever the application does. This is a test drive, not a document review.
 
 **Spec Note (BUG-013):** In the CLI environment, the interactive sandbox must provide a URL/port for browser interaction or, for CLI tools, a nested shell session. The user must be able to focus the sandbox terminal via `ctrl+f`.
@@ -1260,7 +1269,7 @@ Silent self-correction is not permitted. The mirror box philosophy requires that
 
 After the dry run completes and the human has interacted with the live sandbox result, the approval gate confirms the decision.
 
-Required: human types `go`. Nothing else triggers execution. No timeout overrides this. No model output overrides this.
+Required: human types `go`. Nothing else triggers execution. No timeout overrides this. No model output overrides this. The canonical contract is still pre-write approval; any implementation that writes first and asks later is non-canonical unless this section is explicitly amended.
 
 **Tier 0 tasks skip this gate entirely.** The change is made directly and logged.
 
@@ -1327,6 +1336,8 @@ Type: pass / fail [reason] / partial [what worked, what didn't]
 - `partial {notes}` — task set to `partial`, user decides whether to iterate
 
 **Spec Note (BUG-012):** Smoke test failures must have a maximum retry count (default 2). If a third consecutive smoke test fail is encountered, the task must be aborted.
+
+Smoke-test failures MUST record the operator-supplied reason in the event store. If a smoke failure exposes a product defect rather than operator misuse, that defect MUST be carried into `BUGS.md` during the same governance sync that records the task outcome.
 
 Result stored in `pipeline_runs` with timestamp, verdict, and notes.
 
@@ -1471,22 +1482,15 @@ Each completed stage appends one line to `data/session.log`:
 
 Every token of every model input and output appended to `data/transcript.jsonl` as newline-delimited JSON. Complete audit trail.
 
-### Session Handoff
+### Session Continuity
 
-On clean session end, orchestrator may write a generated handoff artifact at `.dev/sessions/NEXT_SESSION.md` when enabled by governance mode:
+On clean session end, orchestrator updates the canonical ledgers directly instead of generating a handoff file:
 
-```typescript
-interface SessionHandoff {
-  lastTask: { id: number; name: string; status: TaskStatus };
-  completedThisSession: number;
-  unresolvedIssues: string[];
-  suggestedNextTask: string | null;
-  graphState: 'current' | 'needs_rebuild';
-  timestamp: number;
-}
-```
+- `projecttracking.md` for next task, task status, links, and stopping point
+- `BUGS.md` / `BUGS-resolved.md` for active versus archived bug state
+- root `CHANGELOG.md` only when a public version change or release note is being published
 
-If the session ends via force-kill and the handoff never writes, the next session reconstructs orientation from canonical governance state (`projecttracking.md`, `BUGS.md`) plus database state.
+If the session ends via force-kill and clean session-close sync never completes, the next session reconstructs orientation from canonical governance state (`projecttracking.md`, `BUGS.md`) plus database state.
 
 ---
 
@@ -1529,7 +1533,7 @@ Background interval every 5 seconds checks all `running` entries against stage t
 
 ### Clean Shutdown
 
-On `exit`, `end session`, or Ctrl+C: all `running` processes receive `SIGTERM`. After 3-second grace period, remaining processes receive `SIGKILL`. Session handoff writes after all processes confirmed dead.
+On `exit`, `end session`, or Ctrl+C: all `running` processes receive `SIGTERM`. After 3-second grace period, remaining processes receive `SIGKILL`. Canonical ledger/session-close sync runs after all processes are confirmed dead.
 
 ### Shell Injection Prevention
 
@@ -1616,7 +1620,7 @@ type OrchestratorEvent =
   | { type: 'task_complete'; taskId: number; taskName: string }
   | { type: 'firewall_warning'; panel: PanelId; excerpt: string }
   | { type: 'sandbox_update'; stage: string; signal: string }
-  | { type: 'session_end'; handoffPath: string };
+  | { type: 'session_end'; ledgerSync: 'ok' | 'failed' };
 
 type PanelId =
   | 'operator'
@@ -1694,7 +1698,7 @@ The `bin/validator.py` is the final gate for all PRs and commits.
 | State write failure | Pipeline pauses. Error displayed. No stale state propagated. |
 | Database corruption | User informed. Fresh start option. Corrupt file preserved. |
 | Local model unavailable | Fallback to CLI session or OpenRouter for current task. |
-| Force-kill / ungraceful exit | Next session detects missing handoff, reconstructs from database. |
+| Force-kill / ungraceful exit | Next session reconstructs orientation from canonical governance state plus database state. |
 | Auth session expired mid-task | Surface to user: "Session expired for {provider}." Recovery options: re-authenticate, switch provider, abort. |
 
 ---
@@ -1933,7 +1937,7 @@ New features go through the orchestrator. Bugs go through the orchestrator. You 
 - [ ] Operator initializes and persists across tasks
 - [ ] Classification produces valid `Classification` objects (depends on 0.4 for Tier 0)
 - [ ] Context window management triggers and summarizes correctly
-- [ ] Session handoff writes and reads correctly
+- [ ] Session continuity is recoverable from canonical ledgers plus database state
 - [ ] `AGENTS.md` detection and injection working
 
 **Milestone 0.7 — DID Pipeline (no execution)**  
@@ -2048,7 +2052,7 @@ Every session ends with:
 1. `projecttracking.md` updated — task status, any new tasks discovered
 2. `BUGS.md` updated — any bugs found during session logged with severity
 3. `CHANGELOG.md` updated — what shipped
-4. Optional handoff artifact refreshed when enabled (`.dev/sessions/NEXT_SESSION.md`)
+4. Any acceptance transcript mirror refreshed only under `.mbo/logs/alpha-e2e-mirror/` when controller-side evidence is required
 5. All changes committed with message referencing task ID
 
 No session ends without documentation updated. This is not optional.
@@ -2142,7 +2146,6 @@ When `.mbo/` is absent, create:
 - `.mbo/BUGS.md` (committed)
 - `.mbo/CHANGELOG.md` (committed)
 - `.mbo/logs/` (git-ignored)
-- `.mbo/sessions/` (git-ignored)
 
 ### 28.6 `.gitignore` Automator
 MUST ensure this effective policy:
@@ -2212,9 +2215,9 @@ Until then, host-side human auth is authoritative; containerized flows must not 
 - If baseline missing but onboarding exists, create baseline at next launch and mark event `baseline_backfill=true`.
 
 ### 29.3 Scan Rules
-- Tokenmiser MUST use `cl100k_base`.
+- Tokenmiser currently uses the repository heuristic tokenizer (`estimateTokens`: roughly `text.length / 4`) for baseline estimation and truncation decisions. If a model-specific tokenizer is introduced later, the implementation and this section MUST be updated together.
 - MUST respect `.gitignore`.
-- MUST exclude `.mbo/logs`, `.mbo/sessions`, and generated artifacts.
+- MUST exclude `.mbo/logs` and generated artifacts.
 - Packaged distribution artifacts MUST exclude non-runtime governance and recovery trees (for example `.dev/`, backups, worktrees, ad-hoc logs) so installer-based runtimes receive runtime-only contents.
 
 ### 29.4 Request Baseline (The "Without" Baseline)
@@ -2256,12 +2259,15 @@ Every `callModel` MUST emit `TOKEN_USAGE` with:
 - Every token number MUST be labeled with its scope (e.g. `operator: 4.5k tok` not bare `4.5k`).
 - The right StatsPanel MUST show a labeled session total summing all role categories.
 
-### 30.4 The SHIFT-T Stats Overlay
+### 30.4 The Stats Overlay / `/tm` Surface
 - Global keydown listener for `SHIFT+T` toggles a persistent terminal-style overlay.
-- Display "Proof of Value" metrics:
-  - **PROJECT LIFETIME:** Cumulative savings (Baseline Cost - Actual Cost) across all recorded sessions.
-  - **AVERAGE SESSION:** Mean savings per session.
-  - **LARGEST SESSION:** The single response with the highest recorded delta (The "Big Save").
+- Slash commands `/tm` and `/token` MUST open the same overlay without invoking the classifier.
+- The overlay MUST be closable from the keyboard (`Esc`, `SHIFT+T`, or reissuing `/tm`) so the operator can return to the main screen without restarting the app.
+- The overlay MUST show both **SESSION** and **PROJECT** Tokenmiser totals plus by-model breakdowns for each scope.
+- Display "Proof of Value" metrics within that session/project view:
+  - **PROJECT:** Cumulative savings (Baseline Cost - Actual Cost) across all recorded sessions.
+  - **SESSION:** Current-session savings and totals since launch.
+  - **BY MODEL:** Scoped token and cost breakdowns for the active session and persisted project history.
   - **CARBON IMPACT:** Estimated 0.1g CO2 avoided per 1,000 tokens stripped from the stream.
 
 ### 30.5 Persistence
@@ -2409,7 +2415,9 @@ This section defines requirements corresponding to tracking task `1.1-H28`.
 4. Existing gate and rollback invariants remain unchanged.
 
 ### 34.9 Startup Task Surface
-- On launch, if `projecttracking.md` exists, the operator panel MUST immediately display the next few active tasks and invite the operator to select one — without waiting to be asked.
+- On launch, if governance exists, the operator panel MUST resolve the canonical governance ledger first. When both `.mbo/governance` and `.dev/governance` exist, bootstrap stubs MUST NOT outrank the real project ledger.
+- Startup MUST immediately display the `Next Task` header plus the next few truly active tasks from that canonical ledger — without waiting to be asked. Completed rows accidentally left under `Active Tasks` MUST NOT be surfaced as outstanding work.
+- The startup surface SHOULD identify which ledger path was selected so the operator can see which governance root is in effect.
 - If `projecttracking.md` is missing, the operator MUST say so plainly and offer to create it or analyze source documents.
 
 ### 34.10 Tool-Call Transparency
@@ -2438,8 +2446,18 @@ This section defines requirements corresponding to tracking task `1.1-H29`.
   - blast radius estimate from graph impact query
   - governance sensitivity (spec/governance/security surfaces)
 - Routing outcome MUST map to defined execution tiers (Section 8) and be event-logged.
-- Slash commands (`/tasks`, `/onboarding`, `/projecttracking`, `/setup`, `/docs`) MUST bypass the classifier entirely. Zero model calls for known command routing.
-- Simple governance queries (task lookup, onboarding status, file check) MUST route through `graph_search` rather than the full classifier pipeline. Target token budget: ≤300 tokens round-trip.
+- Slash commands (`/tasks`, `/onboarding`, `/projecttracking`, `/setup`, `/docs`, `/tm`, `/token`, `/bugs`) MUST bypass the classifier entirely. Zero model calls for known command routing.
+- Recognized deterministic bug-audit intents (`bugs`, `bugs list`, `bug list`, `examine the codebase`, `examine the codebase and return a result`) MUST route to the same local bug-audit path as `/bugs`, not to the conversational classifier.
+- The deterministic bug-audit path MUST write `bugs.md`, `bugsresolved.md`, and `summary.json` under `.mbo/logs/bug-audit-<timestamp>/` and report those artifact paths back to the operator.
+- Simple governance queries (task lookup, onboarding status, file check) MUST route through direct local retrieval rather than the full classifier pipeline. Target token budget: ≤300 tokens round-trip when no model call is required.
+
+### 35.4A Readiness-Check / `readOnlyWorkflow` Path (`v0.13.03`)
+
+- The readiness-check workflow is a first-class read-only operator mode for requests that explicitly ask for a workflow cycle, readiness check, or minimal non-destructive verification in plain English.
+- Its canonical classification contract is `route=analysis`, `risk=low`, `files=[]`, and `readOnlyWorkflow=true`.
+- When this mode is active, the system MAY use the conservative workflow-fallback path instead of patch-generation or file-writing execution.
+- This mode MUST NOT write project source files or governance ledgers as part of the task result. It MAY emit runtime logs, event-store entries, and operator-facing recommendations/status only.
+- Any future removal or redesign of this path MUST update this section and `projecttracking.md` together so the behavior is either explicitly supported or explicitly gone.
 
 ### 35.5 Model-Specific Token Budgeting
 - Each role/model pair MUST have configurable token budgets.
@@ -2595,14 +2613,14 @@ Rules:
 
 ### 36.7A Acceptance Transcript Capture
 - Alpha acceptance sessions MUST persist a transcript under the target project's `.mbo/logs/` directory.
-- During active MBO self-development, acceptance transcripts SHOULD also be mirrored to controller-side session analysis (`.dev/sessions/analysis`) to keep handoff evidence in one canonical review location.
+- During active MBO self-development, acceptance transcripts SHOULD also be mirrored to controller-side runtime logs (`.mbo/logs/alpha-e2e-mirror`) to keep audit evidence in one canonical location without reviving session-ledger files.
 - When both locations are required, runtime helpers MUST write both copies within the same run and surface both output paths in operator-facing status lines.
 
 ### 36.7B Acceptance Runtime Quality Gate
 Installer-path acceptance cycles (target project launched via `mbo`/`npx mbo`) MUST satisfy all of the following transcript-level checks:
 - No `BUDGET_EXCEEDED` surfaced in operator-visible output.
 - No malformed/non-JSON warning strings surfaced to the operator.
-- No known planner fallback error strings listed in active handoff/governance blockers.
+- No known planner fallback error strings listed in active governance blockers.
 - Workflow reaches audit prompt and state-sync completion path without fatal interruption.
 
 ### 36.8 Error Handling
@@ -2717,18 +2735,18 @@ This section promotes the approved v0.11.x retro + v0.2/v0.3 candidate into the 
 
 Consolidated from:
 - `.dev/governance/projecttracking.md`
-- `.dev/governance/CHANGELOG.md`
+- `CHANGELOG.md` (public release history)
 - `.dev/governance/BUGS.md`
 - `.dev/governance/BUGS-resolved.md`
-- `.dev/governance/SESSION-HANDOFF-2026-03-20.md`
+- Historical governance reconciliation notes from the 2026-03-20 transition review
 
 Where governance files conflict, reconciliation must be explicit (no silent precedence).
 
 ### 37.2 Confirmed Implemented Baseline
 
 #### 37.2A Versioning/Governance Transition
-- AGENTS version protocol is active (`0.VM.BUILD`, compound tags, backport handling, confirmation-before-write).
-- `package.json` baseline is `0.3.20+v0.11.181.v0.2.3` aligned with CHANGELOG head.
+- AGENTS version protocol is active. Internal task lanes use `v0.LL.NN` with per-lane suffix reset as defined in `VERSIONING.md`; public release artifacts use underscore-separated compound tags when multiple lanes ship together.
+- `package.json` baseline is `0.3.20_0.11.181_0.2.03` aligned with the root CHANGELOG head at the time of consolidation.
 - Unknown `mbo` subcommand fallthrough bug is fixed.
 - Changelog coverage includes v0.2.01, v0.2.02, and the promoted v0.3.20 release series entry.
 
@@ -2789,6 +2807,60 @@ Model chooser requirements:
 
 Acceptance:
 - Setup flows expose per-stage model selection with recommendations from live/loaded catalog data.
+
+#### 37.3D Active Lane Contract Map (2026-03-24)
+
+The following task IDs are canonically present in SPEC as contract references. `projecttracking.md` remains the source of task state, priority, and completion status; this section records only the contract surface each task belongs to.
+
+| Task ID | Canonical contract in SPEC |
+|---|---|
+| `v0.13.01` | Reserved planning lane for proprietary-boundary and runtime-vs-dev governance-scope design. Output must define a boundary taxonomy, enforcement plan, and applicability matrix; execution state remains in `projecttracking.md`. |
+| `v0.13.02` | Section 11.1A explicit setup-role materialization contract. |
+| `v0.13.03` | Section 35.4A readiness-check / `readOnlyWorkflow` contract. |
+| `v0.14.01` | Sections 14 and 15 define the base operator-logic, DID, tiebreaker, and human-gate pipeline contract for this lane. |
+| `v0.14.02` | Section 14 Gate 2 blind code consensus plus Section 15 Stages 4A-4D. |
+| `v0.14.03` | Section 14 context-isolation rules apply across every DID round and comparison stage. |
+| `v0.14.04` | Section 15 Stage 4.5 real dry-run / verification-command contract. |
+| `v0.14.05` | Section 15 Stage 10 smoke-test, retry ceiling, and abort contract. |
+| `v0.14.06` | Section 11.1A vendor-diversity warning contract. |
+| `v0.14.07` | Section 15 Stage 5 remains the canonical pre-write approval boundary unless and until explicitly superseded here. |
+| `v0.14.08` | Section 15 Stage 3C convergence is qualitative and invariant-based, not line-intersection based. |
+| `v0.15.01` | Reserved cleanup-gate module plan. Cleanup execution criteria remain in `projecttracking.md` and the referenced cleanup plan documents. |
+| `v0.15.03` | Reserved documentation-sync cleanup contract. Public-facing release notes remain minimal in root `CHANGELOG.md`; comprehensive execution state remains in canonical ledgers. |
+| `v0.15.04` | Reserved code-quality cleanup contract. |
+| `v0.15.05` | Reserved scripts-audit cleanup contract. |
+| `v0.15.06` | Reserved topology/version-integrity cleanup contract. |
+| `v0.16.01` | Reserved CYNIC planning lane. Output must define tax budget, claim markers, decomposition, bookkeeping, and failure/recovery behavior before implementation proceeds. |
+| `v0.5.01` | Reserved planning lane for the Floating Dock optional sandbox model. |
+| `v0.6.01` | Reserved planning lane for agentic SPEC-referential testing, broad validation, and visual inspection capability. |
+| `v0.7.01` | Reserved planning lane for portability feasibility across editor, container, and CLI-add-on surfaces. |
+| `v0.8.01` | Reserved planning lane for web/desktop UI platform strategy. |
+| `v0.9.01` | Reserved planning lane for the final pre-1.0 hardening sweep. |
+
+#### 37.3E Implemented Surface Map (Historical IDs Still Canonical)
+
+| Task ID | Canonical surface |
+|---|---|
+| `v0.2.10` | Section 35.4 deterministic `/bugs` and bug-audit intent routing. |
+| `v0.3.03` | The TUI/Ink operator surface defined across Sections 30, 34, and 35. |
+| `v0.3.05` | Historical public changelog correction task for early v0.2/v0.3 release-note accuracy. |
+| `v0.3.06` | AGENTS Section 17 version-sync and release-note discipline for every approved public version bump. |
+| `v0.3.11` | Governance document viewer behavior within the TUI governance surface. |
+| `v0.3.12` | Inline task creation writes to `projecttracking.md`, the canonical task ledger. |
+| `v0.3.13` | Operator activity visibility contract for live processing feedback in the TUI. |
+| `v0.3.14` | Section 30 stage-aware model/token header display. |
+| `v0.3.16` | InputBar command discovery and autocomplete surface. |
+| `v0.3.18` | Section 30 per-panel token accounting. |
+| `v0.3.19` | Pipeline stage navigation across discrete execution phases. |
+| `v0.3.21` | Terminal UX hardening: clean exit, dictation/copy compatibility, and readable header layout. |
+| `v0.11.177` | SPEC is the canonical behavior contract and task-detail source where feature requirements are defined. |
+| `v0.11.178` | Onboarding may bootstrap governance stubs when a project has none. |
+| `v0.11.179` | Governance applicability differs between runtime product behavior and dev/build-time workflows. |
+| `v0.11.181` | Governance synchronization and lane-label discipline remain required, with public changelog scope separated from canonical ledgers. |
+| `v0.11.192` | Public/governance changelog boundary: root `CHANGELOG.md` is public-facing release history, not the authoritative execution ledger. |
+| `v0.11.36` | Workflow canonicalization and validator-enforced governance consistency. |
+| `v0.11.96` | `NEXT_SESSION` is deprecated; session continuity comes from canonical ledgers only. |
+| `v0.41.01` | Section 38 V4 Module 1 contract. |
 
 ### 37.4 Governance Reconciliation Requirement
 

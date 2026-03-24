@@ -57,16 +57,16 @@ fs.writeFileSync(path.join(governanceDir, 'projecttracking.md'), [
   '---',
   '',
   '## Active Tasks',
-  '| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |',
-  '|---|---|---|---|---|---|---|---|---|',
-  '| v0.2.08 | bug | Existing workflow audit bug | READY | unassigned | - | 2026-03-24 | BUG-199 | existing |',
-  '| v0.2.09 | bug | Existing workflow audit bug 2 | READY | unassigned | - | 2026-03-24 | BUG-200 | existing |',
+  '| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Last Backup SHA/File | Acceptance |',
+  '|---|---|---|---|---|---|---|---|---|---|',
+  '| v0.2.08 | bug | Existing workflow audit bug | READY | unassigned | - | 2026-03-24 | BUG-199 | - | existing |',
+  '| v0.2.09 | bug | Existing workflow audit bug 2 | READY | unassigned | - | 2026-03-24 | BUG-200 | - | existing |',
   '',
   '---',
   '',
   '## Recently Completed',
-  '| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |',
-  '|---|---|---|---|---|---|---|---|---|',
+  '| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Last Backup SHA/File | Acceptance |',
+  '|---|---|---|---|---|---|---|---|---|---|',
 ].join('\n') + '\n', 'utf8');
 
 try {

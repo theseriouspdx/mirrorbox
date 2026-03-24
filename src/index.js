@@ -133,6 +133,7 @@ async function main() {
 
   // Task 1.1-H09: Fetch pricing and increment session counter
   await fetchPricing();
+  statsManager.resetSession();
   if (typeof statsManager.stats.sessions !== 'number') statsManager.stats.sessions = 0;
   statsManager.stats.sessions++;
   statsManager.save();

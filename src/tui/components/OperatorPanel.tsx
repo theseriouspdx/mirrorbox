@@ -64,7 +64,7 @@ function getHints(stage: MboStage, running: boolean, auditPending: boolean): str
   if (running) {
     return [
       'Pipeline running. Type a hint to steer the next iteration.',
-      'Commands: stop, /tasks, /docs, /token, /setup',
+      'Commands: stop, /tasks, /docs, /tm, /bugs, /setup',
     ];
   }
   if (stage === 'error') {
@@ -72,7 +72,7 @@ function getHints(stage: MboStage, running: boolean, auditPending: boolean): str
   }
   return [
     'Ready. Describe a task, ask a question, or run a command.',
-    'Commands: /tasks, /docs, /newtask, /token, status, clear, exit',
+    'Commands: /tasks, /docs, /newtask, /tm, /bugs, status, clear, exit',
   ];
 }
 

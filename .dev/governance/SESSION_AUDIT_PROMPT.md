@@ -12,10 +12,11 @@ Read .dev/governance/AGENTS.md and .dev/governance/SESSION_AUDIT_PROMPT.md.
 Then run:
   node scripts/graph_call.js graph_server_info
   git log --oneline -5
-  cat .dev/governance/NEXT_SESSION.md
+  head -40 .dev/governance/projecttracking.md
+  tail -20 .dev/governance/BUGS.md
 
 Confirm: graph index age < 1h, scanning = false.
-Report: last 5 commits, next task ID, one-paragraph summary of what we are doing today.
+Report: last 5 commits, current `Next Task`, active blockers, and one-paragraph summary of what we are doing today.
 Do not start any implementation until you have confirmed graph is fresh and summarised the situation.
 ```
 
@@ -35,7 +36,7 @@ If stale: `mbo mcp start` then wait 10 s and retry.
 git log --oneline -8
 git diff HEAD~1 --stat          # what the last commit actually changed
 ```
-Compare against `NEXT_SESSION.md` — did everything that was supposed to happen actually land?
+Compare against the current top of `projecttracking.md` and any linked bugs — did everything that was supposed to happen actually land?
 
 ### 1C. Current task state
 ```bash
@@ -45,6 +46,7 @@ tail -10 .dev/governance/BUGS.md
 Note:
 - Next task ID (from projecttracking.md `Next Task:` field)
 - Next bug number (from BUGS.md tail)
+- Any task rows or bug entries that still depend on handoff-only context
 
 ### 1D. Verify last session's commit claims
 For each commit since the last session start, read the changed files and confirm the
@@ -64,7 +66,7 @@ for f in src/auth/*.js; do node --check "$f" && echo "OK: $f" || echo "FAIL: $f"
 ```
 Expected: all OK. Any FAIL is BUG-### P0.
 
-### 2B. Config roles — v1.0.01 verification
+### 2B. Config roles — v0.13.02 verification
 ```bash
 cat ~/.mbo/config.json | python3 -c "
 import sys, json
@@ -76,9 +78,9 @@ print('MISSING:', missing or 'none')
 print('PRESENT:', [r for r in required if r in cfg])
 "
 ```
-Expected: MISSING: none. Any missing role = P0 regression on v1.0.01.
+Expected: MISSING: none. Any missing role = P0 regression on v0.13.02.
 
-### 2C. DID Gate 2 — v1.0.02 verification
+### 2C. DID Gate 2 — v0.14.02 verification
 ```bash
 grep -n "buildGate2BlindPrompt\|buildGate2ComparePrompt\|_runGate2\|gate2ProtectedHashes\|DID_GATE2_BLIND" \
   src/auth/did-orchestrator.js src/auth/did-prompts.js | wc -l
@@ -91,7 +93,7 @@ grep -n "gate2ProtectedHashes\|computeContentHashes(plannerRaw)" src/auth/did-or
 ```
 Expected: protectedHashes passed into Gate 2 callModel as 5th argument.
 
-### 2D. Context isolation — v1.0.03 verification
+### 2D. Context isolation — v0.14.03 verification
 ```bash
 # Dialogue rounds (plannerR2, reviewerR2) must be gone from run()
 grep -n "plannerR2\|PLANNER REVIEW\]\|REVIEWER ROUND 2\]\|reviewerR2" src/auth/did-orchestrator.js
@@ -104,7 +106,7 @@ grep -n "_runGate1Tiebreaker\|_runStage4A" src/auth/did-orchestrator.js
 ```
 Expected: both methods present.
 
-### 2E. Stage 4.5 dry run — v1.0.04 verification
+### 2E. Stage 4.5 dry run — v0.14.04 verification
 ```bash
 grep -n "node.*--check\|validator\.py\|npm.*test\|rollback\|finally" src/auth/operator.js \
   | grep -A2 -B2 "runStage4_5" | head -20
@@ -117,7 +119,7 @@ grep -n "runStage4_5" src/auth/operator.js
 ```
 Expected: called as `runStage4_5(codeResult.code, scopedFiles, agreedPlan)` — 3 args.
 
-### 2F. Stage 10 smoke test — v1.0.05 verification
+### 2F. Stage 10 smoke test — v0.14.05 verification
 ```bash
 grep -n "runStage10\|handleSmokeVerdict\|smokeTestAttempts\|pendingSmoke\|DID_GATE2_BLOCK\|SMOKE_TEST" \
   src/auth/operator.js src/tui/App.tsx | wc -l
@@ -177,7 +179,7 @@ Use this format for every issue or feature gap found during Phases 2-3.
 
 ### BUG Template
 ```
-## BUG-### / vX.Y.ZZ
+## BUG-### / v0.LL.NN
 **Severity:** P0 | P1 | P2 | P3
 **Found in:** Phase 2A / 2B / 2C / 2D / 2E / 2F / 2G / 3C / Other
 **File/line:** src/auth/operator.js:123
@@ -203,7 +205,7 @@ Short sentence. Do not spec-jump to full implementation yet.
 
 ### FEATURE Request Template
 ```
-## FEAT / vX.Y.ZZ
+## FEAT / v0.LL.NN
 **Priority:** P1 | P2
 **Found in:** Phase 3C / Live observation / Other
 
@@ -239,44 +241,25 @@ tail -3 .dev/governance/BUGS.md  # confirm next bug number
 For each Feature Request and any P0/P1 bugs, add a row to the Active Tasks table
 in `.dev/governance/projecttracking.md`. Required columns:
 
-| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |
-|---------|------|-------|--------|-------|--------|---------|-------|------------|
+| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Last Backup SHA/File | Acceptance |
+|---------|------|-------|--------|-------|--------|---------|-------|----------------------|------------|
 
-- Task ID format: `vX.Y.ZZ` (use the lane matching the scope — `v1.0.x` for correction sprint)
+- Task ID format: `v0.LL.NN` (use the lane matching the scope per `.dev/governance/VERSIONING.md`)
 - Status: `READY` (not started) or `BLOCKED: reason`
 - Owner: `unassigned` unless you are assigning it right now
+- If session continuity matters, encode it directly in the task row (`Status`, `Links`, `Acceptance`, `Updated`) rather than creating a sidecar handoff file.
 
-### 5C. Update NEXT_SESSION.md
-Replace or update `.dev/governance/NEXT_SESSION.md` with:
+### 5C. Record session continuity in canonical ledgers
+Do not create or update `NEXT_SESSION.md` or any handoff artifact.
 
-```markdown
-# NEXT_SESSION.md — [DATE]
-
-## Session Start Command
-[paste the Session Start Block from the top of this document]
-
-## What Was Done This Session
-[one paragraph — what tasks completed, what commits landed]
-
-## What Was Discovered
-[one paragraph — bugs found, feature gaps identified]
-
-## Next Task: [ID]
-[one paragraph — exactly what needs to happen, which files to touch, acceptance criteria]
-
-## Recommended First Steps
-1. [step]
-2. [step]
-3. [step]
-
-## Open Work (carry forward)
-| ID | Title | Status | Notes |
-|----|-------|--------|-------|
-```
+Instead:
+- update `projecttracking.md` so `Next Task`, task statuses, owners, links, and acceptance text reflect the actual stopping point;
+- update `BUGS.md` and `BUGS-resolved.md` so open and resolved issues match reality;
+- update root `CHANGELOG.md` only if the public version changed or a public release note is intentionally being published.
 
 ### 5D. Commit governance updates
 ```bash
-git add .dev/governance/BUGS.md .dev/governance/projecttracking.md .dev/governance/NEXT_SESSION.md
+git add .dev/governance/BUGS.md .dev/governance/BUGS-resolved.md .dev/governance/projecttracking.md CHANGELOG.md
 git commit -m "chore(governance): session audit [DATE] — [one-line summary]"
 ```
 
@@ -286,7 +269,7 @@ git commit -m "chore(governance): session audit [DATE] — [one-line summary]"
 
 Before closing:
 - [ ] All Phase 4 captures written to BUGS.md and/or projecttracking.md
-- [ ] NEXT_SESSION.md updated with today's findings and tomorrow's first task
+- [ ] `projecttracking.md` and bug ledgers reflect today's findings and tomorrow's first task
 - [ ] No uncommitted changes in `.dev/governance/`
 - [ ] `git status` is clean (or intentional WIP is stashed)
 - [ ] Graph index is fresh: `node scripts/graph_call.js graph_server_info`
@@ -305,6 +288,6 @@ Before closing:
 
 ---
 
-*Template version: 2026-03-23 (correction sprint v1.0.x)*
+*Template version: 2026-03-24 (canonical ledger continuity)*
 *Maintained at: `.dev/governance/SESSION_AUDIT_PROMPT.md`*
-*Companion files: `NEXT_SESSION.md`, `AGENTS.md`, `CLAUDE.md`*
+*Companion files: `projecttracking.md`, `BUGS.md`, `AGENTS.md`*

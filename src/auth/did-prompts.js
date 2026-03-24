@@ -58,7 +58,7 @@ VERDICT:
 }
 
 // DDR-003: Reviewer round 2 — addresses Planner objections, final shot before escalation.
-// NOTE: Kept for backward compatibility. v1.0.03 removes this from the hot path —
+// NOTE: Kept for backward compatibility. v0.14.03 removes this from the hot path —
 // Gate 1 divergence now goes straight to the Gate 1 tiebreaker (SPEC §14 Stage 3D).
 function buildReviewerRound2Prompt(taskContext, plannerObjections, combinedDiff) {
   return `[DID - REVIEWER ROUND 2]

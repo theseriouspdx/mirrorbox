@@ -17,7 +17,8 @@ const COMMANDS = [
   '/docs',
   '/newtask',
   '/setup',
-  '/token',
+  '/tm',
+  '/bugs',
   'status',
   'clear',
   'exit',
@@ -33,7 +34,7 @@ function getPrefix(stage: MboStage, auditPending: boolean, pipelineRunning: bool
 function getPlaceholder(stage: MboStage, auditPending: boolean, pipelineRunning: boolean): string {
   if (stage === 'audit_gate' || auditPending) return 'Type "approved" to apply changes or "reject" to roll back...';
   if (pipelineRunning) return 'Pipeline running. Type a hint to steer, or "stop" to abort...';
-  return 'Describe a task, ask a question, or use /tasks, /docs, /newtask, /token, /setup...';
+  return 'Describe a task, ask a question, or use /tasks, /docs, /newtask, /tm, /bugs, /setup...';
 }
 
 function getPrefixColor(stage: MboStage, auditPending: boolean, pipelineRunning: boolean): string {

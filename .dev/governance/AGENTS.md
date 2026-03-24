@@ -92,7 +92,7 @@ Implementation task: `1.1-H24` — see `.dev/preflight/did-protocol-implementati
 - Prohibit `rm -f` and delete/recreate schema recovery patterns.
 
 ### Invariant 16 (Atomic Session-End Backup)
-- On session close, atomically persist event flush, graph delta, handoff record, and integrity hashes.
+- On session close, atomically persist event flush, graph delta, governance state, and integrity hashes.
 - Run `PRAGMA integrity_check`.
 
 ### Invariant 17 (Worktree-Isolated Verification Gate)
@@ -116,15 +116,15 @@ The moment a task is implemented and Stage 8 passes, halt and present the audit 
 3. One-paragraph summary.
 
 ### 6B. State Sync (Automatic on Approval)
-On `approved`: Update `projecttracking.md`, `CHANGELOG.md`, `BUGS.md` (active only), move resolved/completed bug entries to `BUGS-resolved.md`, update `CHANGELOG.md`, and commit the changes.
+On `approved`: update `projecttracking.md`, `BUGS.md` (active only), and `BUGS-resolved.md` as needed, then commit the changes. Update the root `CHANGELOG.md` only when the approved work changes the public version in `package.json` or otherwise warrants a public-facing release note.
 
 ### 6B.1. Pre-Push Governance Sync (Required)
 Before any push, promotion, or session wrap, reconcile all governance documents to the current state of the work. At minimum verify and update:
 1. `projecttracking.md` — active/completed task status, ownership, links, next task.
 2. `BUGS.md` — only active bugs remain open; every open bug has the correct version-scoped task link.
 3. `BUGS-resolved.md` — every fixed/completed/superseded bug is archived exactly once.
-4. `CHANGELOG.md` — reflects any approved versioned release or docs/governance decision that must be recorded.
-5. Session handoff/state artifacts — reflect the actual stopping point and next intended task.
+4. Root `CHANGELOG.md` — updated only when `package.json` version changes or a public-facing release note is intentionally being published.
+5. No handoff or "next session" document is created. Session continuity must be reflected directly in `projecttracking.md`, `BUGS.md`, and `BUGS-resolved.md`.
 
 No branch is pushed and no session is considered wrapped until this reconciliation is complete.
 
@@ -133,9 +133,9 @@ If "end session" is requested: terminate MCP, run Branch Finalization, and outpu
 
 ### 6D. Branch Finalization (Required Before Session Close)
 1. If verification gate passed and changes are approved, promote branch changes to `main` (or configured target branch) via approved merge strategy.
-2. Record promotion outcome in session artifacts (audit gate output plus state-sync files).
+2. Record promotion outcome in canonical governance artifacts and run artifacts only.
 3. Remove the working branch after successful promotion (local + remote) unless explicitly marked for retention.
-4. Retained branches MUST be renamed or created under `archive/` with a short reason in session handoff.
+4. Retained branches MUST be renamed or created under `archive/` with a short reason recorded in `projecttracking.md` or a run artifact.
 
 ---
 
@@ -211,7 +211,7 @@ Every development session MUST follow this checklist:
 6. **Implement on Branch & Verify** (`python3 bin/validator.py --all` + task-specific tests).
 7. **Verification Gate Decision** — apply/promotion is allowed only after required checks pass.
 8. **Audit Gate** (diff + validator output + summary).
-9. **Sync State** (`projecttracking.md`, `CHANGELOG.md`, `BUGS.md`).
+9. **Sync State** (`projecttracking.md`, `BUGS.md`, `BUGS-resolved.md`, and root `CHANGELOG.md` only when the public version changes).
 10. **Branch Finalization** (promote approved, verified branch to target, then delete or archive branch).
 11. **Lock & Journal** (`handshake.py --revoke` and `init_state.py`).
 
@@ -222,10 +222,12 @@ Every development session MUST follow this checklist:
 To eliminate state drift across governance files, workflow ownership is strict:
 
 1. `projecttracking.md` is the only canonical task ledger.
-2. Every active task row MUST include: `Task ID`, `Type`, `Status`, `Owner`, `Branch`, `Updated`, `Links`, `Acceptance`.
+2. Every active task row MUST include: `Task ID`, `Type`, `Title`, `Status`, `Owner`, `Branch`, `Updated`, `Links`, `Last Backup SHA/File`, and `Acceptance`.
 3. `BUGS.md` is an active bug registry only. Every OPEN/PARTIAL bug MUST include a `Task:` link to a task ID in `projecttracking.md`.
 4. `BUGS-resolved.md` is an archive-only registry for resolved/completed/superseded bugs. New bug entries MUST NOT be logged there.
-5. `python3 bin/validator.py --all` MUST fail when:
+5. Root `CHANGELOG.md` is a public-facing release log only. It is updated on version changes and is not canonical governance state.
+6. Handoff files such as `NEXT_SESSION.md`, `SESSION-HANDOFF`, or ad hoc session ledgers are prohibited. The ledger update is the handoff.
+7. `python3 bin/validator.py --all` MUST fail when:
    - any OPEN/PARTIAL P0/P1 bug lacks a linked task ID,
    - linked task ID does not exist in `projecttracking.md`.
 
@@ -275,38 +277,41 @@ Every task in Stage 1.5 generates an **Entropy Score** via the Assumption Ledger
 Every version change — whether proposed by an agent or requested by the human — follows this sequence without exception.
 
 ### 17A. Version Number Scheme
-MBO uses `0.VM.BUILD` where:
+MBO task/version lanes follow the canonical task numbering scheme defined in [`VERSIONING.md`](./VERSIONING.md).
 
-- **0** — stability epoch. Never changed without explicit human direction.
-- **V** — major version (tens digit of middle segment). Each major version represents a product-level milestone:
-  - V1 = `1x` (e.g. `0.11.x` = V1 module 1 — Milestone 1.1 hardening)
-  - V2 = `2x` (e.g. `0.2.x` = auto-run script, single module)
-  - V3 = `3x` (e.g. `0.3.x` = TUI, single module)
-  - V4 = `4x` (e.g. `0.41.x`, `0.42.x` = V4 module 1, module 2…)
-- **M** — module number within the major version (ones digit of middle segment). Single-module versions use `0` or omit (e.g. `0.3.01`). Multi-module versions (V4+) enumerate modules explicitly: `0.41.x`, `0.42.x`.
-- **BUILD** — patch/build counter within the current VM series. Carries forward within a series; resets to `01` when V or M increments.
+Canonical task ID shape:
+- `v0.LL.NN`
+- `LL` = two-digit lane/module identifier
+- `NN` = zero-padded task sequence within that lane
+
+Rules:
+- `v1.x` task lanes are invalid in this repo. Internal governance/task work remains under `v0.*` lanes.
+- The sequence after the second decimal resets per lane. Example: `v0.13.01`, `v0.13.02`, then separately `v0.14.01`.
+- A task or bug is assigned to the lane that matches the subsystem/module it modifies. It does not automatically inherit the highest currently visible release series.
 
 ### 17A.1. Version Lane Assignment Rule
-Version series are assigned by subsystem, not by whichever series is currently most visible in the repo:
+Use the lane definitions in [`VERSIONING.md`](./VERSIONING.md). In summary:
 
 - `0.11.x` — milestone-1.1 hardening, cleanup, backports, bug fixes, runtime reliability corrections, onboarding/root/bootstrap fixes, and other stabilization work against functionality already introduced in earlier modules.
-- `0.12.x` — new V1 module work for graph/runtime intelligence refinement, including graph-server capability expansion, context-assembly upgrades, metadata/knowledge-pack behavior, and other net-new backend functionality that extends rather than merely hardens prior lanes.
+- `0.12.x` — graph/runtime intelligence refinement and related backend capability work.
+- `0.13.x` — proprietary boundary, governance-scope, setup/config policy, and related boundary-definition work.
+- `0.14.x` — operator logic, DID chooser/routing, tiebreakers, blast-radius policy, human-in-the-loop gates, and other execution-flow logic.
+- `0.15.x` — cleanup/hardening module tasks explicitly defined in the V4 cleanup gate.
+- `0.16.x` — CYNIC tax / per-session maintenance workflow design.
 - `0.2.x` — scripting, workflow audit, automation, artifact generation, and auto-run tooling.
 - `0.3.x` — TUI, operator-facing terminal UX, panel behavior, overlays, visual state, and other Ink/UI work.
-- `0.4.x` — multithreading, concurrency orchestration, parallel execution coordination, and future thread-management work.
-
-A task or bug is assigned to the lane that matches the subsystem it modifies. It does not automatically inherit the highest current release series.
+- `0.4.x` / `0.41.x+` — V4 gate/release and post-gate module work as explicitly defined.
 
 ### 17A.2. Bug Identity Rule
 Bug serial numbers are global, monotonic, and immutable. Historical bugs must not be renumbered.
 
 - `BUG-001` through `BUG-184` are legacy-format bug records and remain valid as written.
-- Starting with `BUG-185`, new bug entries use dual identification: immutable serial plus version-scoped task/lane, written as `BUG-### / vX.Y.ZZ`.
+- Starting with `BUG-185`, new bug entries use dual identification: immutable serial plus version-scoped task/lane, written as `BUG-### / v0.LL.NN`.
 - The serial remains the canonical bug number. The version tag records the target work lane.
-- New bug entries in `BUGS.md`, `BUGS-resolved.md`, `projecttracking.md`, and session handoff documents must preserve both identifiers consistently.
+- New bug entries in `BUGS.md`, `BUGS-resolved.md`, and `projecttracking.md` must preserve both identifiers consistently.
 
 ### 17B. Before Proposing a Version Bump
-1. Read `CHANGELOG.md` to find the most recent version entry.
+1. Read the root `CHANGELOG.md` to find the most recent public version entry.
 2. Read `package.json` to check what version is currently deployed.
 3. If they differ, flag the discrepancy to the human before proceeding — never silently accept either.
 4. Propose the new version number with explicit reasoning: which feature/milestone justifies the MAJOR increment, and what the BUILD segment will be.
@@ -315,13 +320,13 @@ Bug serial numbers are global, monotonic, and immutable. Historical bugs must no
 ### 17C. Applying the Bump (only after human confirms version)
 Apply all of the following atomically in one commit:
 1. `package.json` — update `"version"` field.
-2. `CHANGELOG.md` — prepend a new `## [X.XX.XX] — YYYY-MM-DD — FeatureName (v.N)` entry with a complete feature summary.
+2. Root `CHANGELOG.md` — prepend a new `## [X.XX.XX] — YYYY-MM-DD — FeatureName` entry with concise public-facing release notes.
 3. Any in-app version display (e.g. `StatusBar` reads `pkg.version` — no separate update needed as long as `package.json` is correct).
 
 ### 17D. If the Human Changes Their Mind Mid-Bump
 If the human revises the target version number after a bump has been proposed or partially applied:
 1. Immediately stop and revert any partial file changes.
-2. Document the version change decision in `CHANGELOG.md` under the new entry: add a `### Version History` sub-block noting the originally proposed number, the revised number, and the reason given.
+2. Document the version change decision in the root `CHANGELOG.md` under the new entry if the public release note has already been drafted.
 3. Re-apply the bump with the corrected number.
 
 ### 17E. Compound Version Tag Notation
@@ -335,21 +340,20 @@ e.g.  0.3.01_0.2.03
 Rules:
 - **Primary** (left of `_`) is the highest active series version. This is what `package.json` stores and what the StatusBar displays.
 - **Compound** (right of `_`) lists all co-released patches from older series, underscore-separated if more than one (e.g. `0.3.02_0.2.04_0.1.07`).
-- The compound tag appears in: `package.json` `"version"` field, `CHANGELOG.md` entry header, `projecttracking.md` task IDs, handoff documents, and any version display in the UI.
+- The compound tag appears in: `package.json` `"version"` field, root `CHANGELOG.md` entry headers, and any version display in the UI.
 - If a release has no cross-series patches, the underscore and suffix are omitted — plain `0.3.02`.
 - npm semver does not enforce this format for local packages; this is an MBO convention and will not break install or publish.
 
 ### 17F. Patching an Older Version Series (Backport Rule)
 Work on an older version series (e.g. fixing the v2 auto-run script while the project is on v3) is handled as follows:
 
-1. **CHANGELOG** — add a new entry in the older series (e.g. `[0.2.03]`) dated at the actual date of the work. Entries in CHANGELOG are in reverse-chronological date order, so this entry appears above any earlier v2 entries but below the current v3 entries.
-2. **package.json** — NEVER regress. It stays at the current highest deployed version. `package.json` represents what is running now, not the series being patched.
-3. **Task ID** — use the older series task ID (e.g. `v0.2.03`) in `projecttracking.md`.
-4. **Bug label** — if a new bug is logged for that backport lane, record it using the immutable bug serial plus the backport task/version (for example `BUG-185 / v0.2.04`).
-5. **Confirmation** — the human must explicitly confirm which series a patch targets before the BUILD counter is incremented. Ambiguous requests default to the current version series.
+1. **Governance state** — record the work in `projecttracking.md`, `BUGS.md`, and `BUGS-resolved.md` using the appropriate older-series task IDs and bug labels.
+2. **package.json** — NEVER regress. It stays at the current highest deployed version. `package.json` represents what is running now, not the older lane being patched internally.
+3. **Public changelog** — add or update a root `CHANGELOG.md` entry only if the shipped public version changes.
+4. **Confirmation** — the human must explicitly confirm which series a patch targets before the BUILD counter is incremented. Ambiguous requests default to the current version series.
 
 ### 17G. Version Drift is a Bug
-`package.json` version must always match the most recent `CHANGELOG.md` entry. Any session that leaves these out of sync has introduced a bug. File it in `BUGS.md` as P1 and link it to a task in `projecttracking.md` before closing.
+`package.json` version must always match the most recent root `CHANGELOG.md` entry. Any session that leaves these out of sync has introduced a bug. File it in `BUGS.md` as P1 and link it to a task in `projecttracking.md` before closing.
 
 ---
 
@@ -363,6 +367,6 @@ Work on an older version series (e.g. fixing the v2 auto-run script while the pr
 
 **After v0.4.0 ships:** The active development series becomes `v0.41.x` (Module 1). Tasks in `v0.41.x` are created from what surfaces after the public demo — not from internal testing before it. Internal testing before `v0.4.0` produces `v0.11.x`, `v0.2.x`, or `v0.3.x` bugs per normal lane assignment.
 
-**Version artifacts:** `v0.4.0` appears in `package.json` and `CHANGELOG.md` as the release version. It carries no BUILD counter suffix.
+**Version artifacts:** `v0.4.0` appears in `package.json` and the root `CHANGELOG.md` as the release version. It carries no BUILD counter suffix.
 
-*Last updated: 2026-03-23 — Added §17H Demo Launch Designator v0.4.0; lane-assignment rules, dual bug/version labeling from BUG-185 forward, and required pre-push governance reconciliation remain in force. Versioning scheme remains 0.VM.BUILD where V=major version (tens), M=module (ones).*
+*Last updated: 2026-03-24 — Restored lane-reset task numbering via VERSIONING.md, clarified `v1.x` task lanes are invalid, and preserved per-lane governance assignment rules.*

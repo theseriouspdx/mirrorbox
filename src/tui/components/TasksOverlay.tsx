@@ -346,7 +346,6 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
         setRefreshTick((value) => value + 1);
         setCreateMessage(`Wrote ${task.id} to projecttracking.md.`);
         setMode('list');
-        setShowRecent(false);
         setSelectedIndex(0);
         setSelectedTaskId(task.id);
       } catch (error: any) {

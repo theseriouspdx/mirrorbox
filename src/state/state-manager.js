@@ -73,10 +73,10 @@ class StateManager {
   }
 
   /**
-   * Section 17: Session Handoff
-   * Triggers the session-close script to generate timestamped handoff artifacts and backups.
+   * Section 17: Session State Sync
+   * Triggers the session-close script to persist canonical ledger state and backups.
    */
-  generateHandoff() {
+  finalizeSessionState() {
     const { spawnSync } = require('child_process');
     const scriptPath = path.join(getControllerRoot(), 'scripts/mbo-session-close.sh');
     const result = spawnSync('bash', [scriptPath], {
@@ -84,13 +84,13 @@ class StateManager {
       env: { ...process.env, MBO_PROJECT_ROOT: getRuntimeRoot() }
     });
     if (result.error || result.status !== 0) {
-      console.error(`[StateManager] Handoff failed: ${result.error || result.status}`);
+      console.error(`[StateManager] Session close failed: ${result.error || result.status}`);
     }
   }
 
   /**
    * Section 17: Recovery
-   * Reconstruct current session state from DB if handoff is missing.
+   * Reconstruct current session state from DB if clean session-close sync did not complete.
    */
   recover() {
     const snap = db.get(

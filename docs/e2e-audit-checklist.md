@@ -84,10 +84,10 @@
 
 | Check | Status | Evidence |
 |---|---|---|
-| `CHANGELOG.md` updated with task and acceptance evidence | ✅ REAL | CHANGELOG reflects v0.3.22, v0.11.185, v0.3.21 and prior sprint entries |
+| `CHANGELOG.md` updated when version changed | ✅ REAL | Public release notes reflect shipped version entries only |
 | `projecttracking.md` status updated | ✅ REAL | v0.11.182 COMPLETED, v0.11.187 added, Next Task → v0.2.04 (this session) |
 | `BUGS.md`/`BUGS-resolved.md` updated per workflow rules | ✅ REAL | BUG-194 has Task: v0.11.187; BUG-187 open with task link v0.2.05 |
-| Active governance snapshot reference recorded | ✅ REAL | Session handoff written to `.dev/sessions/HANDOFF_20260323_SESSION_END.md` |
+| Active governance state recorded in canonical ledgers | ✅ REAL | `projecttracking.md` + bug ledgers capture task state without handoff sidecars |
 
 **Section 4 Verdict:** PASS (4/4)
 
@@ -98,16 +98,16 @@
 | Check | Status | Evidence |
 |---|---|---|
 | **Authorized:** all mutations explicitly approved | ✅ PASS | Every task in this milestone had human `go` in session logs; no autonomous writes |
-| **Auditable:** full trace req → change → verification → decision | ✅ PASS | projecttracking.md + BUGS.md + session handoffs form continuous chain; test suite 22/22 green at HEAD |
+| **Auditable:** full trace req → change → verification → decision | ✅ PASS | projecttracking.md + BUGS.md + commits form the continuous chain; test suite 22/22 green at HEAD |
 | **Aligned:** output conforms to Prime Directive + Section 22 invariants | ✅ PASS | No src/ writes without approved task; all governance docs updated at close |
-| **Reproducible:** another operator can rerun from artifacts | ✅ PASS | `bin/validator.py --all`, `git log`, session handoffs, and this checklist together constitute a reproducible audit trail |
+| **Reproducible:** another operator can rerun from artifacts | ✅ PASS | `bin/validator.py --all`, `git log`, canonical governance docs, and this checklist together constitute a reproducible audit trail |
 
 `NON_HALLUCINATION_PROOF=CONFIRMED`
 
 **Reasoning:** The claim that Milestone 1.1 hardening work is complete is supported by:
 1. 22/22 test scripts pass `bin/validator.py` as of HEAD e42fb5d
 2. All BUG-152 through BUG-198 have task links in projecttracking.md
-3. Session handoffs from 2026-03-19 through 2026-03-23 form a continuous documented chain
+3. Canonical governance docs plus git history form the continuous documented chain
 4. No OPEN P0 bugs exist in BUGS.md
 5. All feature tasks for TUI v.3, DID protocol, MCP hardening, and governance canonicalization are COMPLETED
 
@@ -145,7 +145,7 @@
 - **Score Total:** 96 / 100
 - **Blocking Findings:** None — no P0 bugs; all sprint tasks tracked
 - **Waivers:**
-  - DID H24 v2 diff: pending H28 (persistent operator loop) before apply — documented in session handoff
+  - DID H24 v2 diff: pending H28 (persistent operator loop) before apply — tracked in canonical governance docs
   - Sandbox (§16), VS Code extension (§3 Milestone 0.11), V4 multithreading (§38): post-1.1 scope, not waivers against 1.1 acceptance criteria
 - **Approved by:** claude (v0.2.04 audit run)
 - **Date/Time (PT):** 2026-03-23

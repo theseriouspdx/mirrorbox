@@ -105,7 +105,7 @@ export function StatsPanel({ stage, stats, filesInScope, auditPending, activeMod
       ) : null}
 
       <Box flexGrow={1} />
-      <Text color={C.purple} dimColor>/token for full statistics</Text>
+      <Text color={C.purple} dimColor>/tm for session + project statistics</Text>
     </Box>
   );
 }

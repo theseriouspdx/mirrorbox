@@ -284,7 +284,7 @@ function buildGovernanceChecks(root, taskId) {
     '.dev/governance/AGENTS.md',
     '.dev/governance/projecttracking.md',
     '.dev/governance/BUGS.md',
-    '.dev/governance/CHANGELOG.md',
+    'CHANGELOG.md',
     'docs/e2e-audit-checklist.md',
   ];
 
@@ -330,7 +330,7 @@ function buildGovernanceChecks(root, taskId) {
         '| | | | | |',
         '',
         '## 4) Verification Phase Audit (Post-Build)',
-        '- [ ] `CHANGELOG.md` updated with task and acceptance evidence',
+        '- [ ] If `package.json` version changed, root `CHANGELOG.md` updated with concise public release notes',
         '- [ ] `projecttracking.md` status updated',
         '- [ ] `BUGS.md`/`BUGS-resolved.md` updated per workflow rules',
         '- [ ] Active governance snapshot reference recorded',
@@ -499,7 +499,7 @@ function appendGovernanceFindings(root, findings) {
     '- Issue resolved and workflow audit passes on rerun.',
   ].join('\n'));
 
-  const taskRows = assigned.map((finding) => `| ${finding.taskId} | bug | ${sanitizeTableCell(finding.title)} | READY | unassigned | - | ${date} | BUG-${finding.bugNo} | Issue resolved and workflow audit passes on rerun. |`);
+  const taskRows = assigned.map((finding) => `| ${finding.taskId} | bug | ${sanitizeTableCell(finding.title)} | READY | unassigned | - | ${date} | BUG-${finding.bugNo} | - | Issue resolved and workflow audit passes on rerun. |`);
 
   const updatedBugs = bugsText
     .replace(/(\*\*Next bug number:\*\*\s*BUG-)(\d+)/i, `$1${bugNo}`)
@@ -563,7 +563,7 @@ function buildCommandChecks(root, args) {
   if (args.pushAlpha) {
     const alphaRoot = path.resolve(args.alphaRoot);
     const alphaLogsDir = path.join(alphaRoot, '.mbo', 'logs');
-    const mirrorLogsDir = path.join(root, '.dev', 'sessions', 'analysis');
+    const mirrorLogsDir = path.join(root, '.mbo', 'logs', 'alpha-e2e-mirror');
     const mirrorConfig = path.join(root, '.mbo', 'config.json');
     const alphaConfig = path.join(alphaRoot, '.mbo', 'config.json');
 

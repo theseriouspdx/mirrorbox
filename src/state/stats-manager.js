@@ -286,20 +286,6 @@ class StatsManager {
     }
   }
 
-  /**
-   * v0.2.05: Canonical routing savings — counterfactual (all → most expensive model) minus actual.
-   * This is the primary savings story: smart routing saved $X vs always using the premier model.
-   * Delegates to db.getCostRollup() which computes this correctly via per-token rate comparison.
-   */
-  getRoutingSavings() {
-    try {
-      const db = require('./db-manager');
-      return db.getCostRollup();
-    } catch (_) {
-      return { byModel: [], actualCost: 0, counterfactualCost: 0, routingSavings: 0, maxRateModel: 'unknown', totalCalls: 0 };
-    }
-  }
-
   getCarbonImpact(scope = 'lifetime') {
     const totals = this.getTotals(scope);
     const tokensAvoided = Math.max(0, totals.notOptimized - totals.optimized);

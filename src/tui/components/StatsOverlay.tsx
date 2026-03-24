@@ -45,6 +45,7 @@ export function StatsOverlay({ stats, onClose }: Props) {
   const l = getTotals('lifetime', stats);
   const lSavings = l.rawCostEst - l.costEst;
   const co2 = ((Math.max(0, l.notOptimized - l.optimized)) / 1000) * 0.1;
+  const sessionCount = Math.max(0, (stats.sessions || 0) - 1);
 
   // v0.2.05: routing savings — counterfactual (all → most expensive model) minus actual
   let rollup: { actualCost: number; counterfactualCost: number; routingSavings: number; maxRateModel: string; totalCalls: number } | null = null;
@@ -57,8 +58,8 @@ export function StatsOverlay({ stats, onClose }: Props) {
   return (
     <Box flexDirection="column" paddingX={2} paddingY={1} borderStyle="double" borderColor={C.teal} flexGrow={1}>
       <Box justifyContent="space-between">
-        <Text bold color={C.teal}>TOKENMISER — Statistics</Text>
-        <Text color={C.teal} dimColor>[SHIFT+T] or [/token] to close</Text>
+        <Text bold color={C.teal}>TOKENMISER — Session + Project</Text>
+        <Text color={C.teal} dimColor>[SHIFT+T] or [/tm] to close</Text>
       </Box>
       <Text color={C.teal} dimColor>{SEP}</Text>
 
@@ -76,7 +77,7 @@ export function StatsOverlay({ stats, onClose }: Props) {
       {ROW('tool context tokens',      fmtTokens(s.toolTokens),                           C.white)}
       <Text color={C.teal} dimColor>{SEP}</Text>
 
-      <Text bold color={C.white}>LIFETIME ({stats.sessions} sessions)</Text>
+      <Text bold color={C.white}>PROJECT ({sessionCount} completed sessions + current)</Text>
       {ROW('tokens (smart-routed)',    fmtTokens(l.optimized),                            'green')}
       {ROW('cost (smart-routed)',      fmtCost(l.costEst, 4),                             'green')}
       {ROW('compression savings est.', `${fmtCost(lSavings, 4)} (${pct(l.costEst, l.rawCostEst)} off)`, 'green')}

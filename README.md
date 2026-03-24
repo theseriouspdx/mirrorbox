@@ -64,7 +64,7 @@ node ./scripts/mcp_query.js graph_search "open tasks"
 
 - `AGENTS.md`: Binding protocol for agent behavior
 - `.dev/governance/projecttracking.md`: Authoritative task queue
-- `.dev/governance/CHANGELOG.md`: Historical change log
+- `CHANGELOG.md`: Public release notes (minimal, non-canonical)
 
 ---
 

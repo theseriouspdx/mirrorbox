@@ -12,7 +12,7 @@ import { StatsPanel } from './components/StatsPanel.js';
 import { StatsOverlay } from './components/StatsOverlay.js';
 import { TasksOverlay, type TaskActivationPayload } from './components/TasksOverlay.js';
 import { InputBar } from './components/InputBar.js';
-import { parseTaskLedger } from './governance.js';
+import { parseTaskLedger, readGovernanceSummary } from './governance.js';
 
 import {
   type MboStage,
@@ -72,6 +72,20 @@ function newId(): string {
 type OverlayMode = 'tasks' | 'docs' | 'create' | null;
 type StageUsageMap = Record<string, { model?: string; tokens?: number }>;
 
+const BUG_AUDIT_COMMANDS = new Set([
+  '/bugs',
+  'bugs',
+  'bugs list',
+  'bug list',
+  'examine the codebase',
+  'examine the codebase and return a result',
+]);
+
+function isBugAuditCommand(value: string): boolean {
+  const normalized = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return BUG_AUDIT_COMMANDS.has(normalized);
+}
+
 export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -125,22 +139,38 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
   // Startup task surface — on mount, show top active tasks from projecttracking.md (BUG-189)
   useEffect(() => {
     try {
+      const summary = readGovernanceSummary(projectRoot);
       const ledger = parseTaskLedger(projectRoot);
+      const lines: string[] = [];
+
+      if (!summary.taskRowCount) {
+        appendOperator('Governance ledger missing. Use /newtask, /docs, or onboarding to create source docs.');
+        return;
+      }
+
+      lines.push('─── Projecttracking ───────────────────────────');
+      if (summary.nextTask) {
+        const nextTask = ledger.active.find((task) => task.id === summary.nextTask);
+        if (nextTask) lines.push(`  Next Task: ${summary.nextTask}  ${nextTask.title.slice(0, 52)}${nextTask.title.length > 52 ? '…' : ''}`);
+        else lines.push(`  Next Task: ${summary.nextTask}`);
+      }
+
       if (ledger.active.length > 0) {
         const top = ledger.active.slice(0, 3);
-        const lines = ['─── Active Tasks ───────────────────────────────'];
         for (const t of top) {
           lines.push(`  [${t.status}] ${t.id}  ${t.title.slice(0, 60)}${t.title.length > 60 ? '…' : ''}`);
         }
         if (ledger.active.length > 3) lines.push(`  … and ${ledger.active.length - 3} more — type /tasks to view all`);
-        lines.push('────────────────────────────────────────────────');
-        lines.forEach(appendOperator);
+      } else {
+        lines.push('  No active tasks in the selected governance ledger.');
       }
+      lines.push(`  Ledger: ${summary.governanceDir}`);
+      lines.push('────────────────────────────────────────────────');
+      lines.forEach(appendOperator);
     } catch {
       // governance not available — silent, not a fatal error
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [appendOperator, projectRoot]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -305,15 +335,30 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       setStatsOverlay(true);
       return;
     }
-    if (lower === '/token' || lower === 'token' || lower === '/tm' || lower === 'tm') {
+    if (isBugAuditCommand(lower)) {
+      setPipelineRunning(true);
+      appendOperator('[BUG AUDIT] Running deterministic local audit...');
       try {
         const _require = createRequire(import.meta.url);
-        const tmDashboard = _require('../cli/tokenmiser-dashboard.js');
-        const output = tmDashboard.renderTmCommand();
-        output.split('\n').forEach((line: string) => appendOperator(line));
+        const { runBugAudit } = _require('../cli/bug-audit.js');
+        const result = runBugAudit({ projectRoot });
+        appendOperator(`[BUG AUDIT] ${result.summaryLine}`);
+        appendOperator(`[BUG AUDIT] bugs.md → ${result.bugsReportPath}`);
+        appendOperator(`[BUG AUDIT] bugsresolved.md → ${result.resolvedReportPath}`);
+        if (result.findings.length > 0) {
+          result.findings.slice(0, 5).forEach((finding: any) => {
+            appendOperator(`[BUG AUDIT] [${finding.severity}] ${finding.title} — ${finding.details}`);
+          });
+        }
       } catch (err: any) {
-        appendOperator('[TM ERROR] ' + (err?.message || String(err)));
+        appendOperator('[BUG AUDIT ERROR] ' + (err?.message || String(err)));
+      } finally {
+        setPipelineRunning(false);
       }
+      return;
+    }
+    if (lower === '/token' || lower === 'token' || lower === '/tm' || lower === 'tm') {
+      setStatsOverlay(true);
       return;
     }
     if (lower === 'tasks' || lower === '/tasks') {
@@ -383,8 +428,10 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
     }
     if (lower === '/projecttracking' || lower === '/tasks next' || lower === 'next task') {
       try {
+        const summary = readGovernanceSummary(projectRoot);
         const ledger = parseTaskLedger(projectRoot);
         const next = ledger.active[0];
+        if (summary.nextTask) appendOperator(`Next Task header: ${summary.nextTask}`);
         if (next) {
           appendOperator(`Next task: [${next.status}] ${next.id} — ${next.title}`);
           if (next.acceptance) appendOperator(`Acceptance: ${next.acceptance.slice(0, 120)}${next.acceptance.length > 120 ? '…' : ''}`);

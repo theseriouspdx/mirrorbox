@@ -13,6 +13,7 @@ export interface TaskRecord {
   branch: string;
   updated: string;
   links: string;
+  backupRef: string;
   acceptance: string;
   description?: string;
   bugAcceptance?: string;
@@ -39,17 +40,72 @@ export interface TaskActivationInput {
   additionalFiles?: string[];
 }
 
+export interface GovernanceSummary {
+  governanceDir: string;
+  projecttrackingPath: string;
+  currentMilestone: string;
+  currentVersion: string;
+  nextTask: string;
+  taskRowCount: number;
+  bootstrap: boolean;
+}
+
 export type GovernanceDocKey = 'projecttracking' | 'bugs' | 'bugs-resolved' | 'changelog';
 
-const GOVERNANCE_FILENAMES: Array<{ key: GovernanceDocKey; title: string; filename: string }> = [
-  { key: 'projecttracking', title: 'projecttracking.md', filename: 'projecttracking.md' },
-  { key: 'bugs', title: 'BUGS.md', filename: 'BUGS.md' },
-  { key: 'bugs-resolved', title: 'BUGS-resolved.md', filename: 'BUGS-resolved.md' },
-  { key: 'changelog', title: 'CHANGELOG.md', filename: 'CHANGELOG.md' },
+const GOVERNANCE_FILENAMES: Array<{ key: GovernanceDocKey; title: string; filename: string; scope: 'governance' | 'root' }> = [
+  { key: 'projecttracking', title: 'projecttracking.md', filename: 'projecttracking.md', scope: 'governance' },
+  { key: 'bugs', title: 'BUGS.md', filename: 'BUGS.md', scope: 'governance' },
+  { key: 'bugs-resolved', title: 'BUGS-resolved.md', filename: 'BUGS-resolved.md', scope: 'governance' },
+  { key: 'changelog', title: 'CHANGELOG.md', filename: 'CHANGELOG.md', scope: 'root' },
 ];
 
 function abs(projectRoot: string, relPath: string): string {
   return path.join(projectRoot, relPath);
+}
+
+function parseHeaderValue(text: string, label: string): string {
+  const escaped = escapeRegex(label);
+  const match = text.match(new RegExp(`^\\*\\*${escaped}:\\*\\*\\s*(.+)$`, 'im'));
+  return match ? match[1].trim() : '';
+}
+
+function countTaskRows(text: string): number {
+  return text
+    .split('\n')
+    .filter((line) => line.startsWith('|') && !/^\|[-\s|]+\|$/.test(line) && !/Task ID.*Type.*Title/i.test(line))
+    .length;
+}
+
+function isBootstrapGovernance(text: string, currentVersion: string, nextTask: string, taskRowCount: number): boolean {
+  if (!text) return false;
+  return (
+    currentVersion === '0.1.00'
+    && nextTask === 'v0.1.01'
+    && /Bootstrap governance ledger/i.test(text)
+    && taskRowCount <= 1
+  );
+}
+
+function summarizeGovernanceDir(governanceDir: string): GovernanceSummary | null {
+  const projecttrackingPath = path.join(governanceDir, 'projecttracking.md');
+  const text = readText(projecttrackingPath);
+  if (!text) return null;
+
+  const summary: GovernanceSummary = {
+    governanceDir,
+    projecttrackingPath,
+    currentMilestone: parseHeaderValue(text, 'Current Milestone'),
+    currentVersion: parseHeaderValue(text, 'Current Version'),
+    nextTask: parseHeaderValue(text, 'Next Task'),
+    taskRowCount: countTaskRows(text),
+    bootstrap: false,
+  };
+  summary.bootstrap = isBootstrapGovernance(text, summary.currentVersion, summary.nextTask, summary.taskRowCount);
+  return summary;
+}
+
+function isCompletedStatus(status: string): boolean {
+  return /^(COMPLETED|DONE|FIXED|CLOSED|RESOLVED)\b/i.test(String(status || '').trim());
 }
 
 /**
@@ -61,11 +117,34 @@ function abs(projectRoot: string, relPath: string): string {
 export function findGovernanceDir(projectRoot: string): string {
   const mboDir = path.join(projectRoot, '.mbo', 'governance');
   const devDir = path.join(projectRoot, '.dev', 'governance');
-  if (fs.existsSync(path.join(mboDir, 'projecttracking.md'))) return mboDir;
-  if (fs.existsSync(path.join(devDir, 'projecttracking.md'))) return devDir;
+  const mboSummary = summarizeGovernanceDir(mboDir);
+  const devSummary = summarizeGovernanceDir(devDir);
+
+  if (mboSummary && devSummary) {
+    if (mboSummary.bootstrap && !devSummary.bootstrap) return devDir;
+    if (devSummary.bootstrap && !mboSummary.bootstrap) return mboDir;
+    return mboDir;
+  }
+  if (mboSummary) return mboDir;
+  if (devSummary) return devDir;
   // Default to .mbo/governance for runtime projects (will be created on first write)
   if (fs.existsSync(path.join(projectRoot, '.mbo'))) return mboDir;
   return devDir;
+}
+
+export function readGovernanceSummary(projectRoot: string): GovernanceSummary {
+  const governanceDir = findGovernanceDir(projectRoot);
+  const summary = summarizeGovernanceDir(governanceDir);
+  if (summary) return summary;
+  return {
+    governanceDir,
+    projecttrackingPath: path.join(governanceDir, 'projecttracking.md'),
+    currentMilestone: '',
+    currentVersion: '',
+    nextTask: '',
+    taskRowCount: 0,
+    bootstrap: false,
+  };
 }
 
 function readText(filePath: string): string {
@@ -199,7 +278,9 @@ export function buildTaskActivationPrompt(task: TaskRecord, input: TaskActivatio
 export function readGovernanceDocs(projectRoot: string): GovernanceDoc[] {
   const govDir = findGovernanceDir(projectRoot);
   return GOVERNANCE_FILENAMES.map((doc) => {
-    const docPath = path.join(govDir, doc.filename);
+    const docPath = doc.scope === 'root'
+      ? path.join(projectRoot, doc.filename)
+      : path.join(govDir, doc.filename);
     const text = readText(docPath);
     return {
       key: doc.key,
@@ -211,8 +292,9 @@ export function readGovernanceDocs(projectRoot: string): GovernanceDoc[] {
 }
 
 export function parseTaskLedger(projectRoot: string): { active: TaskRecord[]; recent: TaskRecord[] } {
-  const govDir = findGovernanceDir(projectRoot);
-  const ptPath = path.join(govDir, 'projecttracking.md');
+  const summary = readGovernanceSummary(projectRoot);
+  const govDir = summary.governanceDir;
+  const ptPath = summary.projecttrackingPath;
   const bugsText = readText(path.join(govDir, 'BUGS.md'));
   const resolvedText = readText(path.join(govDir, 'BUGS-resolved.md'));
   const ptText = readText(ptPath);
@@ -238,7 +320,7 @@ export function parseTaskLedger(projectRoot: string): { active: TaskRecord[]; re
     if (/^\|[-\s|]+\|$/.test(line) || /Task ID.*Type.*Title/i.test(line)) continue;
 
     const cols = parseTableRow(rawLine);
-    if (cols.length < 9) continue;
+    if (cols.length < 10) continue;
     const task: TaskRecord = {
       id: cols[0] || '',
       type: cols[1] || '',
@@ -248,7 +330,8 @@ export function parseTaskLedger(projectRoot: string): { active: TaskRecord[]; re
       branch: cols[5] || '',
       updated: cols[6] || '',
       links: cols[7] || '',
-      acceptance: cols[8] || '',
+      backupRef: cols[8] || '',
+      acceptance: cols[9] || '',
     };
     if (!task.id) continue;
 
@@ -264,7 +347,8 @@ export function parseTaskLedger(projectRoot: string): { active: TaskRecord[]; re
     task.specExcerpt = spec.excerpt || undefined;
     task.proposedFiles = spec.files;
 
-    if (section === 'active') active.push(task);
+    const targetSection = section === 'active' && isCompletedStatus(task.status) ? 'recent' : section;
+    if (targetSection === 'active') active.push(task);
     else recent.push(task);
   }
 
@@ -274,6 +358,11 @@ export function parseTaskLedger(projectRoot: string): { active: TaskRecord[]; re
 export function deriveNextTaskId(projectRoot: string, lane: string): string {
   const ptText = readText(path.join(findGovernanceDir(projectRoot), 'projecttracking.md'));
   const normalizedLane = lane.trim().replace(/^v/, '');
+  const nextTaskHeader = parseHeaderValue(ptText, 'Next Task');
+  const headerMatch = nextTaskHeader.match(new RegExp(`^v${escapeRegex(normalizedLane)}\\.(\\d+)$`));
+  if (headerMatch && !ptText.includes(`| ${nextTaskHeader} |`)) {
+    return nextTaskHeader;
+  }
   const matches = [...ptText.matchAll(new RegExp(`\\bv${escapeRegex(normalizedLane)}\\.(\\d+)\\b`, 'g'))]
     .map((m) => Number(m[1]))
     .filter((n) => Number.isFinite(n));
@@ -286,7 +375,7 @@ export function appendTaskRecord(projectRoot: string, task: TaskRecord): void {
   const text = readText(ptPath);
   if (!text) throw new Error('projecttracking.md is missing');
 
-  const row = `| ${task.id} | ${task.type} | ${task.title} | ${task.status} | ${task.owner} | ${task.branch || '-'} | ${task.updated} | ${task.links || '-'} | ${task.acceptance} |`;
+  const row = `| ${task.id} | ${task.type} | ${task.title} | ${task.status} | ${task.owner} | ${task.branch || '-'} | ${task.updated} | ${task.links || '-'} | ${task.backupRef || '-'} | ${task.acceptance} |`;
   const marker = '\n---\n\n## Recently Completed';
   const index = text.indexOf(marker);
   if (index === -1) throw new Error('Could not find insertion point for Active Tasks');
@@ -309,6 +398,7 @@ export function createTaskFromDraft(projectRoot: string, draft: TaskDraftInput):
     branch: '-',
     updated: new Date().toISOString().slice(0, 10),
     links: '-',
+    backupRef: '-',
     acceptance: draft.acceptance.trim(),
   };
 }

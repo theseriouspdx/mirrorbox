@@ -3,8 +3,9 @@
 /**
  * test-tui-governance-task-creation.js
  *
- * Verifies TUI governance task creation does not pre-assign owners and
- * derives the next lane-scoped task id from the highest existing suffix.
+ * Verifies TUI governance helpers choose the real governance ledger,
+ * hide completed rows from the active task surface, do not pre-assign owners,
+ * and derive the next lane-scoped task id from the highest existing suffix.
  */
 
 const assert = require('assert');
@@ -40,18 +41,20 @@ fs.writeFileSync(path.join(governanceDir, 'BUGS-resolved.md'), '# BUGS-resolved\
 fs.writeFileSync(path.join(governanceDir, 'CHANGELOG.md'), '# CHANGELOG\n', 'utf8');
 fs.writeFileSync(path.join(governanceDir, 'projecttracking.md'), [
   '# projecttracking.md',
+  '**Current Version:** 0.3.24',
+  '**Next Task:** v0.3.24',
   '## Active Tasks',
-  '| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |',
-  '|---|---|---|---|---|---|---|---|---|',
-  '| v0.3.01 | bug | Already burned task id | COMPLETED | claude | - | 2026-03-20 | BUG-178 | historical |',
-  '| v0.3.10 | bug | Existing TUI task | COMPLETED | claude | - | 2026-03-20 | BUG-183 | historical |',
-  '| v0.3.23 | bug | Latest TUI task | COMPLETED | claude | - | 2026-03-23 | BUG-196 | historical |',
+  '| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Last Backup SHA/File | Acceptance |',
+  '|---|---|---|---|---|---|---|---|---|---|',
+  '| v0.3.01 | bug | Already burned task id | COMPLETED | claude | - | 2026-03-20 | BUG-178 | - | historical |',
+  '| v0.3.10 | bug | Existing TUI task | COMPLETED | claude | - | 2026-03-20 | BUG-183 | - | historical |',
+  '| v0.3.23 | bug | Latest TUI task | COMPLETED | claude | - | 2026-03-23 | BUG-196 | - | historical |',
   '',
   '---',
   '',
   '## Recently Completed',
-  '| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |',
-  '|---|---|---|---|---|---|---|---|---|',
+  '| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Last Backup SHA/File | Acceptance |',
+  '|---|---|---|---|---|---|---|---|---|---|',
 ].join('\n'), 'utf8');
 
 function transpileGovernanceModule(source) {
@@ -83,7 +86,7 @@ function transpileGovernanceModule(source) {
   // Use a targeted list of types to avoid matching colons in object literals/ternaries.
   const knownTypes = [
     'string', 'number', 'boolean', 'any', 'void', 'null',
-    'TaskRecord', 'GovernanceDoc', 'TaskDraftInput', 'TaskActivationInput', 'GovernanceDocKey',
+    'TaskRecord', 'GovernanceDoc', 'TaskDraftInput', 'TaskActivationInput', 'GovernanceSummary', 'GovernanceDocKey',
     'Array', 'Set', "'active' \\| 'recent' \\| null"
   ];
   // Allow optional space before the terminal character in lookahead
@@ -93,7 +96,7 @@ function transpileGovernanceModule(source) {
   // 4. Strip 'as' assertions
   code = code.replace(/\s+as\s+[A-Za-z0-9_.]+/g, '');
 
-  return code + '\nmodule.exports = { deriveNextTaskId, createTaskFromDraft };\n';
+  return code + '\nmodule.exports = { findGovernanceDir, readGovernanceSummary, parseTaskLedger, deriveNextTaskId, createTaskFromDraft };\n';
 }
 
 function loadGovernanceHelpers() {
@@ -119,7 +122,31 @@ function loadGovernanceHelpers() {
 }
 
 try {
-  const { deriveNextTaskId, createTaskFromDraft } = loadGovernanceHelpers();
+  const runtimeGov = path.join(fixtureRoot, '.mbo', 'governance');
+  fs.mkdirSync(runtimeGov, { recursive: true });
+  fs.writeFileSync(path.join(runtimeGov, 'BUGS.md'), '# BUGS\n', 'utf8');
+  fs.writeFileSync(path.join(runtimeGov, 'BUGS-resolved.md'), '# BUGS-resolved\n', 'utf8');
+  fs.writeFileSync(path.join(runtimeGov, 'CHANGELOG.md'), '# CHANGELOG\n', 'utf8');
+  fs.writeFileSync(path.join(runtimeGov, 'projecttracking.md'), [
+    '# projecttracking.md',
+    '**Current Version:** 0.1.00',
+    '**Next Task:** v0.1.01',
+    '## Active Tasks',
+    '| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Last Backup SHA/File | Acceptance |',
+    '|---|---|---|---|---|---|---|---|---|---|',
+    '| v0.1.01 | docs | Bootstrap governance ledger | READY | unassigned | - | 2026-03-24 | - | - | bootstrap |',
+    '',
+    '---',
+    '',
+    '## Recently Completed',
+    '| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Last Backup SHA/File | Acceptance |',
+    '|---|---|---|---|---|---|---|---|---|---|',
+  ].join('\n'), 'utf8');
+
+  const { findGovernanceDir, readGovernanceSummary, parseTaskLedger, deriveNextTaskId, createTaskFromDraft } = loadGovernanceHelpers();
+  const governanceDirSelected = findGovernanceDir(fixtureRoot);
+  const summary = readGovernanceSummary(fixtureRoot);
+  const ledger = parseTaskLedger(fixtureRoot);
   const derived = deriveNextTaskId(fixtureRoot, '0.3');
   const created = createTaskFromDraft(fixtureRoot, {
     lane: '0.3',
@@ -128,12 +155,20 @@ try {
   });
 
   const payload = {
+    governanceDirSelected,
+    nextTaskHeader: summary.nextTask,
+    activeCount: ledger.active.length,
+    recentCount: ledger.recent.length,
     derived,
     createdId: created.id,
     createdOwner: created.owner,
     createdStatus: created.status,
   };
   const rows = [
+    { label: 'Governance dir', actual: payload.governanceDirSelected, expected: governanceDir },
+    { label: 'Next task header', actual: payload.nextTaskHeader, expected: 'v0.3.24' },
+    { label: 'Active task count', actual: String(payload.activeCount), expected: '0' },
+    { label: 'Recent task count', actual: String(payload.recentCount), expected: '3' },
     { label: 'Next 0.3.x task id', actual: payload.derived, expected: 'v0.3.24' },
     { label: 'Created task id', actual: payload.createdId, expected: 'v0.3.24' },
     { label: 'Created owner', actual: payload.createdOwner, expected: 'unassigned' },

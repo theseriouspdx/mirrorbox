@@ -81,7 +81,6 @@ if [[ "$DB_PATH" == "$DB_PATH_MBO" ]]; then
 else
   BACKUP_DIR="$ROOT_DIR/data/backups"
 fi
-SESSIONS_DIR="$ROOT_DIR/.dev/sessions"
 GOVERNANCE_DIR="$ROOT_DIR/.dev/governance"
 if [[ ! -d "$GOVERNANCE_DIR" && -d "$ROOT_DIR/.mbo/governance" ]]; then
   GOVERNANCE_DIR="$ROOT_DIR/.mbo/governance"
@@ -93,7 +92,66 @@ if [[ -z "$DB_PATH" || ! -f "$DB_PATH" ]]; then
 fi
 
 mkdir -p "$BACKUP_DIR"
-mkdir -p "$SESSIONS_DIR"
+
+prune_bak_retention() {
+  local bak_dir="$1"
+  local keep_count="${2:-10}"
+  [[ -d "$bak_dir" ]] || return 0
+  python3 - "$bak_dir" "$keep_count" <<'PY'
+import os, shutil, sys
+
+bak_dir = sys.argv[1]
+keep = int(sys.argv[2])
+entries = []
+for name in os.listdir(bak_dir):
+    path = os.path.join(bak_dir, name)
+    if name in {'.gitkeep', '.gitignore'}:
+        continue
+    try:
+        stat = os.stat(path)
+    except FileNotFoundError:
+        continue
+    entries.append((stat.st_mtime, path))
+
+entries.sort(reverse=True)
+for _, path in entries[keep:]:
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path)
+    else:
+        os.remove(path)
+PY
+}
+
+update_projecttracking_backup_refs() {
+  local tracking_file="$1"
+  local backup_sha="$2"
+  local backup_name="$3"
+  local snapshot_sha="$4"
+  local snapshot_name="$5"
+  local next_task_id="$6"
+  local last_task_id="$7"
+  [[ -f "$tracking_file" ]] || return 0
+  python3 - "$tracking_file" "$backup_sha" "$backup_name" "$snapshot_sha" "$snapshot_name" "$next_task_id" "$last_task_id" <<'PY'
+import re, sys
+
+tracking_file, backup_sha, backup_name, snapshot_sha, snapshot_name, next_task_id, last_task_id = sys.argv[1:]
+text = open(tracking_file, 'r', encoding='utf-8').read().splitlines()
+updated = []
+for line in text:
+    if line.startswith('|') and not re.match(r'^\|[-\s|]+\|$', line) and 'Task ID' not in line:
+        cols = line.split('|')[1:-1]
+        cols = [c.strip() for c in cols]
+        if len(cols) >= 10:
+            task_id = cols[0]
+            if next_task_id and task_id == next_task_id:
+                cols[8] = f"{backup_sha} / {backup_name}"
+            elif last_task_id and last_task_id != 'N/A' and task_id == last_task_id:
+                cols[8] = f"{snapshot_sha} / {snapshot_name}"
+            line = '| ' + ' | '.join(cols) + ' |'
+    updated.append(line)
+open(tracking_file, 'w', encoding='utf-8').write('\n'.join(updated) + '\n')
+PY
+}
 
 # 1. PRAGMA integrity_check + smart backup
 STAMP="$(date +"%Y%m%d_%H%M%S")"
@@ -144,7 +202,7 @@ if [[ -f "$TRACKING_FILE" ]]; then
   if [[ -n "$DECLARED_NEXT_TASK" ]]; then
     NEXT_ROW=$(awk -F'|' -v tid="$DECLARED_NEXT_TASK" '
       BEGIN { have_header=0 }
-      /^\| Task ID \| Type \| Title \| Status \| Owner \| Branch \| Updated \| Links \| Acceptance \|$/ { have_header=1; next }
+      /^\| Task ID \| Type \| Title \| Status \| Owner \| Branch \| Updated \| Links \| Last Backup SHA\/File \| Acceptance \|$/ { have_header=1; next }
       have_header && /^\|---/ { next }
       have_header && /^\|/ {
         id=$2; gsub(/^ +| +$/, "", id)
@@ -172,6 +230,7 @@ if [[ -f "$BUGS_FILE" && "$NEXT_TASK_ID" != "TBD" ]]; then
         id = bug
         sub(/^### /, "", id)
         title = id
+        sub(/^BUG-[0-9]+[[:space:]]*\/[[:space:]]*v[0-9.]+[[:space:]]*—[[:space:]]*/, "", title)
         sub(/^BUG-[0-9]+:[[:space:]]*/, "", title)
         split(title, seg, /[|]/)
         title = seg[1]
@@ -204,6 +263,7 @@ if [[ -f "$BUGS_FILE" && "$NEXT_TASK_ID" != "TBD" ]]; then
         id = bug
         sub(/^### /, "", id)
         title = id
+        sub(/^BUG-[0-9]+[[:space:]]*\/[[:space:]]*v[0-9.]+[[:space:]]*—[[:space:]]*/, "", title)
         sub(/^BUG-[0-9]+:[[:space:]]*/, "", title)
         split(title, seg, /[|]/)
         title = seg[1]
@@ -243,10 +303,7 @@ SNAPSHOT_SHA="$(shasum -a 256 "$SNAPSHOT_PATH" | awk '{print $1}')"
 
 # Prune: smart retention for DB backups and snapshots
 ls -t "$BACKUP_DIR"/mirrorbox_*.bak 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1)) | xargs rm -f || true
-ls -t "$SNAPSHOT_DIR"/mirror_snapshot_*.zip 2>/dev/null | tail -n +4 | xargs rm -f || true
-
-# Prune session handoffs: keep last 20
-ls -t "$SESSIONS_DIR"/HANDOFF_*.md 2>/dev/null | tail -n +21 | xargs rm -f || true
+ls -t "$SNAPSHOT_DIR"/mirror_snapshot_*.zip 2>/dev/null | tail -n +11 | xargs rm -f || true
 
 # DB health check: compare DB size to src/ size and warn if out of whack
 if [[ -d "$ROOT_DIR/src" ]]; then
@@ -353,65 +410,23 @@ if lsof -ti:"$DEV_PORT" >/dev/null 2>&1; then
   fi
 fi
 
-# 3. Generate NEXT_SESSION.md Content
-HANDOFF_BASENAME="HANDOFF_${STAMP}.md"
-HANDOFF_PATH="$SESSIONS_DIR/$HANDOFF_BASENAME"
+update_projecttracking_backup_refs "$TRACKING_FILE" "$SHA256" "$BACKUP_BASENAME" "$SNAPSHOT_SHA" "$SNAPSHOT_NAME" "$NEXT_TASK_ID" "$LAST_TASK_ID"
 
-cat > "$HANDOFF_PATH" <<EOF
-# Session Handoff: ${STAMP}
-## Mirror Box Orchestrator
+# Cleanup legacy fixed-path files and stale session-artifact tree.
+rm -rf "$ROOT_DIR/.dev/sessions" "$ROOT_DIR/.mbo/sessions"
+rm -f "$ROOT_DIR/NEXT_SESSION.md" "$ROOT_DIR/data/NEXT_SESSION.md"
 
-**Session ended:** $(date -u +"%Y-%m-%d")
-**Last task:** ${LAST_TASK_ID}: ${LAST_TASK_NAME} (${LAST_TASK_STATUS})
-**Status:** $(if [[ "$LAST_TASK_STATUS" == "COMPLETED" ]]; then echo "Milestone Progressing"; else echo "Task Pending"; fi)
-
----
-
-## Section 1 — Next Action
-
-**Task ${NEXT_TASK_ID} — ${NEXT_TASK_TITLE}**
-
-- Status: ${NEXT_TASK_STATUS}
-- Linked P0/P1 blockers:
-${BLOCKERS}
-
-**Graph queries to run at Gate 0:**
-\`\`\`
-graph_search("${NEXT_TASK_TITLE}")
-\`\`\`
-
----
-
-## Section 2 — Session Summary
-
-- Tasks completed this session: ${COMPLETED_COUNT}
-- Canonical workflow: projecttracking.md is source of truth, BUGS.md links to task IDs, handoffs are timestamped.
-
----
-
-## Section 3 — Directory State
-(State snapshot captured in mirrorbox.db)
-
-## Session End Checklist
-- Status: ${SESSION_STATUS}
-- Cold Storage: ${SNAPSHOT_NAME} (SHA-256: ${SNAPSHOT_SHA})
-- Backup file: ${BACKUP_BASENAME}
-- SHA-256: ${SHA256}
-- PRAGMA integrity_check: ${INTEGRITY_RESULT}
-- Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-EOF
-
-# Cleanup legacy fixed-path files
-rm -f "$ROOT_DIR/NEXT_SESSION.md" "$ROOT_DIR/data/NEXT_SESSION.md" "$SESSIONS_DIR/NEXT_SESSION.md" "$SESSIONS_DIR/LATEST.md"
+# Prune backup retention after current snapshot/write completes.
+prune_bak_retention "$ROOT_DIR/.dev/bak" 10
 
 # 4. nhash Seed Calculation (Section 8)
 # X: AGENTS.md NUMBERED sections (e.g. ## Section 1)
 # Y: BUGS.md NUMBERED sections
 echo "----------------------------------------------------"
-echo "Session Handoff Generated: $HANDOFF_PATH"
 echo "Backup Created: $BACKUP_FILE"
+echo "Cold Storage Snapshot: $SNAPSHOT_PATH"
 echo "PRAGMA integrity_check: $INTEGRITY_RESULT"
 echo "SHA-256: $SHA256"
 echo "----------------------------------------------------"
-echo "Handoff complete. It is now safe to clear context."
+echo "Canonical ledger updated. It is now safe to clear context."
 echo "----------------------------------------------------"

@@ -217,7 +217,7 @@ function main() {
     copyIfExists(transcriptSrc, path.join(runDir, path.basename(transcriptSrc)));
   }
 
-  const mirrorCopy = findLatestFile(path.join(root, '.dev', 'sessions', 'analysis'), /^mbo-e2e-.*\.log\.copy$/);
+  const mirrorCopy = findLatestFile(path.join(root, '.mbo', 'logs', 'alpha-e2e-mirror'), /^mbo-e2e-.*\.log\.copy$/);
   if (mirrorCopy) {
     copyIfExists(mirrorCopy, path.join(runDir, path.basename(mirrorCopy)));
   }
@@ -271,6 +271,7 @@ function main() {
     path.join(root, '.dev', 'governance', 'AGENTS.md'),
     path.join(root, '.dev', 'governance', 'projecttracking.md'),
     path.join(root, '.dev', 'governance', 'BUGS.md'),
+    path.join(root, 'CHANGELOG.md'),
   ];
   let workflowSummary = null;
   const summaryPath = path.join(root, '.mbo', 'logs', runId, 'summary.json');
@@ -303,12 +304,11 @@ function main() {
   fs.writeFileSync(path.join(runDir, 'sha256sums.txt'), lines.join('\n') + '\n', 'utf8');
 
   if (args.autoChangelog) {
-    const changelog = path.join(root, '.dev', 'governance', 'CHANGELOG.md');
-    if (fs.existsSync(changelog)) {
-      const rel = path.relative(root, path.join(runDir, 'governance_state.json'));
-      const line = `Run artifact (${args.task}): governance snapshot -> ${rel}`;
-      appendChangelogLine(changelog, line);
-    }
+    fs.writeFileSync(
+      path.join(runDir, 'release-note-candidate.txt'),
+      'Public changelog updates are manual release notes. Update the root CHANGELOG.md only if this run ships a version change.\n',
+      'utf8'
+    );
   }
 
   if (missingTraceability.length) {

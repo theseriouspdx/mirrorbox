@@ -46,7 +46,7 @@ export function TabBar({ activeTab, stage, auditPending }: Props) {
         })}
       </Box>
       <Box paddingY={0}>
-        <Text color={C.white} dimColor> [Tab] cycle  [1-4] jump  [/tasks] task list  [/token] stats  [Ctrl+C] exit</Text>
+        <Text color={C.white} dimColor> [Tab] cycle  [1-4] jump  [/tasks] task list  [/tm] stats  [/bugs] audit  [Ctrl+C] exit</Text>
       </Box>
     </Box>
   );

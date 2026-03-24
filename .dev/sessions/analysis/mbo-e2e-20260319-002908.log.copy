@@ -1,38 +1,0 @@
-[Operator] Context window set to 32000 tokens (threshold: 25600)
-[Relay] Listening at /Users/johnserious/MBO_Alpha/.dev/run/relay.sock
-MBO Engine v0.11.24-20260319.0729 initialized. [ctrl+f to focus sandbox, SHIFT+T for stats]
-[1G[0JMBO v0.11.24-20260319.0729> [29GRun readiness-check workflow now and complete one f[1G[0JMBO v0.11.24-20260319.0729> Run readiness-check workflow now and complete one fu [1Gll workflow cycle successfully in plain English.
-[Operator] Model classification failure: [BUDGET_EXCEEDED] Input tokens (1649) exceed budget (1500) for role classifier. Falling back to heuristic.
-[callModel] classifier produced malformed JSON (Expected ',' or ']' after array element in JSON at position 2081 (line 44 column 6)). Operator _extractDecision will attempt NL recovery.
-[Operator] Ledger generation error: [Operator] Ledger generation failed or malformed.
-
-[32mTM [21917] / $0.003344[0m [2m|[0m [31m[158825] / $0.026669[0m
-
-Spec refinement gate: Confirm intent, files, and assumptions before autonomous implementation.
-
-  Entropy Score: 0.5
-  Blockers: none
-  Critical assumptions requiring confirmation: none
-  Autonomous defaults active if you type go: A1
-  
-Type 'pin: [id]' to emphasize, 'exclude: [id]' to ignore, or 'go' to proceed.
-[1G[0JMBO v0.11.24-20260319.0729> [29Ggo
-[ALIVE |] planning: Heuristic classification (callModel fallback or placeholder).    [ALIVE /] planning: Heuristic classification (callModel fallback or placeholder).    [ALIVE -] planning: Heuristic classification (callModel fallback or placeholder).    [ALIVE \] planning: Heuristic classification (callModel fallback or placeholder).    [ALIVE |] planning: Heuristic classification (callModel fallback or placeholder).    [ALIVE /] planning: Heuristic classification (callModel fallback or placeholder).    [ALIVE -] planning: Heuristic classification (callModel fallback or placeholder).    [ALIVE \] planning: Heuristic classification (callModel fallback or placeholder).    [ALIVE |] planning: Heuristic classification (callModel fallback or placeholder).    [callModel] componentPlanner returned non-JSON. Operator _extractDecision will attempt NL recovery.
-[ALIVE /] planning: Heuristic classification (callModel fallback or placeholder).    [ALIVE -] planning: Heuristic classification (callModel fallback or placeholder).    [ALIVE \] planning: Heuristic classification (callModel fallback or placeholder).    [ALIVE |] planning: Heuristic classification (callModel fallback or placeholder).    [callModel] architecturePlanner returned non-JSON. Operator _extractDecision will attempt NL recovery.
-[Operator] Planner returned malformed output. Falling back to minimal safe plan.
-
-[32mTM [21917] / $0.003344[0m [2m|[0m [31m[159323] / $0.027665[0m
-
-Audit package ready. Respond "approved" to sync state, or "reject" to roll back.
-[1G[0JMBO v0.11.24-20260319.0729> [29Gapproved
-[Operator] Intelligence Graph Update starting...
-[Operator] Intelligence Graph Update complete.
-
-[AUDIT] Approved. State synced. Intelligence graph updated.
-[1G[0JMBO v0.11.24-20260319.0729> [29Gstatus
-
-Status: Idle — ready for input.
-Task:   Heuristic classification (callModel fallback or placeholder).
-Files:  none
-Hints:  none
-[1G[0JMBO v0.11.24-20260319.0729> [29G

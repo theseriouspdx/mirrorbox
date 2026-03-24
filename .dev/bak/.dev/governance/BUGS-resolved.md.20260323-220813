@@ -1,16 +1,12 @@
 # BUGS-resolved.md — Mirror Box Orchestrator
 # Archive of resolved, completed, superseded, and fixed bugs.
 # Reference only. Do not edit or re-open here — log new bugs in BUGS.md.
-# Bug ID rule: `BUG-001`–`BUG-184` are legacy-format archive entries and remain unchanged. Starting with `BUG-185`, archived bug headings preserve dual identification: `BUG-### / v0.LL.NN`.
-# Version lane rule: see `.dev/governance/VERSIONING.md` for canonical lane definitions and per-lane sequence reset rules.
+# Bug ID rule: `BUG-001`–`BUG-184` are legacy-format archive entries and remain unchanged. Starting with `BUG-185`, archived bug headings preserve dual identification: `BUG-### / vX.Y.ZZ`.
+# Version lane rule: `0.11.x` core/hardening/onboarding/runtime, `0.2.x` scripting/audit/automation, `0.3.x` TUI/operator UX, `0.4.x` multithreading/concurrency.
 
 ---
 
-### BUG-207 / v0.11.192: Governance/public changelog boundary drift | RESOLVED 2026-03-24
-- **Location:** `CHANGELOG.md`, `.dev/governance/AGENTS.md`, `.dev/governance/SESSION_AUDIT_PROMPT.md`, `scripts/mbo-workflow-audit.js`, `scripts/generate-run-artifacts.js`, `src/tui/governance.ts`, `src/cli/bug-audit.js`
-- **Severity:** P1
-- **Resolution:** Restored the boundary so root `CHANGELOG.md` is minimal public release notes only, canonical internal state lives in `projecttracking.md` plus bug ledgers, and current compound version formatting uses `_` separators instead of the prior mixed `+`/`.`/`v` style.
-- **Task:** v0.11.192
+---
 
 ### BUG-206 / v0.2.10: Bug-audit intents promised codebase examination but produced no deterministic audit artifacts | RESOLVED 2026-03-24
 - **Location:** `src/cli/bug-audit.js`, `src/tui/App.tsx`, `scripts/test-bug-audit.js`
@@ -53,6 +49,14 @@
 - **Severity:** P1
 - **Resolution:** Planner transcript output is serialized cleanly, entropy reporting no longer diverges from the raw audit signal, and status-label bleed is stripped before assumption parsing.
 - **Task:** v0.2.08
+
+### BUG-194 / v0.11.187: `mbo mcp start` writes launchd plist with KeepAlive=true causing orphan MCP accumulation | Milestone: 1.1 | COMPLETED
+- **Location:** MCP start path (`src/` — launchd plist registration)
+- **Severity:** P2
+- **Status:** COMPLETED — 2026-03-23
+- **Task:** v0.11.187
+- **Description:** Each `mbo mcp start` registered a launchd daemon with `KeepAlive: true`. Processes killed manually were instantly respawned. Stale plists accumulated for dead project roots (old worktrees, wrong roots, previous sessions). MCP should be ephemeral — started on demand per session, not supervised by launchd.
+- **Fix:** `mbo mcp start` no longer registers a KeepAlive launchd daemon. MCP process lifetime is tied to the `mbo` session that spawned it. Orphan-detection/reap logic provides sufficient supervision.
 
 ### BUG-193 / v0.3.22: `mbo` bare command should launch TUI by default | Milestone: 1.1 | COMPLETED
 - **Location:** `bin/mbo.js` — subcommand routing logic

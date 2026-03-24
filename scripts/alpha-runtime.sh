@@ -91,7 +91,7 @@ run_e2e() {
   local ts alpha_log controller_analysis_dir controller_log
   ts="$(date +%Y%m%d-%H%M%S)"
   alpha_log="$ALPHA_ROOT/.mbo/logs/mbo-e2e-$ts.log"
-  controller_analysis_dir="$CONTROLLER_ROOT/.dev/sessions/analysis"
+  controller_analysis_dir="$CONTROLLER_ROOT/.mbo/logs/alpha-e2e-mirror"
   controller_log="$controller_analysis_dir/mbo-e2e-$ts.log.copy"
 
   mkdir -p "$ALPHA_ROOT/.mbo/logs"
