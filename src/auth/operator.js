@@ -1751,11 +1751,16 @@ The output will be used as the new system context.`;
       // Stage 4: Code
       const codeResult = await this.runStage4(agreedPlan, classification, routing, locks, knowledgePack);
       
-      // Stage 4.5: Virtual Dry Run (Placeholder for 0.8)
-      const dryRun = await this.runStage4_5(codeResult.code);
+      // Stage 4.5: Virtual Dry Run — apply patch to live files, run verification, roll back.
+      // scopedFiles computed here so Stage 4.5 knows which files to patch and test.
+      const scopedFiles = this._resolvePlanFiles(agreedPlan, classification);
+      const dryRun = await this.runStage4_5(codeResult.code, scopedFiles, agreedPlan);
+      if (dryRun.status === 'fail') {
+        console.error(`[Stage 4.5] Dry run FAILED — review before approving:\n${dryRun.warnings.map(w => '  • ' + w).join('\n')}`);
+        eventStore.append('DRY_RUN_FAILED', 'operator', { warnings: dryRun.warnings, checks: dryRun.checks }, 'mirror');
+      }
 
       // Stage 6: Write + Validate
-      const scopedFiles = this._resolvePlanFiles(agreedPlan, classification);
       const writeResult = await this.runStage6(codeResult.code, scopedFiles);
 
       if (!writeResult.validatorPassed) {
@@ -2307,20 +2312,134 @@ DIFF:
 
   /**
    * Section 15: Stage 4.5 — Virtual Dry Run
-   * Milestone 0.8 prerequisite.
+   *
+   * Applies code changes to live files temporarily, runs structural verification
+   * (node --check on JS/TS blocks) and the project's verification commands
+   * (validator.py + npm test), then rolls back ALL changes unconditionally.
+   *
+   * The human sees the dry-run report at the Stage 5 audit gate before deciding
+   * to approve, replan, or abort. This method is non-destructive: original file
+   * content is always restored in the finally block.
+   *
+   * @param {string} code       - Code string from Stage 4 (fenced blocks per file)
+   * @param {string[]} scopedFiles - File paths to patch (from _resolvePlanFiles)
+   * @param {object} agreedPlan - Gate 1 agreed plan (for context in report)
    */
-  async runStage4_5(code) {
+  async runStage4_5(code, scopedFiles = [], agreedPlan = null) {
     this._setStage('dry_run');
-    // Basic structural verification (syntax check)
+    const os = require('os');
+    const checks = [];
+    const warnings = [];
+
+    // ── 1. Syntax check: extract JS/TS fenced blocks → node --check via temp files ──
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mbo-dryrun-'));
     try {
-      if (code.includes('const') || code.includes('function')) {
-        // Simple heuristic for JS validity
-        new Function(code.replace(/export |import /g, ''));
+      const blockRe = /```[\w.]*\s*\/\/\s*(\S+?)\s*\n([\s\S]*?)```/g;
+      let m;
+      let syntaxChecked = 0;
+      while ((m = blockRe.exec(code)) !== null) {
+        const [, filePath, content] = m;
+        if (!/\.[jt]sx?$/.test(filePath)) continue;
+        const tmpFile = path.join(tmpDir, path.basename(filePath));
+        fs.writeFileSync(tmpFile, content, 'utf8');
+        const chk = spawnSync('node', ['--check', tmpFile], { encoding: 'utf8' });
+        const status = chk.status === 0 ? 'pass' : 'fail';
+        checks.push({ check: 'syntax', file: filePath, status });
+        if (status === 'fail') warnings.push(`Syntax error in ${filePath}: ${(chk.stderr || '').trim().slice(0, 200)}`);
+        syntaxChecked++;
       }
-      return { status: 'pass', checks: ['structural_syntax'] };
-    } catch (e) {
-      return { status: 'warn', checks: ['structural_syntax'], error: e.message };
+      if (syntaxChecked === 0) {
+        checks.push({ check: 'syntax', status: 'skip', note: 'no JS/TS fenced blocks found in code output' });
+      }
+    } finally {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
+
+    // ── 2. Apply changes to RUNTIME_ROOT, run verification suite, then roll back ──
+    if (scopedFiles.length > 0) {
+      const backups = {};
+      const created = [];
+      try {
+        // Backup originals (only files that exist — new files are tracked in `created`)
+        for (const filePath of scopedFiles) {
+          const absPath = path.resolve(RUNTIME_ROOT, filePath);
+          if (fs.existsSync(absPath)) {
+            backups[filePath] = fs.readFileSync(absPath, 'utf8');
+          } else {
+            created.push(filePath);
+          }
+        }
+
+        // Apply new content from code string (same extraction logic as runStage6)
+        for (const filePath of scopedFiles) {
+          const absPath = path.resolve(RUNTIME_ROOT, filePath);
+          const fileBlockRe = new RegExp(
+            `\`\`\`[\\w.]*\\s*//\\s*${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?\`\`\``,
+            'g'
+          );
+          const match = fileBlockRe.exec(code);
+          if (match) {
+            const fileContent = match[0].replace(/^```[\w.]*\n/, '').replace(/\n```$/, '');
+            fs.mkdirSync(path.dirname(absPath), { recursive: true });
+            fs.writeFileSync(absPath, fileContent, 'utf8');
+          }
+        }
+
+        // 2a. validator.py — project governance checks
+        const val = spawnSync(
+          'python3', [path.join(MBO_ROOT, 'bin/validator.py'), '--all'],
+          { encoding: 'utf8', env: { ...process.env, MBO_PROJECT_ROOT: RUNTIME_ROOT }, timeout: 30000 }
+        );
+        const valStatus = val.status === 0 ? 'pass' : 'fail';
+        checks.push({ check: 'validator', status: valStatus });
+        if (valStatus === 'fail') {
+          warnings.push(`Validator: ${(val.stdout + val.stderr).trim().slice(0, 300)}`);
+        }
+
+        // 2b. npm test — project test suite (if configured; hard timeout 60 s)
+        let pkgScripts = {};
+        try {
+          pkgScripts = JSON.parse(fs.readFileSync(path.join(RUNTIME_ROOT, 'package.json'), 'utf8')).scripts || {};
+        } catch { /* no package.json or parse error — skip tests */ }
+
+        if (pkgScripts.test) {
+          const test = spawnSync(
+            'npm', ['test'],
+            { encoding: 'utf8', cwd: RUNTIME_ROOT, timeout: 60000, env: { ...process.env, CI: '1' } }
+          );
+          const testStatus = test.status === 0 ? 'pass' : 'fail';
+          checks.push({ check: 'npm_test', status: testStatus });
+          if (testStatus === 'fail') {
+            warnings.push(`Tests: ${(test.stdout + test.stderr).trim().slice(0, 400)}`);
+          }
+        } else {
+          checks.push({ check: 'npm_test', status: 'skip', note: 'no test script in package.json' });
+        }
+
+      } finally {
+        // ALWAYS roll back — Stage 4.5 is unconditionally non-destructive.
+        for (const [filePath, original] of Object.entries(backups)) {
+          try { fs.writeFileSync(path.resolve(RUNTIME_ROOT, filePath), original, 'utf8'); } catch { /* ignore */ }
+        }
+        for (const filePath of created) {
+          try {
+            const absPath = path.resolve(RUNTIME_ROOT, filePath);
+            if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
+          } catch { /* ignore */ }
+        }
+      }
+    } else {
+      checks.push({ check: 'patch_apply', status: 'skip', note: 'no scoped files — nothing to apply' });
+    }
+
+    const hasFail = checks.some((c) => c.status === 'fail');
+    const status = hasFail ? 'fail' : (warnings.length > 0 ? 'warn' : 'pass');
+    const report = { status, checks, warnings, filesPatched: scopedFiles };
+
+    eventStore.append('DRY_RUN', 'operator', { status, checkCount: checks.length, warningCount: warnings.length }, 'mirror');
+    console.error(`[Stage 4.5] Dry run ${status.toUpperCase()} — ${checks.length} check(s), ${warnings.length} warning(s).`);
+
+    return report;
   }
 
   /**
