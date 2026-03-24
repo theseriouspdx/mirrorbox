@@ -513,7 +513,7 @@ function buildCommandChecks(root, args) {
         label: args.humanInput ? 'Alpha runtime interactive session (human input)' : 'Alpha runtime E2E workflow cycle',
         cmd: args.humanInput
           ? `bash scripts/mbo-run-alpha.sh ${shellEscape(alphaRoot)}`
-          : `MBO_CONTROLLER_ROOT=${shellEscape(root)} bash scripts/alpha-runtime.sh e2e --alpha ${shellEscape(alphaRoot)}`,
+          : `MBO_CONTROLLER_ROOT=${shellEscape(path.resolve(root))} bash scripts/alpha-runtime.sh e2e --alpha ${shellEscape(alphaRoot)}`,
         severity: 'P1',
         scope: 'alpha',
         cwd: root,

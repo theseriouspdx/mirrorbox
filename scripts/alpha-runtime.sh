@@ -7,6 +7,8 @@ set -euo pipefail
 
 DEFAULT_CONTROLLER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTROLLER_ROOT="${MBO_CONTROLLER_ROOT:-$DEFAULT_CONTROLLER_ROOT}"
+# Ensure CONTROLLER_ROOT is absolute even if passed as relative
+CONTROLLER_ROOT="$(cd "$CONTROLLER_ROOT" && pwd)"
 DEFAULT_ALPHA_ROOT="/Users/johnserious/MBO_Alpha"
 ALPHA_ROOT="${MBO_ALPHA_ROOT:-$DEFAULT_ALPHA_ROOT}"
 
