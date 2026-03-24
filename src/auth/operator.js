@@ -825,7 +825,8 @@ class Operator {
     const collected = [];
 
     for (const line of lines) {
-      const header = this._parseSectionHeader(line);
+      const cleanLine = line.replace(/^\[[\w:]+\]\s*/, ''); // strip [OPERATOR], [classifier] etc. (BUG-199 / A3)
+      const header = this._parseSectionHeader(cleanLine);
       if (header) {
         if (active) break;
         if (header.name === target) {
@@ -1895,14 +1896,14 @@ ${packedContextBlock ? `\nGraph Context:\n${packedContextBlock}\n` : ''}
       const ledger = {
         assumptions,
         blockers: (this._extractSection(response, 'BLOCKERS') || '').split('\n').filter(b => b && !/none/i.test(b)),
-        entropyScore: parseFloat(this._extractSection(response, 'ENTROPY SCORE') || '0')
+        entropyScore: 0 // placeholder; always overwritten by _calculateEntropy below
       };
 
       if (!ledger || !ledger.assumptions) {
         throw new Error("[Operator] Ledger generation failed or malformed.");
       }
 
-      // Ensure score is derived correctly if model missed it
+      // Always derive from assumptions — never trust model-reported score (BUG-199 / A1)
       ledger.entropyScore = this._calculateEntropy(ledger.assumptions);
       return ledger;
     } catch (e) {

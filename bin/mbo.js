@@ -12,6 +12,7 @@
  *   mbo cl            — legacy operator loop
  *   mbo mcp           — MCP recovery (reap stale, start fresh, rescan)
  *   mbo mcp kill      — list all MCP processes, pick ones to kill
+ *   mbo test          — run the full test suite
  *   mbo setup         — project setup wizard
  *   mbo teardown      — remove launchd daemon
  *   mbo auth          — auth/config operations
@@ -118,6 +119,20 @@ function runTeardownCommand() {
     console.error(err);
     process.exit(1);
   }
+}
+
+function runTestCommand() {
+  const runner = path.join(PACKAGE_ROOT, 'tests', 'run-all.js');
+  const child = spawn(process.execPath, [runner, ...process.argv.slice(3)], {
+    stdio: 'inherit',
+    env: { ...process.env, MBO_PROJECT_ROOT: PROJECT_ROOT },
+    cwd: PROJECT_ROOT,
+  });
+  child.on('exit', (code) => process.exit(code ?? 0));
+  child.on('error', (err) => {
+    process.stderr.write(`[MBO] Failed to launch test runner: ${err.message}\n`);
+    process.exit(1);
+  });
 }
 
 function persistInstallMetadataBestEffort() {
@@ -765,6 +780,8 @@ if (process.argv[2] === 'setup') {
   } else {
     runMcpRecoveryCommand();
   }
+} else if (process.argv[2] === 'test') {
+  runTestCommand();
 } else if (process.argv[2] === 'auth') {
   // Auth/config operations are global and allowed from any directory.
   runAuthCommand(process.argv);
@@ -820,10 +837,11 @@ if (process.argv[2] === 'setup') {
 } else {
   // BUG-193: unknown subcommand help message
   process.stderr.write(`[MBO] Unknown command: "${process.argv[2]}"\n`);
-  process.stderr.write('Usage: mbo [tui|cl|mcp|setup|teardown|auth|init]\n');
+  process.stderr.write('Usage: mbo [tui|cl|mcp|test|setup|teardown|auth|init]\n');
   process.stderr.write('  mbo          — launch TUI (default)\n');
   process.stderr.write('  mbo cl       — legacy operator loop\n');
   process.stderr.write('  mbo mcp      — MCP recovery\n');
+  process.stderr.write('  mbo test     — run the full test suite\n');
   process.stderr.write('  mbo setup    — project setup wizard\n');
   process.exit(1);
 }

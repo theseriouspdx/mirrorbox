@@ -83,6 +83,9 @@ else
 fi
 SESSIONS_DIR="$ROOT_DIR/.dev/sessions"
 GOVERNANCE_DIR="$ROOT_DIR/.dev/governance"
+if [[ ! -d "$GOVERNANCE_DIR" && -d "$ROOT_DIR/.mbo/governance" ]]; then
+  GOVERNANCE_DIR="$ROOT_DIR/.mbo/governance"
+fi
 
 if [[ -z "$DB_PATH" || ! -f "$DB_PATH" ]]; then
   echo "ERROR: Database not found at $DB_PATH_DATA or $DB_PATH_MBO" >&2

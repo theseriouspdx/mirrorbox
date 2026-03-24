@@ -9,6 +9,63 @@ const fs   = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+const GOVERNANCE_DEFAULTS = {
+  'projecttracking.md': [
+    '# projecttracking.md',
+    '## Mirror Box Orchestrator — Canonical Task Ledger',
+    '',
+    '**Current Milestone:** 0.1 — Bootstrap [READY]',
+    '**Current Version:** 0.1.00',
+    '**Next Task:** v0.1.01',
+    '**Policy:** This file is the single source of truth for work state.',
+    '',
+    '---',
+    '',
+    '## Active Tasks',
+    '| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |',
+    '|---|---|---|---|---|---|---|---|---|',
+    '| v0.1.01 | docs | Bootstrap governance ledger | READY | unassigned | - | 2026-03-21 | - | Governance docs exist and can be updated in-place |',
+    '',
+    '---',
+    '',
+    '## Recently Completed',
+    '| Task ID | Type | Title | Status | Owner | Branch | Updated | Links | Acceptance |',
+    '|---|---|---|---|---|---|---|---|---|',
+  ].join('\n') + '\n',
+  'BUGS.md': [
+    '## Mirror Box Orchestrator — Outstanding Bugs',
+    '',
+    '**Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.',
+    '**Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).',
+    '**Next bug number:** BUG-001',
+    '',
+    '---',
+    '(No outstanding P0/P1 bugs)',
+  ].join('\n') + '\n',
+  'BUGS-resolved.md': [
+    '# BUGS-resolved.md — Mirror Box Orchestrator',
+    '# Archive of resolved, completed, superseded, and fixed bugs.',
+    '# Reference only. Do not edit or re-open here — log new bugs in BUGS.md.',
+    '',
+    '---',
+  ].join('\n') + '\n',
+  'CHANGELOG.md': [
+    '# CHANGELOG.md',
+    '## [0.1.00] — 2026-03-21 — Governance Bootstrap',
+    '### Added',
+    '- Seeded governance documents during onboarding for projects that did not already have them.',
+  ].join('\n') + '\n',
+};
+
+function ensureRuntimeGovernanceFiles(governanceDir) {
+  Object.entries(GOVERNANCE_DEFAULTS).forEach(([name, content]) => {
+    const target = path.join(governanceDir, name);
+    if (!fs.existsSync(target)) {
+      fs.writeFileSync(target, content, 'utf8');
+    }
+  });
+}
+
 const GITIGNORE_BLOCK = [
   '',
   '# MBO — per-user data (not committed)',
@@ -33,10 +90,12 @@ const NEGATION_LINES = [
  */
 function initProject(projectRoot) {
   const mboDir = path.join(projectRoot, '.mbo');
+  const governanceDir = path.join(mboDir, 'governance');
   const homeConfigPath = path.join(require('os').homedir(), '.mbo', 'config.json');
   const localConfigPath = path.join(mboDir, 'config.json');
   const dirs = [
     mboDir,
+    governanceDir,
     path.join(mboDir, 'logs'),
     path.join(mboDir, 'sessions'),
     path.join(projectRoot, 'data')
@@ -51,8 +110,6 @@ function initProject(projectRoot) {
 
   // Create initial governance files if missing
   const files = {
-    'BUGS.md':      '# BUGS.md\n## Mirror Box Orchestrator — Known Issues\n',
-    'CHANGELOG.md': '# CHANGELOG.md\n## Mirror Box Orchestrator — History\n',
     'AGENTS.md':    '# AGENTS.md\n## Project-Specific Agent Rules\n'
   };
 
@@ -62,6 +119,8 @@ function initProject(projectRoot) {
       fs.writeFileSync(filePath, content, 'utf8');
     }
   });
+
+  ensureRuntimeGovernanceFiles(governanceDir);
 
   // BUG-168: ensure a local runtime config exists so startup paths are deterministic.
   if (!fs.existsSync(localConfigPath)) {

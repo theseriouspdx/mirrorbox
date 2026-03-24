@@ -52,7 +52,7 @@ const DEFAULT_DRAFT: DraftState = {
   title: '',
   lane: '0.3',
   acceptance: '',
-  owner: 'codex',
+  owner: 'unassigned',
 };
 const DEFAULT_ACTIVATION: ActivationState = {
   context: '',
@@ -166,7 +166,6 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
     : '';
 
   const [mode, setMode] = useState<OverlayMode>(initialView === 'docs' ? 'docs' : initialView === 'create' ? 'create' : 'list');
-  const [showRecent, setShowRecent] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [docIndex, setDocIndex] = useState(0);
@@ -180,12 +179,12 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
 
   const ledger = useMemo(() => parseTaskLedger(projectRoot), [projectRoot, refreshTick]);
   const docs = useMemo(() => readGovernanceDocs(projectRoot), [projectRoot, refreshTick]);
-  const tasks = showRecent ? ledger.recent : ledger.active;
-  const selectedTask = tasks[selectedIndex] || ledger.active[0] || ledger.recent[0] || null;
+  const tasks = ledger.active;
+  const selectedTask = tasks[selectedIndex] || ledger.active[0] || null;
   const briefingTask = selectedTaskId
-    ? [...ledger.active, ...ledger.recent].find((task) => task.id === selectedTaskId) || selectedTask
+    ? ledger.active.find((task) => task.id === selectedTaskId) || selectedTask
     : selectedTask;
-  const title = showRecent ? 'Recently Completed' : 'Active Tasks';
+  const title = 'Active Tasks';
 
   const availableRows = useAvailableRows(8);
   const briefing = taskBriefingLines(briefingTask);
@@ -275,11 +274,6 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
       onClose();
       return;
     }
-    if (input === 'r' || input === 'R') {
-      setShowRecent((value) => !value);
-      setSelectedIndex(0);
-      return;
-    }
     if (input === 'd' || input === 'D') {
       setMode('docs');
       return;
@@ -336,7 +330,7 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
     }
 
     if (createStep === 'owner') {
-      const owner = trimmed || draft.owner || 'codex';
+      const owner = trimmed || draft.owner || 'unassigned';
       setDraft((current) => ({ ...current, owner }));
       setCreateStep('confirm');
       setInputValue('yes');
@@ -514,10 +508,10 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
   }
 
   return (
-    <Box flexDirection="column" paddingX={2} paddingY={1} borderStyle="double" borderColor={C.teal} flexGrow={1}>
+      <Box flexDirection="column" paddingX={2} paddingY={1} borderStyle="double" borderColor={C.teal} flexGrow={1}>
       <Box justifyContent="space-between">
         <Text bold color={C.teal}>TASK LEDGER — {title}</Text>
-        <Text color={C.teal} dimColor>[↑/↓] navigate  [Enter] briefing  [d] docs  [n] new  [r] recent  [q] close</Text>
+        <Text color={C.teal} dimColor>[↑/↓] navigate  [Enter] briefing  [d] docs  [n] new  [Esc]/[q] return</Text>
       </Box>
       <Text color={C.teal} dimColor>{SEP}</Text>
       <Box gap={1}>
@@ -544,7 +538,7 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
       })}
       <Text color={C.teal} dimColor>{SEP}</Text>
       {createMessage ? <Text color={C.teal}>{createMessage}</Text> : null}
-      <Text color={C.gray} dimColor>{ledger.active.length} active · {ledger.recent.length} recently completed · docs: {docs.length}</Text>
+      <Text color={C.gray} dimColor>{ledger.active.length} active · completed tasks hidden from this view · [Esc] returns to main screen · docs: {docs.length}</Text>
     </Box>
   );
 }

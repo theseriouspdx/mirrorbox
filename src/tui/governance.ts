@@ -87,14 +87,14 @@ function parseTableRow(line: string): string[] {
 function findBugSection(text: string, bugId: string): string {
   if (!text || !bugId) return '';
   const escaped = escapeRegex(bugId);
-  const match = text.match(new RegExp(`###\\s+${escaped}:[\\s\\S]*?(?=\\n###\\s+BUG-|$)`, 'i'));
+  const match = text.match(new RegExp(`###\\s+${escaped}(?:\\s*/\\s*v[^\\n—:-]+)?(?:\\s*[—:-][^\\n]*)?[\\s\\S]*?(?=\\n###\\s+BUG-|$)`, 'i'));
   return match ? match[0].trim() : '';
 }
 
 function extractField(section: string, label: string): string {
   if (!section) return '';
   const escaped = escapeRegex(label);
-  const match = section.match(new RegExp(`- \\*\\*${escaped}:\\*\\*\\s*([\\s\\S]*?)(?=\\n- \\*\\*|\\n### |$)`, 'i'));
+  const match = section.match(new RegExp(`(?:^|\\n)-?\\s*\\*\\*${escaped}:\\*\\*\\s*([\\s\\S]*?)(?=\\n-?\\s*\\*\\*|\\n### |$)`, 'i'));
   return match ? match[1].trim() : '';
 }
 
@@ -274,8 +274,7 @@ export function parseTaskLedger(projectRoot: string): { active: TaskRecord[]; re
 export function deriveNextTaskId(projectRoot: string, lane: string): string {
   const ptText = readText(path.join(findGovernanceDir(projectRoot), 'projecttracking.md'));
   const normalizedLane = lane.trim().replace(/^v/, '');
-  const escapedLane = escapeRegex(normalizedLane);
-  const matches = [...ptText.matchAll(new RegExp(`\\bv${escapedLane.replace(/\./g, '\\\\.')}\\.(\\d+)\\b`, 'g'))]
+  const matches = [...ptText.matchAll(new RegExp(`\\bv${escapeRegex(normalizedLane)}\\.(\\d+)\\b`, 'g'))]
     .map((m) => Number(m[1]))
     .filter((n) => Number.isFinite(n));
   const next = matches.length ? Math.max(...matches) + 1 : 1;
@@ -306,7 +305,7 @@ export function createTaskFromDraft(projectRoot: string, draft: TaskDraftInput):
     type: 'feat',
     title: draft.title.trim(),
     status: 'READY',
-    owner: draft.owner || 'codex',
+    owner: draft.owner || 'unassigned',
     branch: '-',
     updated: new Date().toISOString().slice(0, 10),
     links: '-',

@@ -31,7 +31,7 @@ const DEFAULT_GOVERNANCE_SPEC = [
   '- Deployment target: unknown.',
   '',
   '### 2. Safety & Governance',
-  '- Governance docs live in `.dev/governance/` and are the canonical project ledger.',
+  '- Governance docs live in the project governance directory (`.mbo/governance/` for runtime projects, `.dev/governance/` in controller/dev worktrees) and are the canonical project ledger.',
   '- Prompt agents may classify, plan, review, and draft only.',
   '- CLI/tool execution owns filesystem mutation, command execution, validation, and persistence.',
   '',
@@ -280,7 +280,7 @@ function updateSpecFromProfile(projectRoot, profile = {}) {
     `- Project type: ${profile.projectType || 'unknown'}.`,
     '',
     '### 2. Safety & Governance',
-    '- Governance docs live in `.dev/governance/` and are the canonical project ledger.',
+    '- Governance docs live in the project governance directory (`.mbo/governance/` for runtime projects, `.dev/governance/` in controller/dev worktrees) and are the canonical project ledger.',
     '- SPEC.md is the primary source of truth for project intent, constraints, and acceptance detail.',
     '- Prompt agents may classify, plan, review, and draft only.',
     '- CLI/tool execution owns filesystem mutation, command execution, validation, and persistence.',
@@ -300,7 +300,10 @@ function updateSpecFromProfile(projectRoot, profile = {}) {
 }
 
 function ensureGovernanceDocs(projectRoot) {
-  const govDir = path.join(projectRoot, '.dev', 'governance');
+  const hasRuntimeDir = fs.existsSync(path.join(projectRoot, '.mbo'));
+  const govDir = hasRuntimeDir
+    ? path.join(projectRoot, '.mbo', 'governance')
+    : path.join(projectRoot, '.dev', 'governance');
   fs.mkdirSync(govDir, { recursive: true });
 
   const defaults = {

@@ -149,6 +149,23 @@ function parseNextBugNumber(bugsText) {
   return m ? Number(m[1]) : null;
 }
 
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sanitizeTableCell(value) {
+  return String(value || '').replace(/\|/g, '/').replace(/\s+/g, ' ').trim();
+}
+
+function deriveNextTaskId(projecttrackingText, lane) {
+  const normalizedLane = String(lane || '0.2').trim().replace(/^v/, '');
+  const matches = [...projecttrackingText.matchAll(new RegExp(`\\bv${escapeRegex(normalizedLane)}\\.(\\d+)\\b`, 'g'))]
+    .map((m) => Number(m[1]))
+    .filter((n) => Number.isFinite(n));
+  const next = matches.length ? Math.max(...matches) + 1 : 1;
+  return `v${normalizedLane}.${next}`;
+}
+
 function parseTaskStatuses(projecttrackingText) {
   const statuses = {};
   let inTasksTable = false;
@@ -440,6 +457,67 @@ function appendBugsMd(root, findings, taskId) {
 
   fs.writeFileSync(bugsPath, updated, 'utf8');
   return { updated: true, added: findings.length, nextBug: bugNo };
+}
+
+function appendGovernanceFindings(root, findings) {
+  const bugsPath = path.join(root, '.dev/governance/BUGS.md');
+  const projecttrackingPath = path.join(root, '.dev/governance/projecttracking.md');
+  const bugsText = readIfExists(bugsPath);
+  const projecttrackingText = readIfExists(projecttrackingPath);
+
+  if (!bugsText) return { updated: false, reason: 'BUGS.md missing' };
+  if (!projecttrackingText) return { updated: false, reason: 'projecttracking.md missing' };
+
+  const nextBug = parseNextBugNumber(bugsText);
+  if (!Number.isInteger(nextBug)) return { updated: false, reason: 'Next bug number marker missing' };
+
+  const date = new Date().toISOString().slice(0, 10);
+  const lane = '0.2';
+  const marker = '\n---\n\n## Recently Completed';
+  const insertIndex = projecttrackingText.indexOf(marker);
+  if (insertIndex === -1) return { updated: false, reason: 'Active task insertion marker missing' };
+
+  let bugNo = nextBug;
+  let nextTaskId = deriveNextTaskId(projecttrackingText, lane);
+  const assigned = findings.map((finding) => {
+    const taskId = nextTaskId;
+    const nextSuffix = Number(taskId.split('.').pop()) + 1;
+    nextTaskId = `v${lane}.${nextSuffix}`;
+    return { ...finding, bugNo: bugNo++, taskId };
+  });
+
+  const bugEntries = assigned.map((finding) => [
+    '',
+    `### BUG-${finding.bugNo} / ${finding.taskId} — ${finding.title}`,
+    `**Severity:** ${finding.severity}`,
+    '**Status:** OPEN',
+    `**Task:** ${finding.taskId}`,
+    `**Found:** ${date} (workflow audit)`,
+    '**Description:**',
+    finding.description,
+    '**Acceptance:**',
+    '- Issue resolved and workflow audit passes on rerun.',
+  ].join('\n'));
+
+  const taskRows = assigned.map((finding) => `| ${finding.taskId} | bug | ${sanitizeTableCell(finding.title)} | READY | unassigned | - | ${date} | BUG-${finding.bugNo} | Issue resolved and workflow audit passes on rerun. |`);
+
+  const updatedBugs = bugsText
+    .replace(/(\*\*Next bug number:\*\*\s*BUG-)(\d+)/i, `$1${bugNo}`)
+    .concat('\n', bugEntries.join('\n'), '\n');
+
+  const before = projecttrackingText.slice(0, insertIndex).replace(/\s*$/, '');
+  const after = projecttrackingText.slice(insertIndex);
+  const updatedProjecttracking = `${before}\n${taskRows.join('\n')}\n${after}`;
+
+  fs.writeFileSync(bugsPath, updatedBugs, 'utf8');
+  fs.writeFileSync(projecttrackingPath, updatedProjecttracking, 'utf8');
+
+  return {
+    updated: true,
+    added: findings.length,
+    nextBug: bugNo,
+    taskIds: assigned.map((finding) => finding.taskId),
+  };
 }
 
 function buildCommandChecks(root, args) {
@@ -810,7 +888,7 @@ function main() {
 
   let bugUpdate = null;
   if (args.updateBugs && findings.length > 0) {
-    bugUpdate = appendBugsMd(root, findings, args.task);
+    bugUpdate = appendGovernanceFindings(root, findings);
   }
 
   console.log(`[MBO] Compliance report: ${path.relative(root, path.join(runDir, 'compliance.md'))}`);
@@ -819,6 +897,9 @@ function main() {
   console.log(`[MBO] Full run logs directory: ${runDir}`);
   if (bugUpdate && bugUpdate.updated) {
     console.log(`[MBO] BUGS.md updated with ${bugUpdate.added} finding(s). Next bug number: BUG-${bugUpdate.nextBug}`);
+    if (Array.isArray(bugUpdate.taskIds) && bugUpdate.taskIds.length > 0) {
+      console.log(`[MBO] projecttracking.md advanced with task(s): ${bugUpdate.taskIds.join(', ')}`);
+    }
   } else if (args.updateBugs && findings.length > 0) {
     console.log(`[MBO] BUGS.md update skipped: ${bugUpdate ? bugUpdate.reason : 'unknown reason'}`);
   }
@@ -830,4 +911,12 @@ function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  appendGovernanceFindings,
+  deriveNextTaskId,
+  parseNextBugNumber,
+};
