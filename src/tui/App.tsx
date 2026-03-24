@@ -203,17 +203,16 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       }
 
       if (ledger.active.length > 0) {
-        // BUG-221: Show numbered shortcuts so users can type 1/2/3 to activate
+        // BUG-221: Show task IDs prominently — type the ID to activate directly
         const top = ledger.active.slice(0, 5);
         startupTasksRef.current = top.map((t) => ({ id: t.id, title: t.title }));
-        for (let i = 0; i < top.length; i++) {
-          const t = top[i];
+        for (const t of top) {
           const bug = t.type === 'bug' ? extractBugNumber(t.title) || extractBugNumber(t.acceptance || '') : null;
           const bugTag = bug ? ` (${bug})` : '';
-          lines.push(`  [${i + 1}] ${t.id}${bugTag}  ${t.title.slice(0, 55)}${t.title.length > 55 ? '…' : ''}`);
+          lines.push(`  ▸ ${t.id}${bugTag}  ${t.title.slice(0, 55)}${t.title.length > 55 ? '…' : ''}`);
         }
-        if (ledger.active.length > 5) lines.push(`  … and ${ledger.active.length - 5} more — type /tasks to view all`);
-        lines.push('  Type a number (1-5) or task ID to activate. /tasks for full list.');
+        if (ledger.active.length > 5) lines.push(`  … and ${ledger.active.length - 5} more — /tasks to view all`);
+        lines.push('  Type a task ID (e.g. v0.13.02) to activate. /tasks for full list.');
       } else {
         lines.push('  No active tasks in the selected governance ledger.');
       }
@@ -517,25 +516,6 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       return;
     }
 
-    // BUG-221: Numbered shortcut — single digit activates startup task list item
-    if (/^[1-5]$/.test(trimmed)) {
-      const idx = parseInt(trimmed, 10) - 1;
-      const shortcut = startupTasksRef.current[idx];
-      if (shortcut) {
-        const found = findTaskById(projectRoot, shortcut.id);
-        if (found.task && found.section === 'active') {
-          await activateTask({
-            taskId: found.task.id,
-            title: found.task.title,
-            prompt: buildTaskActivationPrompt(found.task),
-          });
-          return;
-        }
-      }
-      appendOperator(`[TASK] No task at position ${trimmed}. Type /tasks to browse.`);
-      return;
-    }
-
     const explicitTaskId = extractTaskId(trimmed);
     if (explicitTaskId) {
       const found = findTaskById(projectRoot, explicitTaskId);
@@ -704,15 +684,16 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
     );
   }
 
-  // BUG-222: Minimum terminal size warning
-  if (termCols < MIN_COLS || termRows < MIN_ROWS) {
-    return (
-      <Box flexDirection="column" height={termRows} justifyContent="center" alignItems="center">
-        <Text color="yellow" bold>Terminal too small: {termCols}×{termRows}</Text>
-        <Text color="white" dimColor>MBO requires at least {MIN_COLS}×{MIN_ROWS}. Please resize your terminal.</Text>
-      </Box>
-    );
-  }
+  // BUG-222: Auto-resize terminal if too small (xterm escape sequence)
+  useEffect(() => {
+    const cols = stdout?.columns ?? 120;
+    const rows = stdout?.rows ?? 40;
+    if (cols < MIN_COLS || rows < MIN_ROWS) {
+      const newCols = Math.max(cols, MIN_COLS);
+      const newRows = Math.max(rows, MIN_ROWS);
+      process.stdout.write(`\x1b[8;${newRows};${newCols}t`);
+    }
+  }, [stdout?.columns, stdout?.rows]);
 
   return (
     <Box flexDirection="column" height={termRows}>
@@ -767,7 +748,7 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
         </Box>
 
         {showStatsPanel && (
-          <Box width={statsPanelWidth} marginLeft={1} flexShrink={0}>
+          <Box width={statsPanelWidth} marginLeft={1} flexShrink={0} height="100%">
             <StatsPanel
               stage={stage}
               stats={stats}
