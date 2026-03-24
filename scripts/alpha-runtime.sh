@@ -11,6 +11,7 @@ CONTROLLER_ROOT="${MBO_CONTROLLER_ROOT:-$DEFAULT_CONTROLLER_ROOT}"
 CONTROLLER_ROOT="$(cd "$CONTROLLER_ROOT" && pwd)"
 DEFAULT_ALPHA_ROOT="/Users/johnserious/MBO_Alpha"
 ALPHA_ROOT="${MBO_ALPHA_ROOT:-$DEFAULT_ALPHA_ROOT}"
+REM_ARGS=()
 
 usage() {
   cat <<USAGE
@@ -79,8 +80,7 @@ sync_alpha() {
   (
     cd "$CONTROLLER_ROOT"
     while IFS= read -r rel; do
-      [[ -e "$rel" ]] && printf '%s
-' "$rel"
+      [[ -e "$rel" ]] && printf '%s\n' "$rel"
     done < "$tmp"
   ) > "$existing_tmp"
 
@@ -95,7 +95,11 @@ run_alpha() {
   echo "[alpha-runtime] Running Alpha runtime from controller cwd"
   (
     cd "$ALPHA_ROOT"
-    npx mbo "${REM_ARGS[@]}"
+    if (( ${#REM_ARGS[@]} )); then
+      npx mbo "${REM_ARGS[@]}"
+    else
+      npx mbo
+    fi
   )
 }
 
