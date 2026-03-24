@@ -4,8 +4,8 @@ const path = require('path');
 const {
   buildPlannerPrompt,
   buildReviewerPrompt,
-  buildReviewerRound2Prompt,
-  buildTiebreakerPrompt,
+  buildGate1TiebreakerPrompt,
+  buildStage4APrompt,
   buildGate2BlindPrompt,
   buildGate2ComparePrompt,
   buildGate2PlannerRevisePrompt,
@@ -40,25 +40,75 @@ class DIDOrchestrator {
     fs.writeFileSync(path.join(dir, `${agent}.md`), content, 'utf8');
   }
 
-  // Naive line-set intersection — agreed lines between two diffs.
-  _agreedLines(diffA, diffB) {
-    if (!diffA || !diffB) return diffA || diffB || '';
-    const setA = new Set(diffA.split('\n'));
-    return diffB.split('\n').filter((l) => setA.has(l)).join('\n');
-  }
-
-  // Lines present in one diff but not the other — disputed segments.
-  _disputedLines(diffA, diffB) {
-    if (!diffA || !diffB) return `Planner:\n${diffA || '(none)'}\n\nReviewer:\n${diffB || '(none)'}`;
-    const setA = new Set(diffA.split('\n'));
-    const setB = new Set(diffB.split('\n'));
-    const onlyA = diffA.split('\n').filter((l) => !setB.has(l));
-    const onlyB = diffB.split('\n').filter((l) => !setA.has(l));
-    return `Planner only:\n${onlyA.join('\n')}\n\nReviewer only:\n${onlyB.join('\n')}`;
-  }
-
   _emitIfWired(role, text) {
     if (this.emit) this.emit(role, text);
+  }
+
+  // ─── Gate 1 Tiebreaker (SPEC §14 Stage 3D) ──────────────────────────────────
+  //
+  // Called when Stage 3C (plan comparison) fails to converge. Receives both
+  // independent plans — no dialogue artifacts, no code. Produces a single
+  // arbitrated plan. If GO, calls _runStage4A to derive code, then Gate 2.
+  // Fires once per task: human rejection → task abort (handled upstream).
+  async _runGate1Tiebreaker(taskId, taskContext, plannerRaw, reviewerRaw, classification, routing, hardState, callOpts, wrapChunk) {
+    const plannerPlan = this._extract(plannerRaw, 'RATIONALE') || plannerRaw;
+    const reviewerPlan = this._extract(reviewerRaw, 'RATIONALE') || reviewerRaw;
+
+    const g1TbRaw = await callModel(
+      'tiebreaker',
+      buildGate1TiebreakerPrompt(taskContext, plannerPlan, reviewerPlan),
+      { classification, routing },
+      hardState,
+      [],
+      null,
+      { ...callOpts, expectJson: false, onChunk: wrapChunk('tiebreaker') }
+    );
+    this._persist(taskId, 'gate1-3d-tiebreaker', g1TbRaw);
+    this._emitIfWired('tiebreaker', g1TbRaw);
+    this.eventStore.append('DID_GATE1_TIEBREAKER', 'operator', { taskId }, 'mirror');
+
+    const tbVerdict = (this._extract(g1TbRaw, 'VERDICT') || '').toUpperCase();
+    const arbitratedPlan = this._extract(g1TbRaw, 'ARBITRATED PLAN');
+
+    if (tbVerdict.includes('ESCALATE_TO_HUMAN') || (!tbVerdict && !arbitratedPlan)) {
+      return this._package(taskId, plannerRaw, reviewerRaw, null, 'needs_human', g1TbRaw);
+    }
+
+    // Gate 1 resolved → Stage 4A: planner writes code from the arbitrated plan.
+    return await this._runStage4A(
+      taskId, taskContext, plannerRaw, g1TbRaw, arbitratedPlan || g1TbRaw,
+      classification, routing, hardState, callOpts, wrapChunk
+    );
+  }
+
+  // ─── Stage 4A (SPEC §14) ─────────────────────────────────────────────────────
+  //
+  // Architecture Planner writes code against the Gate 1 agreed plan.
+  // Used when Gate 1 required tiebreaker arbitration — planner re-derives code
+  // from the arbitrated plan rather than re-using its original output.
+  // Proceeds to Gate 2 with the newly-derived code as codeA.
+  async _runStage4A(taskId, taskContext, plannerRaw, tiebreakerRaw, agreedPlan, classification, routing, hardState, callOpts, wrapChunk) {
+    const stage4ARaw = await callModel(
+      'architecturePlanner',
+      buildStage4APrompt(taskContext, agreedPlan),
+      { classification, routing },
+      hardState,
+      [],
+      null,
+      { ...callOpts, expectJson: false, onChunk: wrapChunk('architecturePlanner') }
+    );
+    this._persist(taskId, 'stage4a-planner-code', stage4ARaw);
+    this._emitIfWired('architecturePlanner', stage4ARaw);
+    this.eventStore.append('DID_STAGE4A', 'operator', { taskId }, 'mirror');
+
+    const codeA = this._extract(stage4ARaw, 'DIFF') || stage4ARaw;
+    // Use the Stage 4A output as the new plannerRaw for packaging purposes.
+    const effectivePlannerRaw = stage4ARaw;
+
+    return await this._runGate2(
+      taskId, taskContext, effectivePlannerRaw, codeA, agreedPlan,
+      classification, routing, hardState, callOpts, wrapChunk
+    );
   }
 
   // ─── Gate 2 — Code Consensus (SPEC Section 14, Stages 4B / 4C / 4D) ────────
@@ -198,10 +248,10 @@ class DIDOrchestrator {
     this.eventStore.append('DID_PLANNER', 'operator', { taskId }, 'mirror');
 
     const plannerDiff = this._extract(plannerRaw, 'DIFF');
-    // Preserve proof artifact for blind isolation checks in later rounds.
+    // Preserve proof artifact for blind isolation checks in Gate 2.
     const protectedHashes = computeContentHashes(plannerRaw);
 
-    // ── Gate 1, Stage 3B — Component Planner / initial Reviewer (blind) ──
+    // ── Gate 1, Stage 3B — Component Planner (independent, blind) ──
     const reviewerRaw = await callModel(
       'componentPlanner',
       buildReviewerPrompt(taskContext),
@@ -218,13 +268,14 @@ class DIDOrchestrator {
       protectedHashes: protectedHashes.map((x) => x.hash)
     }, 'mirror');
 
+    // ── Gate 1, Stage 3C — Plan Consensus ──
     const r1Verdict = this._extract(reviewerRaw, 'VERDICT') || '';
     const combinedDiff = this._extract(reviewerRaw, 'COMBINED DIFF');
 
     if (r1Verdict.toUpperCase().startsWith('GO')) {
-      // ── Gate 1 convergence → enter Gate 2 (blind code consensus, SPEC §14) ──
-      // agreedPlan: the component planner's combined diff serves as the agreed plan
-      // artefact going into Gate 2. plannerDiff is Stage 4A's codeA.
+      // ── Gate 1 convergence → Gate 2 (blind code consensus, SPEC §14) ──
+      // plannerDiff is Stage 4A's codeA (planner already wrote code in one shot).
+      // agreedPlan: use the combined diff from Gate 1 as the agreed plan artefact.
       const agreedPlan = combinedDiff || plannerDiff || r1Verdict;
       return await this._runGate2(
         taskId, taskContext, plannerRaw, plannerDiff, agreedPlan,
@@ -232,92 +283,13 @@ class DIDOrchestrator {
       );
     }
 
-    // ── Gate 1 divergence — Stage 3: Planner reviews combined diff ──
-    // TODO(v1.0.03): This dialogue loop breaks context isolation — rounds 3-4
-    // share intermediate outputs. Replace with independent re-derivation passes.
-    const plannerR2Raw = await callModel(
-      'architecturePlanner',
-      `[DID - PLANNER REVIEW]\nReviewer produced a combined diff. Reply YES (accept) or NO with specific objections.\n\nTASK: ${taskContext.task}\n\nCOMBINED DIFF:\n${combinedDiff}\n\nReply YES or NO followed by objection lines only.`,
-      { classification, routing },
-      hardState,
-      [],
-      null,
-      { ...callOpts, expectJson: false, onChunk: wrapChunk('architecturePlanner') }
-    );
-    this._persist(taskId, 'planner-r2', plannerR2Raw);
-    this._emitIfWired('architecturePlanner', plannerR2Raw);
-
-    if (plannerR2Raw.trim().toUpperCase().startsWith('YES')) {
-      // Gate 1 resolved via planner acceptance → Gate 2
-      const agreedPlan = combinedDiff || plannerDiff;
-      return await this._runGate2(
-        taskId, taskContext, plannerRaw, plannerDiff, agreedPlan,
-        classification, routing, hardState, callOpts, wrapChunk
-      );
-    }
-
-    // ── Gate 1, Stage 4 — Reviewer Round 2 (final shot before Gate 1 tiebreaker) ──
-    const reviewerR2Raw = await callModel(
-      'componentPlanner',
-      buildReviewerRound2Prompt(taskContext, plannerR2Raw, combinedDiff),
-      { classification, routing },
-      hardState,
-      [],
-      null,
-      { ...callOpts, expectJson: false, onChunk: wrapChunk('componentPlanner') }
-    );
-    this._persist(taskId, 'reviewer-r2', reviewerR2Raw);
-    this._emitIfWired('componentPlanner', reviewerR2Raw);
-    this.eventStore.append('DID_REVIEWER_R2', 'operator', { taskId }, 'mirror');
-
-    const r2Verdict = this._extract(reviewerR2Raw, 'VERDICT') || '';
-    const updatedDiff = this._extract(reviewerR2Raw, 'UPDATED COMBINED DIFF');
-
-    if (r2Verdict.toUpperCase().startsWith('GO')) {
-      // Gate 1 resolved via reviewer round 2 → Gate 2
-      const agreedPlan = updatedDiff || combinedDiff || plannerDiff;
-      return await this._runGate2(
-        taskId, taskContext, plannerRaw, plannerDiff, agreedPlan,
-        classification, routing, hardState, callOpts, wrapChunk
-      );
-    }
-
-    // ── Gate 1 Tiebreaker — surgical package only (DDR-007) ──
-    // After tiebreaker resolves Gate 1, the result still proceeds to Gate 2.
-    // TODO(v1.0.03): Gate 1 tiebreaker should arbitrate plan only, not code.
-    const finalCombined = updatedDiff || combinedDiff;
-    const agreedDiff = this._agreedLines(plannerDiff, finalCombined);
-    const disputedSegments = this._extract(reviewerR2Raw, 'DISPUTED SEGMENTS')
-      || this._disputedLines(plannerDiff, finalCombined);
-
-    const tiebreakerRaw = await callModel(
-      'tiebreaker',
-      buildTiebreakerPrompt(taskContext, agreedDiff, disputedSegments, plannerR2Raw, reviewerR2Raw),
-      { classification, routing },
-      hardState,
-      [],
-      null,
-      { ...callOpts, expectJson: false, onChunk: wrapChunk('tiebreaker') }
-    );
-    this._persist(taskId, 'tiebreaker', tiebreakerRaw);
-    this._emitIfWired('tiebreaker', tiebreakerRaw);
-    this.eventStore.append('DID_TIEBREAKER', 'operator', { taskId }, 'mirror');
-
-    const tbVerdict = this._extract(tiebreakerRaw, 'VERDICT') || '';
-    const finalDiff = this._extract(tiebreakerRaw, 'FINAL DIFF');
-
-    if (tbVerdict.toUpperCase().includes('ESCALATE_TO_HUMAN')) {
-      return this._package(taskId, plannerRaw, reviewerR2Raw, finalDiff, 'needs_human', tiebreakerRaw);
-    }
-    // BUG-169: If the tiebreaker produced no parseable VERDICT and no FINAL DIFF,
-    // do not silently claim convergence — treat as needs_human to surface the failure.
-    if (!tbVerdict && !finalDiff) {
-      return this._package(taskId, plannerRaw, reviewerR2Raw, null, 'needs_human', tiebreakerRaw);
-    }
-
-    // Gate 1 tiebreaker resolved → Gate 2 with tiebreaker's plan as the agreed plan.
-    return await this._runGate2(
-      taskId, taskContext, plannerRaw, finalDiff || plannerDiff, finalDiff || agreedDiff,
+    // ── Gate 1 divergence → Stage 3D: Tiebreaker (plan only, no code) ──
+    // Context isolation enforced: tiebreaker receives two independent plans,
+    // NOT the dialogue artifacts from rounds 3-4 (which no longer exist).
+    // Per SPEC §14: "Disagreement → Tiebreaker adjudicates the plan only.
+    // No code is written during a Gate 1 dispute."
+    return await this._runGate1Tiebreaker(
+      taskId, taskContext, plannerRaw, reviewerRaw,
       classification, routing, hardState, callOpts, wrapChunk
     );
   }

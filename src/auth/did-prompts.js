@@ -58,6 +58,8 @@ VERDICT:
 }
 
 // DDR-003: Reviewer round 2 — addresses Planner objections, final shot before escalation.
+// NOTE: Kept for backward compatibility. v1.0.03 removes this from the hot path —
+// Gate 1 divergence now goes straight to the Gate 1 tiebreaker (SPEC §14 Stage 3D).
 function buildReviewerRound2Prompt(taskContext, plannerObjections, combinedDiff) {
   return `[DID - REVIEWER ROUND 2]
 You are the Component Planner on your second and final pass.
@@ -86,6 +88,8 @@ DISPUTED SEGMENTS:
 }
 
 // DDR-003/007: Tiebreaker receives surgical package only — agreed + disputed. Not full transcript.
+// NOTE: Kept for backward compatibility / potential future use. The Gate 1 divergence path
+// now uses buildGate1TiebreakerPrompt (plan-only, no code); Gate 2 uses buildGate2TiebreakerPrompt.
 function buildTiebreakerPrompt(taskContext, agreedDiff, disputedSegments, plannerArgs, reviewerArgs) {
   return `[DID - TIEBREAKER]
 You are the Tiebreaker. You own this task fully - produce the final unified diff.
@@ -115,6 +119,69 @@ FINAL DIFF:
 
 VERDICT:
 <GO or ESCALATE_TO_HUMAN with precise description of what is unresolvable>`;
+}
+
+// ─── Gate 1 Prompts (SPEC Section 14, Stage 3D + Stage 4A) ──────────────────
+
+// Stage 3D: Gate 1 Tiebreaker — receives both independent plans.
+// Produces a single arbitrated plan. Does NOT write code.
+// Output is the agreed plan for Stage 4A. Fires once per task —
+// if the human ultimately rejects this plan, the task is aborted.
+function buildGate1TiebreakerPrompt(taskContext, plannerPlan, reviewerPlan) {
+  return `[DID - GATE 1 TIEBREAKER - Stage 3D]
+You are the Tiebreaker. The Architecture Planner and Component Planner produced divergent plans.
+Arbitrate. Produce a single unified plan that correctly solves the task.
+DO NOT write code. Your output is a plan only — code derivation happens next.
+${ADVERSARIAL_MANDATE}
+
+TASK: ${taskContext.task}
+FILES IN SCOPE: ${(taskContext.files || []).join(', ') || 'none'}
+TIER: ${taskContext.tier}
+BLAST RADIUS: ${(taskContext.blastRadius || []).join(', ') || 'unknown'}
+
+ARCHITECTURE PLANNER'S PLAN:
+${plannerPlan || '(not extracted — use full planner output below)'}
+
+COMPONENT PLANNER'S PLAN:
+${reviewerPlan || '(not extracted — use full reviewer output below)'}
+
+Arbitrate between the two plans. Identify what each got right. Produce the best unified plan.
+This tiebreaker fires once — if the human rejects this plan, the task is aborted.
+
+ARBITRATED PLAN:
+<The unified execution plan: intent, state transitions, files to change, invariants preserved>
+
+RATIONALE:
+<Why you chose these elements. What each plan got right and wrong.>
+
+VERDICT:
+<GO — proceed with this arbitrated plan. Or ESCALATE_TO_HUMAN: <precise description of what is genuinely unresolvable>>`;
+}
+
+// Stage 4A: Architecture Planner writes code against the Gate 1 agreed plan.
+// Used when Gate 1 required tiebreaker arbitration — the planner must derive code
+// from the arbitrated plan, not re-use its original independent output.
+function buildStage4APrompt(taskContext, agreedPlan) {
+  return `[DID - STAGE 4A - CODE DERIVATION FROM AGREED PLAN]
+You are the Architecture Planner. Gate 1 has produced an agreed plan.
+Write the implementation that fulfills this plan precisely.
+${ADVERSARIAL_MANDATE}
+
+TASK: ${taskContext.task}
+FILES IN SCOPE: ${(taskContext.files || []).join(', ') || 'none'}
+TIER: ${taskContext.tier}
+BLAST RADIUS: ${(taskContext.blastRadius || []).join(', ') || 'unknown'}
+
+AGREED PLAN (Gate 1 output — implement this faithfully):
+${agreedPlan}
+
+Write the implementation. Attack it before sending.
+
+RATIONALE:
+<Why this implementation. What invariants it preserves. How it addresses each plan element.>
+
+DIFF:
+<Unified diff implementing the agreed plan>`;
 }
 
 // ─── Gate 2 Prompts (SPEC Section 14, Stage 4B / 4C / 4D) ───────────────────
@@ -245,6 +312,9 @@ module.exports = {
   buildReviewerPrompt,
   buildReviewerRound2Prompt,
   buildTiebreakerPrompt,
+  // Gate 1 (SPEC Section 14, Stages 3D + 4A)
+  buildGate1TiebreakerPrompt,
+  buildStage4APrompt,
   // Gate 2 (SPEC Section 14, Stages 4B / 4C / 4D)
   buildGate2BlindPrompt,
   buildGate2ComparePrompt,
