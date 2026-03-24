@@ -363,6 +363,7 @@ class DBManager {
         SUM(output_tokens)       AS total_output,
         SUM(cost_usd)            AS actual_cost,
         SUM(raw_cost_estimate)   AS raw_cost,
+        SUM(raw_tokens_estimate) AS raw_tokens_estimate,
         COUNT(*)                 AS calls
       FROM token_log
       GROUP BY model
@@ -375,6 +376,7 @@ class DBManager {
       totalOutput: r.total_output || 0,
       actualCost:  r.actual_cost  || 0,
       rawCost:     r.raw_cost     || 0,
+      rawTokens:   r.raw_tokens_estimate || 0,
       calls:       r.calls        || 0,
     }));
 
@@ -396,7 +398,9 @@ class DBManager {
     }
 
     const totalSessionTokens = byModel.reduce((s, r) => s + r.totalInput + r.totalOutput, 0);
-    const counterfactualCost = (maxRatePer1k / 1000) * totalSessionTokens;
+    const totalRawTokens     = byModel.reduce((s, r) => s + r.rawTokens, 0);
+    const baselineTokens     = totalRawTokens > 0 ? totalRawTokens : totalSessionTokens; // B2: fallback for pre-column sessions
+    const counterfactualCost = (maxRatePer1k / 1000) * baselineTokens;
     const routingSavings     = Math.max(0, counterfactualCost - actualCost);
 
     return { byModel, actualCost, counterfactualCost, routingSavings, maxRateModel, totalCalls };

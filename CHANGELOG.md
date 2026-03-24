@@ -1,6 +1,26 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [0.3.25] — 2026-03-24
+#### Fixed
+- **BUG-202, BUG-201 (P1/P2) — Runtime task numbering and ownership defaults:**
+  - `src/tui/governance.ts`: fixed lane-scoped task-id derivation so `v0.3.x` tasks advance from the highest existing suffix instead of falling back to `v0.3.1`; broadened bug-section parsing so dual-labeled bug entries remain linkable from the TUI task ledger.
+  - `src/tui/components/TasksOverlay.tsx`: removed completed-task browsing from `/tasks`, added explicit return-to-main-screen instructions, and changed runtime task creation defaults from a predefined agent owner to `unassigned`.
+
+### [0.2.10] — 2026-03-24
+#### Fixed
+- **Workflow governance sync + `mbo test` command surface:**
+  - `scripts/mbo-workflow-audit.js`: `--update-bugs` now updates both `BUGS.md` and `projecttracking.md`, creating linked dual-labeled bug/task entries and advancing the next bug number in one pass.
+  - `src/cli/init-project.js`, `src/cli/onboarding.js`, `scripts/mbo-session-close.sh`: runtime bootstrap/session-close now use canonical runtime governance under `.mbo/governance/` instead of drifting to a separate stub path.
+  - `bin/mbo.js`: added `mbo test` as the canonical CLI entrypoint for the full test suite, aligned with the rest of the `mbo` subcommand surface.
+  - `scripts/test-workflow-audit-governance-sync.js`, `scripts/test-runtime-governance-bootstrap.js`: added regression coverage for governance dual-write and runtime governance bootstrap behavior.
+
+### [0.2.09] — 2026-03-23
+#### Fixed
+- **BUG-200 (P1) — Tokenmiser counterfactual baseline understates naive-workflow cost:**
+  - `src/state/db-manager.js` (`getCostRollup`): added `SUM(raw_tokens_estimate)` to the SQL query and `rawTokens` field to the `byModel` map; replaced `totalSessionTokens` with `totalRawTokens` (pre-optimisation token count) as the counterfactual baseline so routing savings reflect actual context reduction rather than near-zero delta against already-optimised tokens. Falls back to `totalSessionTokens` when all `raw_tokens_estimate` rows are zero (pre-column session data) to avoid negative savings display.
+  - `src/tui/components/StatsOverlay.tsx`: relabelled the counterfactual row from the dynamic model-name string to `"Without graph routing"` for clarity.
+
 ### [0.11.189] — 2026-03-23
 #### Fixed
 - **BUG-198 (P1) — Read-only readiness-check planning recovery crashed on null verdicts during live Alpha E2E:**

@@ -67,7 +67,7 @@ export function StatsOverlay({ stats, onClose }: Props) {
       {rollup && rollup.totalCalls > 0 ? (
         <>
           {ROW('actual cost (smart routing)',    fmtCost(rollup.actualCost, 4),            'green')}
-          {ROW('counterfactual (all → ' + rollup.maxRateModel.slice(0, 18) + ')', fmtCost(rollup.counterfactualCost, 4), C.error)}
+          {ROW('Without graph routing', fmtCost(rollup.counterfactualCost, 4), C.error)}
           {ROW('routing savings',               `${fmtCost(rollup.routingSavings, 4)} (${pct(rollup.actualCost, rollup.counterfactualCost)} off)`, 'green')}
         </>
       ) : ROW('(no model calls yet)', '', C.purple)}
