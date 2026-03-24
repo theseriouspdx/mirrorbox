@@ -106,7 +106,7 @@
 
 **Reasoning:** The claim that Milestone 1.1 hardening work is complete is supported by:
 1. 22/22 test scripts pass `bin/validator.py` as of HEAD e42fb5d
-2. All BUG-152 through BUG-194 (open sprint) have task links in projecttracking.md
+2. All BUG-152 through BUG-198 have task links in projecttracking.md
 3. Session handoffs from 2026-03-19 through 2026-03-23 form a continuous documented chain
 4. No OPEN P0 bugs exist in BUGS.md
 5. All feature tasks for TUI v.3, DID protocol, MCP hardening, and governance canonicalization are COMPLETED
@@ -115,9 +115,6 @@
 
 | Gap | Spec Section | Status | Tracking |
 |---|---|---|---|
-| Tokenmiser semantics unresolved | §29, §30 | Deferred pending user interview | BUG-187 / v0.2.05 |
-| MCP KeepAlive removal | §6 MCP section | Not yet implemented | BUG-194 / v0.11.187 |
-| Full E2E spec audit (this document) | Appendix D | IN PROGRESS (v0.2.04) | v0.2.04 |
 | DID implementation (H24) v2 diff pending apply | §14 | Milestone H28 recommended first | 1.1-H24 |
 | Sandbox (§16) | §16 | Not yet implemented — post-1.1 | Milestone 0.8 |
 | Runtime graph enrichment (§6 runtime edges) | §6 | Stubbed only | Milestone 0.8A |
@@ -135,9 +132,9 @@
 |---|---:|---:|---|
 | Calibration Phase Controls (Section 1) | 20 | 20 | 6/6 checks PASS |
 | Planning Phase Controls (Section 2) | 20 | 20 | 4/4 checks PASS |
-| Execution Traceability + Side Effects (Section 3) | 30 | 27 | 4/4 checks PASS; 20 surfaces mapped; -3 for incomplete DID H24 apply and deferred Tokenmiser |
+| Execution Traceability + Side Effects (Section 3) | 30 | 27 | 4/4 checks PASS; 20 surfaces mapped; -3 for incomplete DID H24 apply |
 | Verification + Persistence (Section 4) | 20 | 20 | 4/4 checks PASS |
-| Adversarial Non-Hallucination Proof (Section 5) | 10 | 9 | CONFIRMED; -1 for two explicitly deferred known-gap items (BUG-187, BUG-194) still open |
+| Adversarial Non-Hallucination Proof (Section 5) | 10 | 9 | CONFIRMED; -1 for explicit deferred work outside the completed audit scope |
 | **Total** | **100** | **96** | |
 
 ---
@@ -148,8 +145,6 @@
 - **Score Total:** 96 / 100
 - **Blocking Findings:** None — no P0 bugs; all sprint tasks tracked
 - **Waivers:**
-  - BUG-187 / v0.2.05: Tokenmiser semantics deferred — user interview required before implementation (P1, tracked)
-  - BUG-194 / v0.11.187: MCP KeepAlive removal deferred (P2, tracked)
   - DID H24 v2 diff: pending H28 (persistent operator loop) before apply — documented in session handoff
   - Sandbox (§16), VS Code extension (§3 Milestone 0.11), V4 multithreading (§38): post-1.1 scope, not waivers against 1.1 acceptance criteria
 - **Approved by:** claude (v0.2.04 audit run)
@@ -212,4 +207,3 @@ Cross-reference of SPEC sections against implemented source files.
 - ⚠️ Partial / deferred: 2 sections (§16 Sandbox, §29 Tokenmiser)
 - 🔴 Not yet: 1 section (§38 V4 — correctly blocked per projecttracking)
 - N/A or superseded: 3 sections
-

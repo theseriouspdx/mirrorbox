@@ -129,6 +129,7 @@ class Operator {
     'CODE',
     'COMBINED DIFF',
     'COMPLEXITY',
+    'CONFLICT',
     'CONCERNS',
     'CONFIDENCE',
     'CONSENSUS INTENT',
@@ -776,11 +777,11 @@ class Operator {
       if (jsonMatch) return JSON.parse(jsonMatch[0]);
       
       // DDR-001: Conversational Extraction Pass
-      if (role) return this._extractDecision(text, role);
+      if (role) return this._extractDecision(text, role) || fallback;
 
       return JSON.parse(text);
     } catch (e) {
-      if (role) return this._extractDecision(text, role);
+      if (role) return this._extractDecision(text, role) || fallback;
       console.error(`[Operator] JSON Parse Failure: ${e.message}. Raw text: ${text.slice(0, 200)}...`);
       return fallback;
     }
@@ -800,7 +801,7 @@ class Operator {
     const raw = String(line || '').trim();
     if (!raw) return null;
 
-    const match = raw.match(/^(?:#{1,6}\s*|[-*+]\s*)?(?:\*\*|__)?([A-Za-z][A-Za-z0-9 /_-]{1,48}?)(?:\*\*|__)?\s*[:\-]?\s*(.*)$/);
+    const match = raw.match(/^(?:#{1,6}\s*|[-*+]\s*)?(?:\*\*|__)?([A-Za-z][A-Za-z0-9 /_-]{1,48})(?:\*\*|__)?(?:\s*[:\-]\s*(.*)|\s*)$/);
     if (!match) return null;
 
     const name = match[1].trim().replace(/\s+/g, ' ').toUpperCase();
@@ -879,6 +880,19 @@ class Operator {
           assumptions,
           blockers,
           entropyScore: Number.isFinite(entropyScore) ? entropyScore : this._calculateEntropy(assumptions),
+          _source: src,
+        };
+      }
+
+      const verdictSection = this._extractSection(text, 'VERDICT');
+      const conflictSection = this._extractSection(text, 'CONFLICT');
+      const consensusIntentSection = this._extractSection(text, 'CONSENSUS INTENT');
+      if (verdictSection || conflictSection || consensusIntentSection) {
+        const verdict = String(verdictSection || '').toLowerCase();
+        return {
+          verdict: verdict.includes('diverg') ? 'divergent' : 'convergent',
+          conflict: conflictSection || 'none',
+          consensusIntent: consensusIntentSection || conflictSection || text.slice(0, 300),
           _source: src,
         };
       }
@@ -1324,7 +1338,8 @@ User request: "${userMessage}"`;
     const planIntent = String(plan?.intent || '').toLowerCase();
     const rationale = String(classification?.rationale || '').toLowerCase();
 
-    return planIntent.includes('readiness-check workflow') ||
+    return Boolean(classification?.readOnlyWorkflow) ||
+      planIntent.includes('readiness-check workflow') ||
       planIntent.includes('minimal non-destructive verification') ||
       rationale.includes('readiness-check workflow');
   }
@@ -1477,9 +1492,21 @@ The output will be used as the new system context.`;
     }
 
     if (input.startsWith('pin:') || input.startsWith('exclude:')) {
+      const hint = userMessage.trim();
+      if (hint) {
+        this.userHintBuffer.push(hint);
+      }
+      if (this.stateSummary.pendingDecision) {
+        if (!Array.isArray(this.stateSummary.pendingDecision.refinementHints)) {
+          this.stateSummary.pendingDecision.refinementHints = [];
+        }
+        if (hint) {
+          this.stateSummary.pendingDecision.refinementHints.push(hint);
+        }
+      }
       return {
         status: 'spec_refinement_updated',
-        prompt: "Spec refinement updated. Type 'go' to run autonomous DID."
+        prompt: `Spec refinement updated. ${hint ? 'Queued hint for planning. ' : ''}Type 'go' to run autonomous DID.`
       };
     }
 
@@ -2235,7 +2262,10 @@ DIFF:
     const auditPrompt = `Audit the Planner's code against the agreed plan and Reviewer's independent derivation.\nPlan:\n${renderPlanAsText(plan)}\nPlanner Code: ${codeA}\nReviewer Code: ${reviewerOutput.independentCode}\nReviewer Concerns:\n${Array.isArray(reviewerOutput.concerns) ? reviewerOutput.concerns.map((c, i) => `${i + 1}. ${c}`).join('\n') : String(reviewerOutput.concerns || 'none')}\n\nRespond in plain English using these sections:\nVERDICT:\n<PASS or BLOCK>\n\nREASON:\n<Why>\n\nCITATION:\n<Relevant evidence>\n\nCONSENSUS INTENT:\n<One line summary>.`;
     const result = await this._callModel('reviewer', auditPrompt, {}, hardState, [], null, { ...options, expectJson: false, stage: 'code_derivation', roleLabel: 'reviewer' });
     if (process.env.MBO_DEBUG) console.error(`[DEBUG] evaluateCodeConsensus response: ${result}`);
-    const parsed = this._safeParseJSON(result, { verdict: 'block', reason: 'NL audit extraction failure' }, 'reviewer');
+    const parsed = this._safeParseJSON(result, { verdict: 'block', reason: 'NL audit extraction failure', consensusIntent: 'reviewer audit fallback' }, 'reviewer');
+    if (!parsed) {
+      return { verdict: 'block', reason: 'NL audit extraction failure', consensusIntent: 'reviewer audit fallback' };
+    }
     if (parsed && !parsed.consensusIntent) {
       parsed.consensusIntent = parsed.rationale || parsed.reason || 'reviewer_nl_audit';
     }
@@ -2317,7 +2347,14 @@ CONSENSUS INTENT:
 <The shared goal both plans achieve>.`;
     const result = await this._callModel('classifier', auditPrompt, {}, hardState, [], null, { expectJson: false, stage: 'planning', roleLabel: 'classifier' });
     if (process.env.MBO_DEBUG) console.error(`[DEBUG] evaluateSpecAdherence response: ${result}`);
-    const parsed = this._safeParseJSON(result, { verdict: 'divergent', conflict: 'Plan convergence audit extraction failure' }, 'classifier');
+    const parsed = this._safeParseJSON(result, { verdict: 'divergent', conflict: 'Plan convergence audit extraction failure', consensusIntent: 'plan convergence audit fallback' }, 'classifier');
+    if (!parsed) {
+      return {
+        verdict: 'divergent',
+        conflict: 'Plan convergence audit extraction failure',
+        consensusIntent: 'plan convergence audit fallback'
+      };
+    }
     if (parsed && parsed.route) {
       return {
         verdict: /diverg/i.test(parsed.route) ? 'divergent' : 'convergent',

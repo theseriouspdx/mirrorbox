@@ -201,3 +201,21 @@
 - **Severity:** P1
 - **Resolution:** Inserted missing `if (auditPending || operator.stateSummary?.pendingAudit) {` outer guard before the audit approved/reject branch. Function body now closes at line 453 (`}, [deps])`). Discovered during e2e sync-and-run session.
 - **Task:** v0.3.23
+
+### BUG-195 / v0.11.188: Assumption ledger sign-off can be bypassed for Tier 0 and read-only workflows | RESOLVED 2026-03-23
+- **Location:** `src/auth/operator.js` — `processMessage()` / classification normalization / Stage 1.5 gate entry
+- **Severity:** P1
+- **Resolution:** Normalized readiness-check requests into an explicit read-only workflow classification, removed the direct read-only bypass, and routed every execution workflow through Stage 1.5 before planning. Added targeted test coverage proving Tier 0 and read-only workflows now emit the spec-refinement gate and require `go`.
+- **Task:** v0.11.188
+
+### BUG-197 / v0.2.07: Workflow audit runner claimed live mirror Alpha coverage but only checked stale transcript presence | RESOLVED 2026-03-23
+- **Location:** `scripts/mbo-workflow-audit.js`
+- **Severity:** P1
+- **Resolution:** `--world mirror --push-alpha` now includes the Alpha install/onboarding/E2E checks instead of filtering them out, transcript validation now requires the latest Alpha run to contain the workflow prompt, audit gate, approval acknowledgement, and final idle state, mirrored transcript validation compares the exact latest Alpha log copy, and governance status parsing now recognizes rows from both Active Tasks and Recently Completed.
+- **Task:** v0.2.07
+
+### BUG-198 / v0.11.189: Read-only readiness-check workflow crashes in planning recovery with `Cannot read properties of null (reading 'verdict')` | RESOLVED 2026-03-23
+- **Location:** `src/auth/operator.js`, `scripts/alpha-e2e-driver.js`, `scripts/alpha-runtime.sh`, `scripts/mbo-workflow-audit.js`
+- **Severity:** P1
+- **Resolution:** Hardened read-only plan/audit parsing in `operator.js` so compact DID/tiebreaker outputs with `VERDICT` / `CONFLICT` / `CONSENSUS INTENT` no longer collapse to a null verdict, persisted Stage 1.5 `pin:` / `exclude:` hints into planning, added a separate Gemini Flash curl guidance pass in the Alpha E2E driver, added permanent regression coverage in `scripts/test-readonly-workflow-persistence.js`, and passed live Alpha verification in both mirror and subject worlds. Also fixed the subject-world audit runner to keep mirroring transcripts back into the controller repo by exporting `MBO_CONTROLLER_ROOT` into `scripts/alpha-runtime.sh`.
+- **Task:** v0.11.189

@@ -5,7 +5,8 @@ set -euo pipefail
 # Sync latest tracked files from controller repo to Alpha runtime repo,
 # then run Alpha from controller cwd (avoids self-run guard false positives).
 
-CONTROLLER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEFAULT_CONTROLLER_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CONTROLLER_ROOT="${MBO_CONTROLLER_ROOT:-$DEFAULT_CONTROLLER_ROOT}"
 DEFAULT_ALPHA_ROOT="/Users/johnserious/MBO_Alpha"
 ALPHA_ROOT="${MBO_ALPHA_ROOT:-$DEFAULT_ALPHA_ROOT}"
 
@@ -17,7 +18,8 @@ Usage:
   scripts/alpha-runtime.sh e2e [--alpha <path>]
 
 Env overrides:
-  MBO_ALPHA_ROOT   Target runtime repo (default: ${DEFAULT_ALPHA_ROOT})
+  MBO_CONTROLLER_ROOT   Source/controller repo used for sync + mirrored transcript output
+  MBO_ALPHA_ROOT        Target runtime repo (default: ${DEFAULT_ALPHA_ROOT})
 USAGE
 }
 
@@ -50,6 +52,17 @@ require_paths() {
 
 sync_alpha() {
   require_paths
+
+  if [[ "$CONTROLLER_ROOT" == "$ALPHA_ROOT" ]]; then
+    echo "[alpha-runtime] Sync skipped (controller root matches alpha root)"
+    return 0
+  fi
+
+  if ! git -C "$CONTROLLER_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "[alpha-runtime] Sync skipped (controller root is not a git worktree): $CONTROLLER_ROOT"
+    return 0
+  fi
+
   echo "[alpha-runtime] Syncing tracked files from $CONTROLLER_ROOT -> $ALPHA_ROOT"
 
   local tmp
@@ -84,15 +97,17 @@ run_e2e() {
 
   echo "[alpha-runtime] Capturing E2E transcript to: $alpha_log"
   echo "[alpha-runtime] Mirroring E2E transcript to: $controller_log"
+
+  # E2E must run against the current controller worktree, not a stale Alpha checkout.
+  sync_alpha
+
   (
-    cd "$ALPHA_ROOT"
-    {
-      echo "status"
-      echo "Run readiness-check workflow now and complete one full workflow cycle successfully in plain English."
-      echo "go"
-      echo "approved"
-    } | npx mbo
-  ) | tee "$alpha_log" | tee "$controller_log"
+    cd "$CONTROLLER_ROOT"
+    node scripts/alpha-e2e-driver.js \
+      --alpha-root "$ALPHA_ROOT" \
+      --alpha-log "$alpha_log" \
+      --mirror-log "$controller_log"
+  )
 }
 
 main() {

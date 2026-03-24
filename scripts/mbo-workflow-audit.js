@@ -71,11 +71,9 @@ function getWorldSequence(world) {
 function cloneCheckForWorld(check, world, root, alphaRoot) {
   const cloned = { ...check, world };
   if (world === 'mirror') {
-    cloned.cwd = root;
-    cloned.scope = 'mirror';
-    cloned.label = check.scope === 'alpha'
-      ? `${check.label} [mirror-local placeholder]`
-      : check.label;
+    cloned.cwd = check.scope === 'alpha' ? root : root;
+    cloned.scope = check.scope === 'alpha' ? 'alpha' : 'mirror';
+    cloned.label = check.label;
     return cloned;
   }
 
@@ -151,16 +149,20 @@ function parseNextBugNumber(bugsText) {
   return m ? Number(m[1]) : null;
 }
 
-function parseActiveTaskStatuses(projecttrackingText) {
+function parseTaskStatuses(projecttrackingText) {
   const statuses = {};
-  let inActive = false;
+  let inTasksTable = false;
   for (const line of projecttrackingText.split('\n')) {
-    if (line.trim() === '## Active Tasks') {
-      inActive = true;
+    const trimmed = line.trim();
+    if (trimmed === '## Active Tasks' || trimmed === '## Recently Completed') {
+      inTasksTable = true;
       continue;
     }
-    if (inActive && line.startsWith('## ')) break;
-    if (!inActive || !line.startsWith('|')) continue;
+    if (inTasksTable && line.startsWith('## ')) {
+      inTasksTable = false;
+      continue;
+    }
+    if (!inTasksTable || !line.startsWith('|')) continue;
     if (line.startsWith('|---') || line.includes('Task ID')) continue;
 
     const cols = line.split('|').slice(1, -1).map((c) => c.trim());
@@ -173,6 +175,90 @@ function parseActiveTaskStatuses(projecttrackingText) {
 function taskInProjecttracking(projecttrackingText, taskId) {
   if (!taskId) return true;
   return projecttrackingText.split('\n').some((line) => line.startsWith('|') && line.includes(`| ${taskId} |`));
+}
+
+function latestFileForPattern(dirPath, pattern) {
+  if (!fs.existsSync(dirPath)) return null;
+  const matches = fs.readdirSync(dirPath)
+    .filter((name) => pattern.test(name))
+    .sort();
+  if (matches.length === 0) return null;
+  return path.join(dirPath, matches[matches.length - 1]);
+}
+
+function readLatestAlphaTranscript(alphaLogsDir) {
+  const latest = latestFileForPattern(alphaLogsDir, /^mbo-e2e-\d{8}-\d{6}\.log$/);
+  if (!latest) return null;
+  return {
+    filePath: latest,
+    text: fs.readFileSync(latest, 'utf8'),
+  };
+}
+
+function validateAlphaTranscript(alphaLogsDir) {
+  const latest = readLatestAlphaTranscript(alphaLogsDir);
+  if (!latest) {
+    return { ok: false, details: 'missing alpha transcript' };
+  }
+
+  const required = [
+    'Run readiness-check workflow now and complete one full workflow cycle successfully in plain English.',
+    '[ASSUMPTION GUIDE] source=',
+    'Queued hint for planning.',
+    'Audit package ready. Respond "approved"',
+    '[AUDIT] Approved. State synced. Intelligence graph updated.',
+    'Status: Idle',
+  ];
+  const missing = required.filter((needle) => !latest.text.includes(needle));
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      details: `latest alpha transcript missing required content: ${missing.join(' | ')}`,
+      filePath: latest.filePath,
+    };
+  }
+
+  return {
+    ok: true,
+    details: path.basename(latest.filePath),
+    filePath: latest.filePath,
+  };
+}
+
+function buildAlphaTranscriptCheckCommand(alphaLogsDir) {
+  const required = [
+    'Run readiness-check workflow now and complete one full workflow cycle successfully in plain English.',
+    '[ASSUMPTION GUIDE] source=',
+    'Queued hint for planning.',
+    'Audit package ready. Respond "approved"',
+    '[AUDIT] Approved. State synced. Intelligence graph updated.',
+    'Status: Idle',
+  ];
+  const payload = JSON.stringify(required);
+  return `node -e "const fs=require('fs');const p=require('path');const dir=process.argv[1];const required=JSON.parse(process.argv[2]);const files=(fs.existsSync(dir)?fs.readdirSync(dir):[]).filter(f=>/^mbo-e2e-\\d{8}-\\d{6}\\.log$/.test(f)).sort();if(!files.length){console.error('missing alpha transcript');process.exit(1)};const latest=p.join(dir, files[files.length-1]);const text=fs.readFileSync(latest,'utf8');const missing=required.filter(s=>!text.includes(s));if(missing.length){console.error('missing required content: '+missing.join(' | '));process.exit(1)};console.log(files[files.length-1]);" ${shellEscape(alphaLogsDir)} ${shellEscape(payload)}`;
+}
+
+function validateMirrorTranscriptCopy(mirrorLogsDir, alphaLogsDir) {
+  const alphaTranscript = readLatestAlphaTranscript(alphaLogsDir);
+  if (!alphaTranscript) {
+    return { ok: false, details: 'missing alpha transcript for mirror-copy comparison' };
+  }
+
+  const copyPath = path.join(mirrorLogsDir, `${path.basename(alphaTranscript.filePath)}.copy`);
+  if (!fs.existsSync(copyPath)) {
+    return { ok: false, details: `missing mirror transcript copy: ${path.basename(copyPath)}` };
+  }
+
+  const mirrorText = fs.readFileSync(copyPath, 'utf8');
+  if (mirrorText !== alphaTranscript.text) {
+    return { ok: false, details: `mirror transcript copy drift: ${path.basename(copyPath)}` };
+  }
+
+  return {
+    ok: true,
+    details: path.basename(copyPath),
+    filePath: copyPath,
+  };
 }
 
 function buildGovernanceChecks(root, taskId) {
@@ -276,7 +362,7 @@ function buildGovernanceChecks(root, taskId) {
   const bugsPath = path.join(root, '.dev/governance/BUGS.md');
   const ptText = readIfExists(projecttrackingPath);
   const bugsText = readIfExists(bugsPath);
-  const statuses = parseActiveTaskStatuses(ptText);
+  const statuses = parseTaskStatuses(ptText);
 
   if (taskId) {
     const exists = taskInProjecttracking(ptText, taskId);
@@ -427,7 +513,7 @@ function buildCommandChecks(root, args) {
         label: args.humanInput ? 'Alpha runtime interactive session (human input)' : 'Alpha runtime E2E workflow cycle',
         cmd: args.humanInput
           ? `bash scripts/mbo-run-alpha.sh ${shellEscape(alphaRoot)}`
-          : `bash scripts/alpha-runtime.sh e2e --alpha ${shellEscape(alphaRoot)}`,
+          : `MBO_CONTROLLER_ROOT=${shellEscape(root)} bash scripts/alpha-runtime.sh e2e --alpha ${shellEscape(alphaRoot)}`,
         severity: 'P1',
         scope: 'alpha',
         cwd: root,
@@ -436,8 +522,8 @@ function buildCommandChecks(root, args) {
       },
       {
         id: 'alpha_e2e_log',
-        label: 'Alpha E2E transcript exists',
-        cmd: `node -e "const fs=require('fs');const p=process.argv[1];const files=(fs.existsSync(p)?fs.readdirSync(p):[]).filter(f=>/^mbo-e2e-.*\\.log$/.test(f));if(!files.length){process.exit(1)};files.sort();console.log(files[files.length-1]);" ${shellEscape(alphaLogsDir)}`,
+        label: 'Alpha E2E transcript is fresh and complete',
+        cmd: buildAlphaTranscriptCheckCommand(alphaLogsDir),
         severity: 'P1',
         scope: 'alpha',
         cwd: root,
@@ -445,8 +531,8 @@ function buildCommandChecks(root, args) {
       },
       {
         id: 'alpha_e2e_mirror_copy',
-        label: 'Mirrored E2E transcript exists',
-        cmd: `node -e "const fs=require('fs');const p=process.argv[1];const files=(fs.existsSync(p)?fs.readdirSync(p):[]).filter(f=>/^mbo-e2e-.*\\.log\\.copy$/.test(f));if(!files.length){process.exit(1)};files.sort();console.log(files[files.length-1]);" ${shellEscape(mirrorLogsDir)}`,
+        label: 'Mirrored E2E transcript matches latest Alpha run',
+        cmd: `node -e "const fs=require('fs');const p=require('path');const alphaDir=process.argv[1];const mirrorDir=process.argv[2];const alphaFiles=(fs.existsSync(alphaDir)?fs.readdirSync(alphaDir):[]).filter(f=>/^mbo-e2e-\\d{8}-\\d{6}\\.log$/.test(f)).sort();if(!alphaFiles.length){console.error('missing alpha transcript');process.exit(1)};const latestAlpha=alphaFiles[alphaFiles.length-1];const alphaPath=p.join(alphaDir, latestAlpha);const mirrorPath=p.join(mirrorDir, latestAlpha+'.copy');if(!fs.existsSync(mirrorPath)){console.error('missing mirror copy: '+p.basename(mirrorPath));process.exit(1)};const alphaText=fs.readFileSync(alphaPath,'utf8');const mirrorText=fs.readFileSync(mirrorPath,'utf8');if(alphaText!==mirrorText){console.error('mirror transcript copy drift: '+p.basename(mirrorPath));process.exit(1)};console.log(p.basename(mirrorPath));" ${shellEscape(alphaLogsDir)} ${shellEscape(mirrorLogsDir)}`,
         severity: 'P1',
         scope: 'mirror',
         cwd: root,
@@ -466,7 +552,7 @@ function buildWorldCommandChecks(root, args) {
   return worlds.map((world) => {
     if (world === 'mirror') {
       const mirrorChecks = baseChecks.filter((check) => {
-        if (check.scope === 'alpha') return false;
+        if (check.scope === 'alpha') return Boolean(args.pushAlpha);
         if (args.world === 'both' && args.pushAlpha && check.id === 'alpha_e2e_mirror_copy') return false;
         return true;
       });

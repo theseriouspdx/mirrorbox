@@ -1,6 +1,23 @@
 # CHANGELOG.md
 ## Mirror Box Orchestrator — Project Evolution
 
+### [0.11.189] — 2026-03-23
+#### Fixed
+- **BUG-198 (P1) — Read-only readiness-check planning recovery crashed on null verdicts during live Alpha E2E:**
+  - `src/auth/operator.js`: hardened conversational extraction and section parsing so compact DID/tiebreaker outputs with `VERDICT`, `CONFLICT`, and `CONSENSUS INTENT` resolve to a safe decision object instead of propagating `null` into planning/audit recovery.
+  - `src/auth/operator.js`: persisted Stage 1.5 `pin:` / `exclude:` refinements into the pending decision so assumption guidance survives through DID planning for read-only workflows.
+  - `scripts/alpha-e2e-driver.js`: added a separate Gemini Flash `curl` guidance pass, logs the guidance source in the transcript, sends the hint before `go`, and waits for the queued-hint acknowledgement before autonomous DID begins.
+  - `scripts/test-readonly-workflow-persistence.js`: added a permanent regression test covering read-only hint persistence plus compact DID/tiebreaker verdict parsing.
+  - `scripts/alpha-runtime.sh`, `scripts/mbo-workflow-audit.js`: added explicit `MBO_CONTROLLER_ROOT` support so `--world both --push-alpha` still mirrors the newest Alpha transcript back into the controller repo when the subject-side run executes from `MBO_Alpha`.
+
+### [0.2.07] — 2026-03-23
+#### Fixed
+- **BUG-197 (P1) — Workflow audit runner falsely reported live mirror Alpha coverage:**
+  - `scripts/mbo-workflow-audit.js`: `--world mirror --push-alpha` no longer filters out the Alpha install/onboarding/E2E checks. The mirror run now executes the live Alpha path instead of only asserting that some mirrored transcript copy exists.
+  - `scripts/mbo-workflow-audit.js`: governance compliance now recognizes task statuses from both `## Active Tasks` and `## Recently Completed`, preventing false `status=UNKNOWN` failures for completed audit tasks such as `v0.2.04`.
+  - `scripts/mbo-workflow-audit.js`: latest-transcript validation now requires the real readiness-check workflow markers (`workflow prompt`, `Audit package ready`, approval acknowledgement, final `Status: Idle`) and verifies the mirrored `.copy` file matches the newest Alpha transcript exactly.
+  - `scripts/alpha-runtime.sh`, `scripts/alpha-e2e-driver.js`: live Alpha E2E now syncs the controller tree into Alpha before execution and launches `npx mbo cl` so the non-TTY automation path exercises the CLI operator instead of crashing in the default TUI.
+
 ### [0.3.23] — 2026-03-23
 #### Fixed
 - **BUG-196 (P1) — `handleInput` arrow function body closes prematurely (esbuild build failure):**
