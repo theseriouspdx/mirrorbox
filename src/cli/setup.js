@@ -350,6 +350,7 @@ const STAGE_CHOOSER = [
   { key: 'architecturePlanner', label: 'Planner A', desc: 'architecture plan derivation', baseRole: 'planner', matchers: ['sonnet', 'gemini', 'pro', 'reasoning'] },
   { key: 'componentPlanner', label: 'Planner B', desc: 'independent plan derivation', baseRole: 'planner', matchers: ['sonnet', 'gemini', 'pro', 'reasoning'] },
   { key: 'reviewer', label: 'Reviewer', desc: 'code critic', baseRole: 'reviewer', matchers: ['sonnet', 'gemini', 'pro', 'coder'] },
+  { key: 'patchGenerator', label: 'Patch Gen', desc: 'code patch synthesis (local/DeepSeek preferred)', baseRole: 'reviewer', matchers: ['deepseek', 'coder', 'codestral', 'haiku', 'flash'] },
   { key: 'tiebreaker', label: 'Tiebreaker', desc: 'final arbiter', baseRole: 'tiebreaker', matchers: ['opus', 'gemini', 'pro', 'sonnet'] },
   { key: 'onboarding', label: 'Onboarding', desc: 'working agreement synthesis', baseRole: 'operator', matchers: ['sonnet', 'haiku', 'flash'] },
 ];
@@ -368,6 +369,8 @@ function syncStageConfig(cfg) {
       ? cloneRoute(next.tiebreaker)
       : cloneRoute(next.operator);
   }
+  // patchGenerator: prefer explicit value; fall back to reviewer (local/DeepSeek at runtime — Section 11).
+  if (!next.patchGenerator) next.patchGenerator = cloneRoute(next.reviewer);
   if (!next.planner) next.planner = cloneRoute(next.architecturePlanner || next.componentPlanner);
   return next;
 }
@@ -473,6 +476,13 @@ function buildDefaultConfig(d) {
     ? { provider: 'claude-cli', model: 'claude-sonnet-4-6' }
     : { provider: 'google', model: 'gemini-2.5-pro' };
 
+  // patchGenerator: prefer local coder or DeepSeek (spec Section 11); fall back to reviewer.
+  const patchGenerator = largeC
+    ? { provider: 'ollama', model: largeC }
+    : d.openrouterKey
+    ? { provider: 'openrouter', model: 'deepseek/deepseek-r1-distill-qwen-32b' }
+    : cloneRoute(reviewer);
+
   const tiebreaker = d.claudeCLI
     ? { provider: 'claude-cli', model: 'claude-opus-4-6' }
     : d.anthropicKey
@@ -489,6 +499,7 @@ function buildDefaultConfig(d) {
     architecturePlanner: cloneRoute(planner),
     componentPlanner: cloneRoute(planner),
     reviewer,
+    patchGenerator,
     tiebreaker,
     onboarding: d.claudeCLI
       ? { provider: 'claude-cli', model: 'claude-sonnet-4-6' }
@@ -665,6 +676,7 @@ async function configureStageModels(rl, defaults, d, catalog) {
   cfg.architecturePlanner = cloneRoute(cfg.architecturePlanner || cfg.planner);
   cfg.componentPlanner = cloneRoute(cfg.componentPlanner || cfg.planner);
   cfg.reviewer = cloneRoute(cfg.reviewer || defaults.reviewer);
+  cfg.patchGenerator = cloneRoute(cfg.patchGenerator || cfg.reviewer || defaults.reviewer);
   cfg.tiebreaker = cloneRoute(cfg.tiebreaker || defaults.tiebreaker);
   cfg.onboarding = cloneRoute(cfg.onboarding || cfg.operator);
   cfg.planner = cloneRoute(cfg.architecturePlanner || cfg.planner);
@@ -753,6 +765,7 @@ async function runSetup() {
     console.log(`  Planner A:   ${wb(formatRoute(defaults.architecturePlanner))}`);
     console.log(`  Planner B:   ${wb(formatRoute(defaults.componentPlanner))}`);
     console.log(`  Reviewer:    ${wb(formatRoute(defaults.reviewer))}`);
+    console.log(`  Patch Gen:   ${wb(formatRoute(defaults.patchGenerator))}`);
     console.log(`  Tiebreaker:  ${wb(formatRoute(defaults.tiebreaker))}`);
     console.log(`  Onboarding:  ${wb(formatRoute(defaults.onboarding))}`);
     console.log(`  Executor:    ${wb(defaults.executor.cli + ' (local CLI)')}`);

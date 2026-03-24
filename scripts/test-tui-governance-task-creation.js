@@ -63,8 +63,10 @@ function transpileGovernanceModule(source) {
     .replace(/export interface[\s\S]*?\n}\n/g, '')
     .replace(/export type [^\n]+\n/g, '')
     .replace(/export /g, '')
-    .replace(/: (?:string|number|boolean|any|void|TaskRecord|GovernanceDoc|TaskDraftInput|TaskActivationInput|GovernanceDocKey)(?:\[\])?(?=[,;=)\s\{])/g, '')
-    .replace(/<[A-Z][A-Za-z0-9_ ,|]+>/g, '')
+    .replace(/const GOVERNANCE_FILENAMES: Array<[^=]+ = \[/, 'const GOVERNANCE_FILENAMES = [')
+    .replace(/: (?:string|number|boolean|any|void|TaskRecord|GovernanceDoc|TaskDraftInput|TaskActivationInput|GovernanceDocKey|'active' \| 'recent' \| null)(?:\[\])?(?=[,;=)\s\{])/g, '')
+    .replace(/: \{[^\}]+\}(?:\[\])?(?=[,;=)\s\{])/g, '')
+    .replace(/<[A-Za-z0-9_ ,|' ]+>/g, '')
     .replace(/ as [^,;\)\s]+/g, '')
     .replace(/\(cell: string\)/g, '(cell)')
     .concat('\nmodule.exports = { deriveNextTaskId, createTaskFromDraft };\n');

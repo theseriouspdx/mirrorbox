@@ -148,8 +148,9 @@ async function routeModels(classification = {}, blastRadius = []) {
     if (opConfig.streaming) {
       validateStreamingConfig(opConfig.streaming);
     }
-    // BUG-143: alias 'planner' key → architecturePlanner + componentPlanner.
-    // Setup writes 'planner' but router expects role-specific keys.
+    // BUG-143 shim (DEPRECATED as of v1.0.01): alias 'planner' key → architecturePlanner + componentPlanner.
+    // setup.js now writes both keys explicitly. This shim remains for configs written before v1.0.01.
+    // Remove this block once all active installations have been migrated via `mbo setup` or migrate-config.
     if (opConfig.planner && !opConfig.architecturePlanner) opConfig.architecturePlanner = opConfig.planner;
     if (opConfig.planner && !opConfig.componentPlanner) opConfig.componentPlanner = opConfig.planner;
 
