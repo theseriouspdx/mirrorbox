@@ -46,7 +46,7 @@ It is not fragile. Every execution is reversible. Every decision is logged. Ever
 
 ## Section 2 — Core Principles
 
-These six principles govern every architectural decision in this document. When two approaches conflict, the one that better satisfies these principles wins.
+These eight principles govern every architectural decision in this document. When two approaches conflict, the one that better satisfies these principles wins.
 
 **1. No repository commit or merge occurs without a human typing "go."**
 No model has uncontrolled write access to repository history. Models may draft and validate changes in an isolated workspace, but the human approval gate controls final commit/merge and cannot be bypassed under any circumstances — not by the tiebreaker, not by any error condition, not by any timeout.
@@ -63,8 +63,17 @@ Compilation, static analysis, linting, test execution, and sandbox simulation ar
 **5. Failure defaults to safe rollback.**  
 Every execution creates a reversible branch. Failed builds revert automatically. The system never leaves a repository in an inconsistent state.
 
-**6. Independent derivation before comparison.**  
+**6. Independent derivation before comparison.**
 No agent sees another agent's work before producing its own. Consensus is earned through independent agreement, not inherited through shared context.
+
+**7. The input bar works like a conversation with an LLM, not a command line.**
+Any text the user types MUST be interpreted with intent-matching semantics. The system MUST handle: natural language requests ("run next task," "fix the bug in App.tsx"), task identifiers in any canonical format (`v0.14.09`, `BUG-223`), numeric shortcuts (`1` through `5` referencing a visible list), slash commands (`/tasks`, `/bugs`), and ambiguous or partial input — without requiring the user to know which syntax category applies. If the system cannot determine intent with sufficient confidence, it MUST ask a clarifying question inside the application. It MUST NOT reject the input, echo an "unrecognized command" message, or fail silently. The input bar MUST support standard text-editing behavior: cursor movement (arrow keys), character insertion at cursor position, forward delete, backspace, and selection. Any third-party input component that does not meet these requirements MUST be patched or replaced.
+
+**8. The application never dumps the user to a command line.**
+Under no condition — including unhandled exceptions, missing modules, failed `require()` calls, configuration errors, pipeline failures, or terminal resize events — SHALL the application terminate and return the user to a shell prompt. All errors MUST be caught and surfaced within the TUI. Error messages MUST be plain-English single sentences displayed in the operator panel. They MUST NOT contain stack traces, file paths, or environment variables. If a subsystem fails in a way that makes continued operation impossible (e.g., the operator module cannot be loaded), the TUI MUST display a diagnostic message and remain running in a degraded state that still accepts input. The user MUST always be able to type, read the error, and decide what to do next. `process.exit()` MUST only be called in response to an explicit user action (Ctrl+C double-press, `/quit` command). No programmatic code path — including error handlers, signal handlers, and uncaught exception handlers — may call `process.exit()` without prior user confirmation displayed in the TUI.
+
+**9. The Operator panel is the persistent primary view. The system never auto-navigates away from it.**
+The Operator panel is the conversational anchor — the equivalent of the main thread in Claude Code, Codex, or Gemini CLI. Pipeline stages, tool calls, model outputs, approval gates, errors, and status transitions MUST render as inline content in the Operator stream, not as tab-switches that pull the user away from it. Secondary tabs (Pipeline, Executor) exist for optional deep inspection and MAY be switched to manually, but the system MUST NEVER auto-switch tabs in response to internal state changes. The one exception is the approval gate: when `needsApproval` is true, the system MUST return to the Operator tab so the 'go' prompt is visible. Tool call output MUST be rendered as collapsible inline blocks within the Operator stream — a status line visible by default, with full output accessible on demand — rather than requiring a tab switch to read. Any implementation that routes the user to a secondary tab automatically, or that places a required action (approval prompt, error, clarification request) on a tab the user is not currently viewing, violates this principle.
 
 ---
 

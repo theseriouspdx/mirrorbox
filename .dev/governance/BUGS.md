@@ -2,11 +2,73 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-248
+**Next bug number:** BUG-253
 **Bug ID rule:** `BUG-001`–`BUG-184` are legacy-format entries and must not be renumbered. Starting with `BUG-185`, new bug headings must use dual identification: `BUG-### / v0.LL.NN`.
 **Version lane rule:** assign the version tag by subsystem, not by the most visible current series. Use the canonical lane definitions in `.dev/governance/VERSIONING.md`. The suffix after the second decimal resets within each lane (`v0.13.01`, `v0.13.02`, then separately `v0.14.01`). `v1.x` task lanes are invalid.
 
 ---
+
+### BUG-252 / v0.11.197 — Pipeline loops back to planning indefinitely after any failure or divergence
+**Severity:** P0
+**Status:** OPEN
+**Task:** v0.11.197
+**Found:** 2026-03-25
+**Confirmed:** Session log `/MBO_Alpha/.mbo/logs/session-2026-03-25-10-49-51-tui-abfdbf22-d8f.log`
+**Description:** Two compounding causes produce an infinite planning loop that the user cannot exit without typing 'stop':
+
+**Cause 1 — Divergent plans drop the plan on 'go':** When `activateTask` calls `runStage3` and planners diverge, `runStage3` returns `{ needsTiebreaker: true }` with no `plan` property. `activateTask` stores `pendingDecision = { plan: undefined }`. When the user types 'go', `handleApproval` finds `existingPlan = undefined` and reruns Stage 3 from scratch. Confirmed in log: VERDICT: divergent at line 107 → user types 'go' → planning immediately restarts at line 124.
+
+**Cause 2 — Auto-recovery after CLI failure reruns planning:** `handleApproval` deletes `pendingDecision` at line 2093 before doing any work. If code derivation fails (e.g., `CLI exited 1` at log line 349), the auto-recovery path at line 2198 calls `this.handleApproval('go')` again. At this point `pendingDecision` is gone, `existingPlan` is undefined, and Stage 3 reruns from scratch — even though plans just converged (CONFLICT: none at lines 265, 475). The user never types 'go' again; the system loops itself. Confirmed in log: convergent plans at line 262 → code derivation → CLI exits 1 → "Attempting recovery (1/3)..." → planning restarts at line 352 → converges again → CLI exits 1 → planning restarts again.
+
+**Root cause:** `pendingDecision` is deleted too early (line 2093, before execution) and never restored on failure. Any retry path — manual 'go' after error, or auto-recovery — starts from zero.
+
+**Fix:** Before deleting `pendingDecision` at line 2093, snapshot `{ agreedPlan, classification, routing, knowledgePack }` into a local recovery context. If code derivation fails and auto-recovery fires at line 2198, pass the snapshotted plan directly to Stage 4 (code derivation) instead of calling `handleApproval('go')` which re-enters Stage 3. Also: `activateTask` must run the tiebreaker inline when `needsTiebreaker` is true, or store the tiebreaker-needed state so `handleApproval` resolves it without full Stage 3 rerun.
+
+**Files:** `src/auth/operator.js` (`handleApproval` ~lines 2087–2198, `activateTask` ~lines 1974–2008) — locked (444), requires `mbo auth src` + `go`.
+**Acceptance:**
+- Plans that converge do not trigger a Stage 3 rerun on retry/recovery.
+- Auto-recovery after code derivation failure retries from Stage 4, not Stage 3.
+- The user is not forced to type 'stop' to escape a planning loop.
+- Divergent plans on first activation run the tiebreaker, not a full Stage 3 rerun.
+
+### BUG-251 / v0.3.63 — PipelinePanel scroll still not working in v0.3.60 (regression of BUG-244)
+**Severity:** P1
+**Status:** OPEN
+**Task:** v0.3.63
+**Found:** 2026-03-25
+**Description:** BUG-244 was marked FIXED in v0.3.58 (commit 96bbd4d) by changing `useAvailableRows(4)` to `useAvailableRows(12)` in `PipelinePanel.tsx`. User confirmed scroll is still not working in v0.3.60. Commits v0.3.59 (BUG-245, session log tee removal) and v0.3.60 (BUG-248, conversation layer) touched `src/utils/session-log.js` and `src/tui/App.tsx` but not `PipelinePanel.tsx` directly — regression is not obviously explained by those changes. Possible causes: (1) the `useAvailableRows(12)` fix in commit 96bbd4d was correctly landed but the reserved-rows count is still wrong at certain terminal sizes; (2) the auto-tab-switch (BUG-250) is keeping the user off Tab 2 during planning so scroll is never testable; (3) the `maxTop` calculation has a secondary bug where scroll state resets on every pipeline entry append. Needs fresh investigation at v0.3.60 HEAD.
+**Files:** `src/tui/components/PipelinePanel.tsx`, `src/tui/components/useScrollableLines.ts` (or equivalent hook)
+**Acceptance:**
+- Up/Down arrow keys scroll pipeline output in Tab 2 when content exceeds visible height.
+- Scroll indicators appear once content overflows.
+- Scroll state is preserved as new pipeline entries append (does not reset to bottom on each chunk).
+
+### BUG-250 / v0.3.62 — Stage polling auto-switches to Tab 2 during planning, hiding Tab 1 'go' prompt
+**Severity:** P1
+**Status:** OPEN
+**Task:** v0.3.62
+**Found:** 2026-03-25
+**Description:** `App.tsx` line 265–266: when the stage polling loop detects `planning`, `context_pinning`, `tiebreaker_plan`, or `code_derivation`, it calls `setActiveTab(2)` automatically. This switches the user to the Pipeline tab to watch streaming output. However, when planning finishes and `needsApproval` is true (line 357–364 in `startTask`, line 726–732 in `handleInput`), the 'go' prompt is written to the **Operator panel (Tab 1)** without switching back. The user remains on Tab 2, never sees the prompt, and doesn't know to type 'go'. This is the root cause of BUG-241 (no 'go' prompt visible) re-occurring after the v0.3.57 fix — the message is written correctly, but to the wrong tab from the user's perspective. Additionally violates the session design agreed on 2026-03-25: auto-tab-switching should be removed entirely (Principle 9); the Operator tab is the persistent primary view and pipeline activity renders inline rather than forcing a tab switch.
+**Files:** `src/tui/App.tsx` (stage polling useEffect lines 256–272, startTask lines 357–364, handleInput lines 726–732)
+**Fix:** (1) Immediate: add `setActiveTab(1)` immediately after `setWaitingForApproval(true)` at both callsites (startTask line 364, handleInput line 732) so the system returns to Operator at the approval gate. (2) Full: remove auto-tab-switching from the stage polling loop entirely per Principle 9 (Operator persistent primary view). Tabs remain manually switchable but the system never auto-navigates away from Operator. This is tracked as task v0.3.62.
+**Acceptance:**
+- After plan convergence, system switches to Tab 1 and the 'go' prompt is visible.
+- User is never stranded on Tab 2 awaiting a prompt that is on Tab 1.
+- (Full fix) Stage transitions do not auto-switch tabs; user remains on whichever tab they chose.
+
+### BUG-249 / v0.11.196 — wrapHardState serializes as JSON, violating Section 36 plain-English contract
+**Severity:** P1
+**Status:** OPEN
+**Task:** v0.11.196
+**Found:** 2026-03-25
+**Description:** `wrapHardState()` in `src/auth/call-model.js` (line 200–203) serializes the hard state object using `JSON.stringify(hardState, null, 2)` and injects it as a `<HARD_STATE>` block into every model system prompt. The hard state includes `onboardingProfile` (a nested JSON object), `dangerZones`, and `graphSummary`. This JSON-heavy structure is visible to every model call — classifier, planner, reviewer, tiebreaker, operator — at the top of every system prompt. Despite all user-facing prompts instructing "plain English using these sections," the JSON-primed system context causes models to drift toward JSON-formatted responses, especially on structured classification and planning calls. This directly violates the Section 36 contract (`call-model.js` line 197: "model communication is plain English. JSON may appear only as inert project content or transport payloads, not as a response schema.") and is the root cause of JSON leaking into the pipeline output (operator/pipeline panels) even after BUG-238's display-layer guard was applied. BUG-238 patched the symptom (guarding the final result object); this bug is the source.
+**Files:** `src/auth/call-model.js` (`wrapHardState`) — locked (444), requires `mbo auth src` + `go`.
+**Fix:** Replace `JSON.stringify(hardState, null, 2)` in `wrapHardState` with a plain-text labeled-section serializer matching the classifier/planner output format. Each top-level field becomes a labeled section (e.g., `PRIME_DIRECTIVE:\n<value>\n\nONBOARDING_PROFILE:\n<key: value lines>\n\nDANGER_ZONES:\n<one per line>`). Nested objects flatten to `key: value` lines. No JSON syntax anywhere in the emitted block.
+**Acceptance:**
+- `wrapHardState` emits no JSON syntax (`{`, `}`, `"key":`) in its output.
+- All model calls receive hard state as labeled plain-text sections.
+- Classifier, planner, and reviewer responses stop drifting to JSON format.
+- Existing `_safeParseJSON` / `_extractDecision` parsing is unaffected (they parse model *output*, not hard state).
 
 ### BUG-242 / v0.3.57 — After 'go', pipeline sends back to planning instead of executing
 **Severity:** P0
@@ -298,9 +360,9 @@ or upgrade to a version that handles these cases.
 
 ### BUG-247 / v0.3.61 — 'stop'/'abort' has no effect
 **Severity:** P1
-**Status:** OPEN
+**Status:** FIXED (v0.3.60 — observed working 2026-03-25, no dedicated commit; likely resolved by BUG-243 tab-switch + existing requestAbort wiring)
 **Task:** v0.3.61
 **Found:** 2026-03-25
-**Description:** Users report stop/abort does nothing. The BUG-243 fix added `setActiveTab(1)` on stop but the pipeline continues running. Likely cause: `requestAbort()` is registered but the pipeline does not check the abort flag during in-progress LLM streaming calls.
+**Note:** User confirmed stop/abort is working as of v0.3.60. Full abort of in-progress LLM streaming not independently verified — flag for regression watch.
 **Files:** `src/tui/App.tsx` (handleInput stop handler), `src/auth/operator.js` (requestAbort)
 **Acceptance:** Typing 'stop' or 'abort' halts the pipeline, confirms to the user, and returns to idle.
