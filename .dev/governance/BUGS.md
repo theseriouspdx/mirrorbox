@@ -286,6 +286,16 @@ or upgrade to a version that handles these cases.
 **Files:** `src/tui/App.tsx` (handleApproval, error state), `src/auth/operator.js` (handleApproval)
 **Acceptance:** Typing 'go' after a pipeline error retries from the failure stage, not from planning.
 
+### BUG-248 / v0.3.60 — Session log missing conversation layer
+**Severity:** P1
+**Status:** FIXED (v0.3.60)
+**Task:** v0.3.60
+**Found:** 2026-03-25
+**Description:** After removing `tee('stdout')` in v0.3.59, the session log captured backend pipeline events (via `writeMeta`) and stderr metadata (via `tee('stderr')`) but not the conversation layer. User input typed in the TUI, operator responses shown in the Operator panel, `go`/`stop` commands, and raw JSON blobs were all invisible in the log. Root cause: conversation content is rendered by Ink from React state, not written to stdout/stderr. Additionally, React duplicate-key warnings (`key=""`) from `TasksOverlay.tsx` flooded every log on session start due to array `.map()` calls using text content as keys — empty lines produced `key=""` collisions.
+**Files:** `src/utils/session-log.js`, `src/tui/App.tsx`, `src/tui/components/TasksOverlay.tsx`
+**Fix:** Added `logEvent(category, message)` direct-write function to `session-log.js` that writes timestamped lines directly to the log file stream, bypassing stdout/stderr entirely. Wired `appendOperator` (all operator panel output) and `handleInput` (all user input) in `App.tsx` to call `getActiveLog()?.logEvent()`. Fixed `key={line}` → `key={i}` in two `.map()` calls in `TasksOverlay.tsx`.
+**Acceptance:** Session log shows all user input as `[session TS] [user] <text>` and all operator panel output as `[session TS] [tui] <text>`. No React duplicate-key warnings in log.
+
 ### BUG-247 / v0.3.61 — 'stop'/'abort' has no effect
 **Severity:** P1
 **Status:** OPEN

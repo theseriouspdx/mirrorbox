@@ -2,6 +2,11 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import { createRequire } from 'module';
 
+// Session log singleton — set in index.tsx before App mounts.
+// getActiveLog() returns null until ready, so all calls are safe.
+const _slogRequire = createRequire(import.meta.url);
+const { getActiveLog } = _slogRequire('../utils/session-log.js');
+
 import { StatusBar } from './components/StatusBar.js';
 import { TabBar } from './components/TabBar.js';
 import { OperatorPanel } from './components/OperatorPanel.js';
@@ -197,6 +202,7 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
   const appendOperator = useCallback((text: string) => {
     const nextLines = String(text || '').split('\n');
     setOperatorLines((prev) => [...prev, ...nextLines]);
+    try { getActiveLog()?.logEvent('[tui]', text); } catch {}
   }, []);
 
   const [, setResizeTick] = useState(0);
@@ -402,6 +408,7 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
   const handleInput = useCallback(async (text: string) => {
     const trimmed = String(text || '').trim();
     const lower = trimmed.toLowerCase();
+    try { getActiveLog()?.logEvent('[user]', trimmed || '(empty)'); } catch {}
 
     // Empty submit with arrow-selected task → activate via overlay preflight
     if (!trimmed) {

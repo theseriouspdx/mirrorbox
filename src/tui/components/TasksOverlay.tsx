@@ -433,8 +433,8 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
           <Text color={C.teal} dimColor>[Esc] back  [Enter] next</Text>
         </Box>
         <Text color={C.teal} dimColor>{SEP}</Text>
-        {createSummaryLines(draft).map((line) => (
-          <Text key={line} color={C.white} dimColor={line.includes('(missing)')}>{line}</Text>
+        {createSummaryLines(draft).map((line, i) => (
+          <Text key={i} color={C.white} dimColor={line.includes('(missing)')}>{line}</Text>
         ))}
         <Box marginTop={1} flexDirection="column">
           <Text color={C.purple} bold>{createPrompt(createStep, draft)}</Text>
@@ -458,8 +458,8 @@ export function TasksOverlay({ projectRoot, onClose, onActivate, initialView = '
           <Text color={C.audit} dimColor>[Esc] back  [Enter] next</Text>
         </Box>
         <Text color={C.audit} dimColor>{SEP}</Text>
-        {activationSummaryLines(briefingTask, activation).map((line) => (
-          <Text key={line} color={C.white} dimColor={line.includes('(none)')}>{line}</Text>
+        {activationSummaryLines(briefingTask, activation).map((line, i) => (
+          <Text key={i} color={C.white} dimColor={line.includes('(none)')}>{line}</Text>
         ))}
         <Box marginTop={1} flexDirection="column">
           <Text color={C.purple} bold>{activatePrompt(activateStep)}</Text>

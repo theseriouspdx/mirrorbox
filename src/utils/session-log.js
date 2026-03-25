@@ -46,6 +46,19 @@ function startSessionLog({ projectRoot, runId = null, mode = 'runtime' } = {}) {
     } catch {}
   };
 
+  // Direct-write conversation logger — bypasses stdout/stderr entirely.
+  // Use for all TUI conversation events (user input, operator output, status events)
+  // so they appear timestamped regardless of Ink's stdout patching.
+  const logEvent = (category, message) => {
+    try {
+      const lines = String(message || '').split('\n');
+      for (const line of lines) {
+        if (line === '') continue;
+        stream.write('[session ' + new Date().toISOString() + '] ' + category + ' ' + line + '\n');
+      }
+    } catch {}
+  };
+
   // tee('stdout') removed — Ink redraws stdout constantly, producing 60MB+ of ANSI noise.
   // Pipeline output is captured cleanly via operator._chunkLogger → writeMeta instead.
   tee('stderr');
@@ -76,6 +89,7 @@ function startSessionLog({ projectRoot, runId = null, mode = 'runtime' } = {}) {
   return {
     path: filePath,
     writeMeta,
+    logEvent,
     close() {
       close();
     }

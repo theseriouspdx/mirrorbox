@@ -5,7 +5,7 @@
 **Reference:** For governance document role definitions, see `.dev/governance/GOVERNANCE_MAP.md`.
 
 **Current Milestone:** 1.1 — Portability & Hardening [IN PROGRESS]
-**Current Version:** 0.3.58
+**Current Version:** 0.3.60
 **Next Task:** v0.13.02
 **V4 Gate:** The v0.4x series has zero tasks until ALL of the following clear: v0.13.01, v0.14.01, v0.15.01, v0.16.01. After all four clear, Operator defines v0.4.0-RC.x candidate build tasks. v0.4.0 ships when and only when the Operator has privately demoed MBO and is personally convinced it is ready for external eyes. v0.41.x tasks are created from what surfaces after the public demo — not before it. See AGENTS.md §17H.
 **Policy:** This file is the single source of truth for work state.
@@ -31,6 +31,8 @@
 | v0.15.05 | chore | Phase 4 — Scripts audit: operational headers, test suite re-run, dead script evaluation | READY | unassigned | - | 2026-03-23 | docs/v0.15-cleanup-plan.md §Phase4 | - | node tests/run-all.js exits 0; all operational scripts in scripts/ have purpose headers |
 | v0.15.06 | chore | Phase 5 — Topology finalization: gitignore verify, version integrity, V4 sign-off | READY | unassigned | - | 2026-03-23 | docs/v0.15-cleanup-plan.md §Phase5 | - | Validator green; package.json version == CHANGELOG head; graph current; Operator sign-off written |
 | v0.16.01 | plan | CYNIC tax design: incremental runtime-repo cleanup, audit work, bug clearing, and per-session maintenance workflow | READY | unassigned | - | 2026-03-21 | runtime repo maintenance policy, projecttracking workflow, per-session cleanup orchestration | - | Design the CYNIC tax add-on for code already in the project runtime repository. The plan must define a small tax budget (roughly 10-30%, ideally user-adjustable) for cleaning up the codebase, clearing bugs, and running audits over time. It must define how this work is tracked in projecttracking, how `<CYNIC-PENDING>` claims are represented, how each model can work on a small part each session, and how to make the workflow robust rather than brittle. Output must define control knobs, claiming rules, decomposition strategy, bookkeeping, and failure/recovery behavior. |
+| v0.3.60 | bug | Session log missing conversation layer — user input and operator output not captured | COMPLETED | claude | - | 2026-03-25 | BUG-248 | - | Log shows all user input as [user] and operator output as [tui], timestamped. No React key warnings. |
+| v0.3.59 | bug | Session log filled with ANSI escape codes (60MB files) | COMPLETED | claude | - | 2026-03-25 | BUG-245, commit 64d4a1f | - | Session log is human-readable plain text, no escape codes |
 | v0.3.57 | bug | After 'go', pipeline routes back to planning instead of executing | COMPLETED | claude | - | 2026-03-25 | BUG-242, commit 5ebe268 | - | Typing 'go' after plan convergence advances to Stage 5 execution |
 | v0.3.56 | bug | Planning stage silent at approval gate — no 'go' prompt shown | COMPLETED | claude | - | 2026-03-25 | BUG-241, commit 5ebe268 | - | Operator panel displays approval prompt after plan convergence |
 | v0.3.55 | bug | Session pipeline output not written to log file | COMPLETED | claude | - | 2026-03-25 | BUG-240, commit 5ebe268 | - | Each TUI pipeline run writes full session log to .mbo/logs/ |
