@@ -26,10 +26,10 @@ class DBManager {
         throw new Error(`Integrity check failed: ${JSON.stringify(integrityResult)}`);
       }
     } catch (error) {
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error(`DB corruption in production — operator action required: ${error.message}`);
-      }
-      console.error('[WARN] Dev mode: corrupt DB renamed, starting fresh.', error.message);
+      // BUG-238: Recover in all environments — a hard-throw in production leaves
+      // the operator with no DB and every subsequent operation fails as raw JSON.
+      // Renaming and starting fresh is always safer than an unrecoverable crash.
+      console.error('[WARN] MBO: DB corrupt or unreadable — renaming and starting fresh.', error.message);
       if (fs.existsSync(targetPath)) {
         fs.renameSync(targetPath, `${targetPath}.corrupt.${Date.now()}`);
       }

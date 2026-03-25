@@ -248,6 +248,10 @@ class Operator {
   }
 
   _emitTuiChunk(role, chunk, meta = {}) {
+    // BUG-240: Write every pipeline chunk to the session log independently of stdout/Ink.
+    if (typeof this._chunkLogger === 'function' && chunk) {
+      try { this._chunkLogger('[' + (meta.stage || role) + '] ' + String(chunk)); } catch {}
+    }
     if (typeof this.onChunk === 'function' && chunk) this.onChunk({ role, chunk, ...meta });
   }
 
@@ -1647,11 +1651,15 @@ The output will be used as the new system context.`;
 
     // Task activation now uses dedicated activateTask() entry point (Section 37.3F).
     // BUG-221 regex bypass removed — all freeform messages reach classifyRequest().
+    this._emitTuiChunk('operator', 'Classifying your request...\n');
     const classification = await this.classifyRequest(userMessage);
 
     if (classification.needsClarification) {
       this.lastClarificationPrompt = classification.rationale || '';
-      return { needsClarification: true, question: classification.rationale };
+      const clarResult = { needsClarification: true, question: classification.rationale };
+      this.sessionHistory.push({ role: 'assistant', content: classification.rationale || '[clarification requested]' });
+      this.saveHistory();
+      return clarResult;
     }
 
     this.lastClarificationPrompt = null;
@@ -1710,6 +1718,7 @@ The output will be used as the new system context.`;
     eventStore.append(classificationSource, 'operator', { classification: cleanClassification, routing }, 'mirror');
 
     this._setStage('classification');
+    this._emitTuiChunk('operator', `Classified as ${cleanClassification.route || 'standard'} route (risk: ${cleanClassification.risk || 'medium'}).\n`);
     this.stateSummary.filesInScope = cleanClassification.files;
     this.stateSummary.currentTask = cleanClassification.readOnlyWorkflow
       ? 'Readiness-check workflow verification'
@@ -1717,10 +1726,14 @@ The output will be used as the new system context.`;
     stateManager.snapshot(this.stateSummary, 'mirror');
 
     // Section 8 / Section 27: every execution workflow enters Stage 1.5 before planning.
+    this._emitTuiChunk('operator', 'Deriving assumptions and checking entropy...\n');
     const stage1_5 = await this.runStage1_5(cleanClassification, routing);
 
     // Section 27: Entropy hard stop propagates directly — do not set pendingDecision
-    if (stage1_5.status === 'blocked') return stage1_5;
+    if (stage1_5.status === 'blocked') {
+      this.saveHistory();
+      return stage1_5;
+    }
 
     this.stateSummary.pendingDecision.ledger = stage1_5.assumptionLedger;
     this.stateSummary.pendingDecision.knowledgePack = stage1_5.projectedContext;
@@ -1730,6 +1743,9 @@ The output will be used as the new system context.`;
       stage1_5.prompt = `[BLOCKED] ${stage1_5.prompt}\nCannot proceed until blockers are resolved.`;
     }
 
+    this.saveHistory();
+    // BUG-241: Ensure gate is released so 'go' reaches handleApproval unblocked.
+    this._pipelineRunning = false;
     return stage1_5;
   }
 
@@ -1919,7 +1935,7 @@ The output will be used as the new system context.`;
 
       // §6 Routing + checkpoint
       const routing = await this.determineRouting(classification);
-      stateManager.checkpoint(this.stateSummary);
+      stateManager.checkpoint('mirror');
 
       // §6 Event logging — CLASSIFICATION_TASK_ACTIVATION
       eventStore.append('CLASSIFICATION_TASK_ACTIVATION', 'operator', {
@@ -1940,6 +1956,9 @@ The output will be used as the new system context.`;
       this.stateSummary.currentStage = 'stage_1_5';
       this.stateSummary.currentTask = taskRecord.title;
       this.stateSummary.activeAction = `Task activation: ${taskRecord.id}`;
+      this._emitTuiChunk('operator', `Activating task ${taskRecord.id}: ${taskRecord.title}\n`);
+      this._emitTuiChunk('operator', `Route: ${route} | Risk: ${risk} | Files: ${files.length > 0 ? files.join(', ') : 'none identified'}\n`);
+      this._emitTuiChunk('operator', 'Planning — deriving convergent plan from two independent models...\n');
 
       // Sandbox handling: if sandboxFocus is true, log governance bypass
       if (this.sandboxFocus) {
@@ -1976,6 +1995,10 @@ The output will be used as the new system context.`;
         ledger: planResult.ledger || null,
       };
 
+      // BUG-236: Release _pipelineRunning so 'go' input reaches processMessage.
+      // handleApproval() will re-set it when the pipeline actually resumes.
+      this._pipelineRunning = false;
+
       return {
         status: 'started',
         needsApproval: true,
@@ -1985,6 +2008,7 @@ The output will be used as the new system context.`;
       };
     } catch (err) {
       console.error(`[Operator] activateTask error: ${err.message}`);
+      this._pipelineRunning = false;
       return { status: 'error', reason: err.message };
     } finally {
       this._isTransitioning = false;
@@ -2056,10 +2080,11 @@ The output will be used as the new system context.`;
     const approval = await this.requestApproval(decision);
     if (!approval.approved) {
       delete this.stateSummary.pendingDecision;
+      this.saveHistory();
       return { status: 'aborted', reason: 'Human denied approval.' };
     }
 
-    const { classification, routing, knowledgePack } = this.stateSummary.pendingDecision;
+    const { classification, routing, knowledgePack, plan: existingPlan } = this.stateSummary.pendingDecision;
     // BUG-158/163: Scope lock.
     const locks = {
       lockedWorld: this.stateSummary.worldId || 'mirror',
@@ -2068,8 +2093,10 @@ The output will be used as the new system context.`;
     delete this.stateSummary.pendingDecision;
 
     try {
-      // Stage 3: Planning
-      const planResult = await this.runStage3(classification, routing, knowledgePack ? [knowledgePack] : [], this.stateSummary.executorLogs, locks);
+      // Stage 3: Planning — skip if activateTask already derived a convergent plan
+      const planResult = existingPlan
+        ? { plan: existingPlan, escalatedToHuman: false, needsTiebreaker: false }
+        : await this.runStage3(classification, routing, knowledgePack ? [knowledgePack] : [], this.stateSummary.executorLogs, locks);
 
       // BUG-163: check filesToChange
       if (locks.lockedFiles.length > 0 && (!planResult.plan || !planResult.plan.filesToChange || planResult.plan.filesToChange.length === 0)) {
@@ -2079,6 +2106,7 @@ The output will be used as the new system context.`;
       if (planResult.escalatedToHuman) {
         this.abortController = null;
         this._pipelineRunning = false;
+        this.saveHistory();
         return {
           status: 'blocked',
           reason: planResult.conflict || 'DID could not converge and requires human decision.',
@@ -2092,11 +2120,14 @@ The output will be used as the new system context.`;
       }
 
       if (this._shouldUseWorkflowFallback(agreedPlan, classification)) {
+        this._emitTuiChunk('operator', 'Using workflow fallback — writing changes...\n');
         const writeResult = await this.runStage6(FALLBACK_WORKFLOW_CODE, []);
 
         this.abortController = null;
+        this._emitTuiChunk('operator', 'Running audit on written files...\n');
         this.stateSummary.pendingAuditContext = { classification, routing, modifiedFiles: writeResult.modifiedFiles };
         const auditPkg = await this.runStage7(writeResult);
+        this.saveHistory();
         return {
           status: 'audit_pending',
           auditPackage: auditPkg,
@@ -2105,6 +2136,7 @@ The output will be used as the new system context.`;
       }
 
       // Stage 4: Code
+      this._emitTuiChunk('operator', 'Generating code from the approved plan...\n');
       const codeResult = await this.runStage4(agreedPlan, classification, routing, locks, knowledgePack);
       
       // Stage 4.5: Virtual Dry Run — apply patch to live files, run verification, roll back.
@@ -2117,6 +2149,7 @@ The output will be used as the new system context.`;
       }
 
       // Stage 6: Write + Validate
+      this._emitTuiChunk('operator', 'Writing changes to files and running validator...\n');
       const writeResult = await this.runStage6(codeResult.code, scopedFiles);
 
       if (!writeResult.validatorPassed) {
@@ -2134,8 +2167,10 @@ The output will be used as the new system context.`;
       // Stage 5.5: Surface audit package to REPL — pause here.
       // REPL resolves via 'approved' → runStage8(), or 'reject' → runStage7Rollback().
       // Do NOT auto-approve, auto-rollback, or continue to Stage 11 here.
+      this._emitTuiChunk('operator', 'Running audit on written files...\n');
       this.stateSummary.pendingAuditContext = { classification, routing, modifiedFiles: writeResult.modifiedFiles };
       const auditPkg = await this.runStage7(writeResult);
+      this.saveHistory();
       return {
         status: 'audit_pending',
         auditPackage: auditPkg,
@@ -2149,9 +2184,10 @@ The output will be used as the new system context.`;
       this._pipelineRunning = false;
       const isAbort = e.message && (e.message.includes('abort') || e.message.includes('Abort'));
       if (isAbort) {
+        this.saveHistory();
         return { status: 'aborted', reason: 'Pipeline aborted by user.' };
       }
-      
+
       // BUG-012: Smoke test failure loop (Recovery limit)
       if (this.stateSummary.recoveryAttempts < 3) {
         this.stateSummary.recoveryAttempts++;
@@ -2162,6 +2198,7 @@ The output will be used as the new system context.`;
         return await this.handleApproval('go');
       }
 
+      this.saveHistory();
       return { status: 'error', reason: `Pipeline failure after ${this.stateSummary.recoveryAttempts} recovery attempts: ${e.message}` };
     }
   }

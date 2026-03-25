@@ -81,4 +81,10 @@ function startSessionLog({ projectRoot, runId = null, mode = 'runtime' } = {}) {
   };
 }
 
-module.exports = { startSessionLog };
+// Module-level singleton — set from the TUI entry point after both the operator
+// and session log are ready, so operator._chunkLogger can write to it.
+let _activeLog = null;
+function setActiveLog(log) { _activeLog = log; }
+function getActiveLog() { return _activeLog; }
+
+module.exports = { startSessionLog, setActiveLog, getActiveLog };

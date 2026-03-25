@@ -41,7 +41,13 @@ function formatResult(result: any): string {
   if (status === 'abort') return result.message || 'Task aborted after max smoke test failures.';
   if (status === 'blocked') return result.reason || result.prompt || 'Task blocked.';
   if (status === 'aborted') return result.reason || 'Operation aborted.';
-  if (status === 'error') return result.reason || 'Pipeline failed.';
+  if (status === 'error') {
+    const r = result.reason;
+    if (!r) return 'Pipeline failed.';
+    // BUG-238: Guard against raw JSON leaking into the TUI (e.g. DB error with serialised context).
+    if (typeof r === 'string' && r.trimStart().startsWith('{')) return 'Pipeline error — check .mbo/logs/ for details.';
+    return r;
+  }
   if (status === 'onboarding_active' || status === 'onboarding_complete') return result.prompt || 'Onboarding update received.';
   if (status === 'shutdown_complete') return 'Session shutdown complete.';
   if (typeof result.prompt === 'string' && result.prompt.trim()) return result.prompt;
@@ -175,6 +181,8 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
   const [overlayDraftSeed, setOverlayDraftSeed] = useState<{ title?: string } | null>(null);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [pipelineRunning, setPipelineRunning] = useState(false);
+  // BUG-241/242: tracks when the operator is paused at the approval gate.
+  const [waitingForApproval, setWaitingForApproval] = useState(false);
   const [stats, setStats] = useState<TuiStats>(() => loadStats(statsManager));
 
   const [operatorLines, setOperatorLines] = useState<string[]>([]);
@@ -347,6 +355,7 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
         appendOperator('  PLAN READY — Review the plan above.');
         appendOperator('  Type "go" to execute, or type feedback to refine.');
         appendOperator('════════════════════════════════════════════════');
+        setWaitingForApproval(true);
       } else if (result && result.status !== 'started') {
         const formatted = formatResult(result);
         if (formatted) appendOperator(formatted);
@@ -672,7 +681,16 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       const clarificationCheck = detectClarificationFollowup(trimmed, lastClarificationMessage);
       const messageToProcess = clarificationCheck ? clarificationCheck.wrappedPrompt : trimmed;
 
-      const result = await operator.processMessage(messageToProcess);
+      // BUG-242: Route 'go' directly to handleApproval when at the approval gate.
+      // processMessage already does this internally via pendingDecision check, but
+      // routing here explicitly prevents any edge case where pendingDecision is stale.
+      let result: any;
+      if (lower === 'go' && (waitingForApproval || operator.stateSummary?.pendingDecision)) {
+        setWaitingForApproval(false);
+        result = await operator.handleApproval('go');
+      } else {
+        result = await operator.processMessage(messageToProcess);
+      }
 
       // Track clarifications from the result so TUI can detect follow-ups
       if (result && result.needsClarification && result.question) {
@@ -699,13 +717,15 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
         appendOperator('  PLAN READY — Review the plan above.');
         appendOperator('  Type "go" to execute, or type feedback to refine.');
         appendOperator('════════════════════════════════════════════════');
+        setWaitingForApproval(true);
       }
     } catch (err: any) {
+      setWaitingForApproval(false);
       appendOperator('[ERROR] ' + (err?.message || String(err)));
     } finally {
       setPipelineRunning(false);
     }
-  }, [appendOperator, exit, onSetupRequest, operator, pipelineRunning, lastClarificationMessage, selectedTaskIdx]);
+  }, [appendOperator, exit, onSetupRequest, operator, pipelineRunning, waitingForApproval, lastClarificationMessage, selectedTaskIdx]);
 
   const termRows = stdout?.rows ?? 40;
   const termCols = stdout?.columns ?? 120;

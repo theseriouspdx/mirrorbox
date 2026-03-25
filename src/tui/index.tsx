@@ -29,7 +29,7 @@ const relay = require(path.join(MBO_ROOT, 'src/relay/relay-listener'));
 const statsManager = require(path.join(MBO_ROOT, 'src/state/stats-manager'));
 const eventStore = require(path.join(MBO_ROOT, 'src/state/event-store'));
 const { fetchPricing } = require(path.join(MBO_ROOT, 'src/utils/pricing'));
-const { startSessionLog } = require(path.join(MBO_ROOT, 'src/utils/session-log'));
+const { startSessionLog, setActiveLog } = require(path.join(MBO_ROOT, 'src/utils/session-log'));
 
 async function main() {
   if (!validateConfig()) {
@@ -55,8 +55,19 @@ async function main() {
   await checkOnboarding(PROJECT_ROOT);
   await fetchPricing();
   statsManager.startSession({ runId: eventStore.RUN_ID });
-  const sessionLog = startSessionLog({ projectRoot: PROJECT_ROOT, runId: eventStore.RUN_ID, mode: 'tui' });
-  sessionLog.writeMeta('tui initialized');
+  // BUG-240: Wrap startSessionLog so a failure here never crashes the TUI.
+  // The tee(stdout) inside session-log is bypassed by Ink — pipeline content is
+  // captured instead via operator._chunkLogger set below.
+  let sessionLog: any;
+  try {
+    sessionLog = startSessionLog({ projectRoot: PROJECT_ROOT, runId: eventStore.RUN_ID, mode: 'tui' });
+    process.stderr.write('[MBO TUI] Session log: ' + sessionLog.path + '\n');
+    sessionLog.writeMeta('tui initialized');
+    setActiveLog(sessionLog);
+  } catch (err: any) {
+    process.stderr.write('[MBO TUI] Warning: session log unavailable: ' + (err?.message || String(err)) + '\n');
+    sessionLog = { path: null, writeMeta: () => {}, close: () => {} };
+  }
 
   try {
     await installMCPDaemon(PROJECT_ROOT);
@@ -67,6 +78,9 @@ async function main() {
   }
 
   const operator = new Operator('runtime');
+  // BUG-240: Hook every pipeline chunk into the session log. Ink replaces
+  // process.stdout.write after tee() runs, so direct chunk capture is required.
+  operator._chunkLogger = (line: string) => sessionLog.writeMeta(line);
   try {
     await operator.startMCP();
   } catch (err: any) {
