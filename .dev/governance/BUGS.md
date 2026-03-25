@@ -2,7 +2,7 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-243
+**Next bug number:** BUG-245
 **Bug ID rule:** `BUG-001`–`BUG-184` are legacy-format entries and must not be renumbered. Starting with `BUG-185`, new bug headings must use dual identification: `BUG-### / v0.LL.NN`.
 **Version lane rule:** assign the version tag by subsystem, not by the most visible current series. Use the canonical lane definitions in `.dev/governance/VERSIONING.md`. The suffix after the second decimal resets within each lane (`v0.13.01`, `v0.13.02`, then separately `v0.14.01`). `v1.x` task lanes are invalid.
 
@@ -10,7 +10,7 @@
 
 ### BUG-242 / v0.3.57 — After 'go', pipeline sends back to planning instead of executing
 **Severity:** P0
-**Status:** OPEN
+**Status:** FIXED (v0.3.57 / commit 5ebe268)
 **Found:** 2026-03-24
 **Description:** After the user types `go` at the plan approval gate, the pipeline routes back to planning instead of proceeding to execution. This is a regression — the `go` path should call `handleApproval` which triggers Stage 5+ execution. Likely cause: `handleApproval` is either not being reached (see BUG-241 — `go` may be silently consumed again) or the approval logic inside `handleApproval` / `processMessage` is re-entering the planning path instead of advancing state. Check: (1) whether `go` actually reaches `processMessage`, (2) whether `handleApproval` correctly reads the current pipeline state and advances rather than re-plans, (3) whether the `needsApproval` flag is being cleared after `go` is received.
 **Acceptance:**
@@ -20,7 +20,7 @@
 
 ### BUG-241 / v0.3.56 — Planning stage silent at approval gate — no 'go' prompt shown (regression)
 **Severity:** P0
-**Status:** OPEN
+**Status:** FIXED (v0.3.57 / commit 5ebe268)
 **Found:** 2026-03-24
 **Description:** After plan convergence the pipeline stops and waits, but the operator panel displays nothing explaining why — no "Plan ready. Type 'go' to execute." message is shown. This is a regression: BUG-236 fixed this in v0.3.52 by having `activateTask` set `_pipelineRunning = false` before returning `needsApproval`. The v0.3.53 commit may have re-broken this via the BUG-231 shimmer change: OperatorPanel now shows "Thinking…" when `pipelineRunning && !hasContent`. If `_pipelineRunning` is still true at the needsApproval gate (BUG-236 fix incomplete or not reached), the shimmer line replaces the 'go' hint. **Important:** `src/auth/operator.js` has uncommitted working-tree changes — run `git diff src/auth/operator.js` first to verify whether the BUG-236 fix is actually present before writing new code. Auth dir is locked (444); run `mbo auth src` before any write.
 **Acceptance:**
@@ -29,7 +29,7 @@
 
 ### BUG-240 / v0.3.55 — Session pipeline output not written to log file (regression)
 **Severity:** P1
-**Status:** OPEN
+**Status:** FIXED (v0.3.57 / commit 5ebe268)
 **Found:** 2026-03-24
 **Description:** Pipeline session output is not being persisted to a log file during TUI runs. This was previously fixed but has regressed — the most recent TUI run produced no session log file under `.mbo/logs/`, leaving the user unable to review output after the fact (especially critical since scroll is also broken per BUG-239). The log write path may have been broken by the operator.js working-tree changes or by the db corruption (BUG-238) preventing state commits that trigger log writes.
 **Acceptance:**
@@ -37,9 +37,26 @@
 - Log file is accessible and readable after the session ends.
 - Scroll breakage (BUG-239) does not block log access.
 
+### BUG-244 / v0.3.58 — PipelinePanel scroll reserved rows wrong — maxTop always 0
+**Severity:** P1
+**Status:** FIXED (v0.3.58 / commit 96bbd4d)
+**Found:** 2026-03-25
+**Description:** `PipelinePanel.useAvailableRows(4)` only subtracted panel chrome, ignoring StatusBar(2)+TabBar(1)+InputBar(3)+SavingsBar(2). `maxTop` was always 0 so scroll indicators never appeared and arrow keys had no effect. Fixed by changing to `useAvailableRows(12)`.
+**Acceptance:**
+- Scroll indicators appear once pipeline output exceeds visible height.
+- Up/Down arrow keys scroll pipeline output.
+
+### BUG-243 / v0.3.58 — 'stop'/'abort' confirmation shown on wrong tab
+**Severity:** P2
+**Status:** FIXED (v0.3.58 / commit 96bbd4d)
+**Found:** 2026-03-25
+**Description:** Stop/abort worked functionally but confirmation message appeared in Operator tab (1) while user was watching Pipeline tab (2). Fixed by adding `setActiveTab(1)` in the stop handler and adding stop/abort to pipeline gate exemptions.
+**Acceptance:**
+- Typing 'stop' or 'abort' switches to Operator tab and shows confirmation there.
+
 ### BUG-239 / v0.3.54 — Pipeline output not scrollable in PipelinePanel (Tab 2)
 **Severity:** P1
-**Status:** OPEN
+**Status:** FIXED (v0.3.58 / commit 96bbd4d — resolved as BUG-244)
 **Found:** 2026-03-24
 **Description:** After the v0.3.53 TUI layout fixes (BUG-227 removed redundant stage boxes, BUG-229 adjusted height calculations), the pipeline workflow window (Tab 2 / PipelinePanel) lost scrollability. User cannot scroll up to review prior pipeline output. Likely cause: the scroll state wiring in PipelinePanel was disrupted when the stage-box rendering block was removed — `useInput` scroll handler may no longer have access to the correct scroll state, or `visibleLines` / scroll offset are no longer being updated correctly.
 **Acceptance:**
@@ -49,7 +66,7 @@
 
 ### BUG-238 / v0.11.195 — Pipeline returns raw JSON to operator panel (regression from v0.3.53)
 **Severity:** P0
-**Status:** OPEN
+**Status:** FIXED (v0.3.57 / commit 5ebe268)
 **Found:** 2026-03-24
 **Description:** After the v0.3.53 commit, the pipeline outputs raw JSON into the operator panel instead of formatted stage output. Two likely causes to investigate: (1) `mirrorbox.db` is missing — only `mirrorbox.db.corrupt.1774404364247` exists in `.mbo/` — the state manager may be failing to initialize and the pipeline is returning a raw error object serialized as JSON; (2) a rendering path change in OperatorPanel (BUG-231 shimmer / BUG-229 height) is accidentally stringifying the lines array before display. Investigate db corruption first — if the state manager throws on startup, the operator pipeline catches and serializes the error as JSON and routes it to the output stream unformatted.
 **Acceptance:**
