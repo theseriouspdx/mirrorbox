@@ -1,5 +1,5 @@
 # Next Session Prompt — MBO
-> Generated: 2026-03-25 | Last commit: 6795240 | Current version: 0.3.59
+> Generated: 2026-03-25 | Last commit: 07a1067 | Current version: 0.3.59
 
 ---
 
@@ -11,6 +11,43 @@ This applies at every stage — plan, code, review. Do not submit until you have
 
 ---
 
+## FIRST TASK — Read the logs before touching any code
+
+**Do not write code, bump versions, or mark bugs fixed until you have read the logs and reported findings to the operator.**
+
+### Step 1 — Find the freshest log
+
+```bash
+ls -lt /Users/johnserious/MBO_Alpha/.mbo/logs/ | head -6
+```
+
+The most recent file is the operator's clean 0.3.59 smoke test. Read it in full:
+
+```bash
+cat /Users/johnserious/MBO_Alpha/.mbo/logs/<latest>.log | sed 's/\x1b\[[0-9;]*m//g'
+```
+
+### Step 2 — Reference log (before fix, with ANSI noise)
+
+```
+/Users/johnserious/MBO_Alpha/.mbo/logs/session-2026-03-25-09-26-58-tui-f0670b10-556.log
+```
+This is v0.3.58 with `tee('stdout')` — the noisy baseline.
+
+### Step 3 — Report to operator before proceeding
+
+From the fresh log, answer:
+
+1. **BUG-245 confirmed?** Is the log human-readable with no ANSI render frames? What's the file size vs the 40KB baseline?
+2. **BUG-246 visible?** Does the log show a pipeline run reaching approval/`go`, then looping back to planning instead of executing? Note the exact log lines.
+3. **BUG-247 visible?** Does the log show a stop/abort command being sent but the pipeline continuing?
+4. **JSON regression visible?** Does the log show raw JSON being returned to the user at any stage?
+5. **Any other anomalies?** New errors, unexpected restarts, missing output, etc.
+
+Present findings to the operator as a numbered list with direct log line quotes. Then wait for direction before writing any code.
+
+---
+
 ## What happened in recent sessions
 
 - v0.3.53 (9e92ba9): Fixed TUI layout cluster BUG-224 through BUG-233
@@ -18,59 +55,23 @@ This applies at every stage — plan, code, review. Do not submit until you have
 - v0.3.58 (96bbd4d): Fixed BUG-243/244 — stop tab switch, pipeline scroll reserved rows
 - v0.3.59 (64d4a1f): Fixed BUG-245 — removed `tee('stdout')` from session-log.js, eliminating 60MB ANSI log bloat
 
-Governance drift: multiple fix sessions updated code but forgot to update BUGS.md statuses. Corrected in fb9e599. All closed bugs now show FIXED in BUGS.md.
+Governance drift note: multiple sessions fixed code but skipped BUGS.md/projecttracking.md updates. This was corrected in fb9e599. Do not repeat this.
 
 ---
 
-## Logs to analyze — compare these two
-
-**BEFORE fix (v0.3.58 — with stdout tee, ANSI noise):**
-```
-/Users/johnserious/MBO_Alpha/.mbo/logs/session-2026-03-25-09-26-58-tui-f0670b10-556.log
-```
-Size: ~40KB — contains ANSI escape codes from Ink render frames.
-
-**AFTER fix (v0.3.59 — stdout tee removed):**
-```
-/Users/johnserious/MBO_Alpha/.mbo/logs/session-2026-03-25-09-30-19-tui-556f2bda-370.log
-```
-Size: ~31KB, 449 lines, only 2 escape code lines — clean pipeline output.
-
-**NEXT RUN log** (whatever the next session generates after user smoke test):
-```
-/Users/johnserious/MBO_Alpha/.mbo/logs/   (ls -lt to find most recent)
-```
-
-To read cleanly (no escape codes):
-```bash
-cat /Users/johnserious/MBO_Alpha/.mbo/logs/<latest>.log | sed 's/\x1b\[[0-9;]*m//g'
-```
-
-**BUG-245 appears confirmed fixed.** 31KB vs 40KB before, no render frames captured. The remaining 31KB is legitimate: cold storage snapshot, DB health check, graph scan output — all useful.
-
----
-
-## Session log location
-
-**The session log IS writing.** Location: `/Users/johnserious/MBO_Alpha/.mbo/logs/`
-
-Logs are in `MBO_Alpha`, NOT `MBO` — mbo runs from Alpha. This distinction must be documented in the TUI (/help or startup message).
-
----
-
-## Open bugs — fix in this order
+## Open bugs (priority order)
 
 ### BUG-246 / v0.3.60 — P1 — 'go' after pipeline error loops back to planning
-After a pipeline error (e.g. code_derivation fails), the recommended action says "type 'go' to retry." Typing 'go' re-enters planning from scratch instead of retrying from the failure point.
-- **Fix path:** Check `handleApproval` — when called after an error, it may be reading a stale/cleared `pendingDecision` and falling through to `processMessage` which re-classifies from scratch. The error recovery path needs to distinguish retry-after-error from fresh approval.
-- **Files:** `src/auth/operator.js` (handleApproval), `src/tui/App.tsx` (error state handling)
-- **Acceptance:** Typing 'go' after a pipeline error retries from the failure stage, not from planning.
+After a pipeline error, TUI shows "[RECOMMENDED ACTION]: type 'go' to retry." Typing 'go' re-enters planning from scratch.
+- **Root cause:** error recovery path does not set `waitingForApproval`, so 'go' falls through to `processMessage` which re-classifies from scratch.
+- **Files:** `src/tui/App.tsx` (error state / handleApproval), `src/auth/operator.js` (handleApproval)
+- **Acceptance:** 'go' after error retries from failure stage, not from planning.
 
 ### BUG-247 / v0.3.61 — P1 — 'stop'/'abort' does nothing
-The BUG-243 fix added `setActiveTab(1)` on stop but users report stop still has no effect.
-- **Fix path:** Check whether the stop handler in `handleInput` is actually calling `operator.requestAbort()` AND whether `requestAbort` interrupts an in-progress LLM call. The abort may be registered but the pipeline may not check the abort flag during streaming.
+Users report stop/abort has no visible effect. Pipeline continues.
+- **Root cause likely:** `requestAbort()` sets a flag but pipeline does not check flag during in-progress LLM streaming call.
 - **Files:** `src/tui/App.tsx`, `src/auth/operator.js`
-- **Acceptance:** Typing 'stop' or 'abort' halts the pipeline, confirms to the user, and returns to idle.
+- **Acceptance:** stop/abort halts pipeline, confirms to user, returns to idle.
 
 ### BUG-223 / v0.3.38 — P1 — InputBar forward-delete and mid-cursor insert broken (pre-existing)
 
@@ -80,14 +81,14 @@ The BUG-243 fix added `setActiveTab(1)` on stop but users report stop still has 
 
 ---
 
-## After fixes: governance discipline
+## Governance discipline — do this before every commit
 
-**Every fix session MUST before committing:**
-1. Update `BUGS.md` status for each fixed bug to `FIXED (vX.Y.ZZ / commit XXXXXXX)`
+1. Update `BUGS.md` status for each fixed bug: `FIXED (vX.Y.ZZ / commit XXXXXXX)`
 2. Update `projecttracking.md` task rows to `COMPLETED`
-3. Advance `package.json` version to highest resolved task lane
+3. Advance `package.json` version per lane
 4. Run `mbo alpha` to sync
+5. Verify version shows correctly in TUI header
 
 **Next bug number: BUG-248**
 **Next task: v0.3.60**
-**Auth dir locked — `mbo auth src` before writing `src/auth/`**
+**Auth dir locked — run `mbo auth src` before writing anything in `src/auth/`**
