@@ -1,5 +1,5 @@
 # Next Session Prompt — MBO
-> Generated: 2026-03-24 | Last commit: b767b25
+> Generated: 2026-03-25 | Last commit: fb9e599 | Current version: 0.3.58
 
 ---
 
@@ -7,113 +7,71 @@
 
 > **Identify all failure modes in your solution and solve for each one before submitting.**
 
-This applies at every stage: reading the problem, forming a plan, writing code, and reviewing the result. Do not submit a fix until you have enumerated what can go wrong with it and addressed each case.
+This applies at every stage — plan, code, review. Do not submit until you have enumerated what can go wrong and addressed each case.
 
 ---
 
-## What happened this session
+## What happened in recent sessions
 
-Fixed a cluster of 9 TUI layout bugs (BUG-224 through BUG-233) in commit `9e92ba9` (v0.3.53). Operator smoke-tested and found 5 regressions. All governance docs updated, resolved bugs archived to BUGS-resolved.md, and BUGS.md statuses reconciled so the TUI task list is accurate.
+- v0.3.53 (9e92ba9): Fixed TUI layout cluster BUG-224 through BUG-233
+- v0.3.57 (5ebe268): Fixed BUG-238/240/241/242 — session logging, approval gate, DB recovery
+- v0.3.58 (96bbd4d): Fixed BUG-243/244 — stop tab switch, pipeline scroll reserved rows
 
----
-
-## FIRST TASK — no exceptions: fix session logging (BUG-240)
-
-The operator has asked for this repeatedly. Do this before touching anything else.
-
-**BUG-240 / v0.3.55 — Session pipeline output not written to log file**
-Every TUI pipeline run must write a complete log of its output to `.mbo/logs/` so the operator can review it after the session ends. This was previously working and has regressed. Without it, the operator cannot review what the pipeline did — especially critical when scroll is broken.
-- Find where session logging was previously written (check git log on operator.js and db-manager.js for the log-write path)
-- Identify why it stopped writing (likely tied to the missing `mirrorbox.db` — BUG-238 — but confirm)
-- Fix it so every pipeline run produces a readable log file under `.mbo/logs/` with a timestamp
-- Verify a log file exists after a test run before moving on
+Governance drift: both fix sessions updated code but forgot to update BUGS.md statuses. This has now been corrected (fb9e599). All closed bugs now show FIXED in BUGS.md.
 
 ---
 
-## P0 regressions — fix after logging is confirmed working
+## Session log location — READ THIS FIRST
 
-**Next Task: v0.3.56** (per projecttracking.md)
+**The session log IS writing.** Location: `/Users/johnserious/MBO_Alpha/.mbo/logs/`
 
-Fix BUG-241 and BUG-242 together — same root cause:
+The log captures full pipeline output but contains ANSI escape codes. To read cleanly:
+```
+cat /Users/johnserious/MBO_Alpha/.mbo/logs/<latest>.log | sed 's/\x1b\[[0-9;]*m//g' | grep "\[session"
+```
 
-### BUG-241 / v0.3.56 — P0 — Silent approval gate (no 'go' prompt)
-After plan convergence the panel shows nothing. User doesn't know to type 'go'.
-- **Root cause:** BUG-231 (commit 9e92ba9) added shimmer when `pipelineRunning && !hasContent`. If `_pipelineRunning` is still true at the needsApproval gate, shimmer fires instead of the 'go' hint.
-- **Fix path:** Read `git diff src/auth/operator.js` first. Confirm `activateTask` sets `_pipelineRunning = false` before returning `needsApproval`. Confirm App.tsx `handleInput` exempts `go` from the `_pipelineRunning` guard.
-
-### BUG-242 / v0.3.57 — P0 — 'go' sends back to planning instead of executing
-Typing 'go' re-enters planning rather than advancing to Stage 5.
-- **Fix path:** Same investigation as BUG-241. Also verify `handleApproval` advances pipeline state rather than re-planning.
-
-### BUG-238 / v0.11.195 — P0 — Pipeline returns raw JSON
-Operator panel shows raw JSON blobs instead of formatted stage output.
-- **Root cause:** `mirrorbox.db` is missing — only `mirrorbox.db.corrupt.1774404364247` exists. State manager failing to init; pipeline serializes the error as JSON.
-- **Fix path:** Check db-manager.js startup. Add recovery/reinit for corrupt/missing db. Also verify OperatorPanel isn't stringifying an error object.
+The operator has been unable to read logs because they were looking in `MBO/.mbo/logs/` — logs only appear in `MBO_Alpha/.mbo/logs/` since that's where mbo actually runs. This distinction must be documented in the TUI (startup message or /help).
 
 ---
 
-## P1 bugs (fix before milestone complete)
+## Open bugs — fix in this order
 
-### BUG-239 / v0.3.54 — PipelinePanel (Tab 2) not scrollable
-Scroll wiring broke when BUG-227 removed the stage-box block in PipelinePanel.tsx. Restore `useInput` scroll handler connection to scroll offset state.
+### BUG-245 / v0.3.59 — P1 — Session log unreadable (ANSI codes)
+The session log writes raw terminal escape codes from Ink's stdout tee. The log is 44MB of ANSI noise. The `_chunkLogger` path (operator chunks written via `writeMeta`) is clean — but the `tee()` approach patches `process.stdout.write` and captures all of Ink's render frames.
+- **Fix:** Remove the `tee('stdout')` and `tee('stderr')` calls from `session-log.js`. The `_chunkLogger` in operator.js already captures all meaningful pipeline text cleanly via `writeMeta`. The tee is causing the noise and is redundant.
+- **File:** `src/utils/session-log.js`, `src/tui/index.tsx`
+- **Acceptance:** Session log is human-readable plain text with no escape codes. Contains all pipeline stage output.
 
-### BUG-240 / v0.3.55 — Session log not written
-TUI pipeline runs produce no log file under `.mbo/logs/`. Likely tied to db corruption (BUG-238) — fix db first, then verify log write path.
+### BUG-246 / v0.3.60 — P1 — 'go' after pipeline error loops back to planning
+After a pipeline error (e.g. code_derivation fails), the recommended action says "type 'go' to retry." Typing 'go' re-enters planning from scratch instead of retrying from the failure point.
+- **Fix path:** Check `handleApproval` — when called after an error, it may be reading a stale/cleared `pendingDecision` and falling through to `processMessage` which re-classifies from scratch. The error recovery path needs to distinguish retry-after-error from fresh approval.
+- **Files:** `src/auth/operator.js` (handleApproval), `src/tui/App.tsx` (error state handling)
+- **Acceptance:** Typing 'go' after a pipeline error retries from the failure stage, not from planning.
 
-### BUG-223 / v0.3.38 — InputBar forward-delete and mid-cursor insert broken
-`ink-text-input@6.0.0` limitation. Forward Delete does nothing; mid-cursor insert misplaces characters. Fix: patch library, replace with custom component, or upgrade.
+### BUG-247 / v0.3.61 — P1 — 'stop'/'abort' does nothing
+The BUG-243 fix added `setActiveTab(1)` on stop but users report stop still has no effect.
+- **Fix path:** Check whether the stop handler in `handleInput` is actually calling `operator.requestAbort()` AND whether `requestAbort` interrupts an in-progress LLM call. The abort may be registered but the pipeline may not check the abort flag during streaming.
+- **Files:** `src/tui/App.tsx`, `src/auth/operator.js`
+- **Acceptance:** Typing 'stop' or 'abort' halts the pipeline, confirms to the user, and returns to idle.
 
----
+### BUG-223 / v0.3.38 — P1 — InputBar forward-delete and mid-cursor insert broken (pre-existing)
 
-## P2 bugs (deferred)
-
-- **BUG-220 / v0.3.35** — First Ctrl+C shows no "press again to exit" feedback
-- **BUG-218 / v0.2.13** — `mbo` bare command has no auto-update check
-- **BUG-203 / v0.12.02** — Graph server not registered in Cowork sessions
-
----
-
-## Critical context — READ BEFORE TOUCHING operator.js
-
-`src/auth/operator.js` has **uncommitted working-tree changes** that include the BUG-236 fix. These ARE deployed via `mbo alpha` but are NOT in git history.
-
-1. Run `git diff src/auth/operator.js` before writing anything
-2. Do NOT lose the BUG-236 fix (`_pipelineRunning = false` before returning `needsApproval`)
-3. `src/auth/` is locked (444) — run `mbo auth src` before any write
+### BUG-220 / v0.3.35 — P2 — First Ctrl+C no exit prompt
+### BUG-218 / v0.2.13 — P2 — mbo bare command no auto-update
+### BUG-203 / v0.12.02 — P2 — Graph server not in Cowork sessions
 
 ---
 
-## After fixes: version and deploy
+## After fixes: governance discipline
 
-1. Advance `package.json` to the highest resolved task version (will be `0.3.57` if all five P0/P1s are fixed)
-2. Commit with proper dual BUG-### / vX.Y.ZZ labels
-3. Run `mbo alpha` to sync to the runtime
-4. Confirm version in TUI StatusBar matches — operator cannot verify build currency without this
+**Every fix session MUST before committing:**
+1. Update `BUGS.md` status for each fixed bug to `FIXED (vX.Y.ZZ / commit XXXXXXX)`
+2. Update `projecttracking.md` task rows to `COMPLETED`
+3. Advance `package.json` version to highest resolved task lane
+4. Run `mbo alpha` to sync
 
----
+This has been missed in every session. The TUI task list has been showing closed bugs as open repeatedly. This must stop.
 
-## Reconciled open bug list (what the TUI should now show)
-
-| ID | Lane | Sev | Summary |
-|----|------|-----|---------|
-| BUG-242 | v0.3.57 | P0 | 'go' re-enters planning |
-| BUG-241 | v0.3.56 | P0 | Silent approval gate |
-| BUG-238 | v0.11.195 | P0 | Raw JSON output / missing db |
-| BUG-240 | v0.3.55 | P1 | Session log not written |
-| BUG-239 | v0.3.54 | P1 | PipelinePanel not scrollable |
-| BUG-223 | v0.3.38 | P1 | InputBar forward-delete / mid-cursor broken |
-| BUG-220 | v0.3.35 | P2 | Ctrl+C no exit prompt |
-| BUG-218 | v0.2.13 | P2 | mbo bare command no auto-update |
-| BUG-203 | v0.12.02 | P2 | Graph server not in Cowork |
-
-BUG-224 through BUG-233 are FIXED (v0.3.53 / 9e92ba9) and should no longer appear.
-
----
-
-## Governance reminders
-
-- Assumption ledger required before planning (entropy gate < 10)
-- Blast radius check before every change
-- `src/auth/` locked — `mbo auth src` required before writes
-- **Next bug number: BUG-243**
-- All governance files (`.dev/governance/`) are always writable
+**Next bug number: BUG-248**
+**Next task: v0.3.59**
+**Auth dir locked — `mbo auth src` before writing `src/auth/`**
