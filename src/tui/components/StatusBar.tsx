@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import { type MboStage, STAGE_LABELS, STAGE_COLORS, type ActiveTab } from '../types.js';
 import { C } from '../colors.js';
 
@@ -37,6 +37,8 @@ export function StatusBar({
   pipelineRunning,
   exitPending = false,
 }: Props) {
+  const { stdout } = useStdout();
+  const cols = stdout?.columns ?? 120;
   const [elapsed, setElapsed] = useState(0);
   const [pulseFrame, setPulseFrame] = useState(0);
 
@@ -58,37 +60,43 @@ export function StatusBar({
   const tabLabel = ({ 1: 'OPERATOR', 2: 'PIPELINE', 3: 'EXECUTOR', 4: 'SYSTEM' } as const)[activeTab];
   const pulse = pipelineRunning ? ['·  ', '·· ', '···'][pulseFrame] : '';
 
+  // BUG-226: Width-aware truncation — fixed parts first, then allocate remainder
+  const versionStr = 'v' + version;
+  const timerStr = formatElapsed(elapsed);
+  const rightFixedWidth = stageLabel.length + (pulse ? 4 : 0) + tabLabel.length + 2 + timerStr.length + 4; // gaps
+  const leftFixedWidth = 22; // "MIRROR BOX ORCHESTRATOR"
+  // usable = cols minus border (2) minus paddingX (2) = cols - 4
+  const usable = Math.max(40, cols - 4);
+  const actionMaxWidth = Math.max(10, usable - leftFixedWidth - versionStr.length - 4);
+  const taskMaxWidth = Math.max(10, usable - rightFixedWidth - 4);
+
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="single"
-      borderBottom
-      borderTop={false}
-      borderLeft={false}
-      borderRight={false}
-      paddingX={1}
-    >
+    <Box flexDirection="column" paddingX={1}>
       {/* Row 1: title | action | version */}
-      <Box justifyContent="space-between">
-        <Text bold color={C.white}>MIRROR BOX ORCHESTRATOR</Text>
-        <Text color={C.white} dimColor wrap="truncate">
-          {truncate(activeAction || 'Ready for the next instruction', 36)}
+      <Box>
+        <Box flexGrow={1} flexShrink={0}>
+          <Text bold color={C.white} wrap="truncate-end">MBO</Text>
+        </Box>
+        <Text color={C.white} dimColor wrap="truncate-end">
+          {truncate(activeAction || 'Ready for the next instruction', actionMaxWidth)}
         </Text>
-        <Text color={C.white} dimColor>v{version}</Text>
+        <Text color={C.white} dimColor wrap="truncate-end"> {versionStr}</Text>
       </Box>
 
       {/* Row 2: task | stage + tab | timer */}
-      <Box justifyContent="space-between">
-        <Text color={C.white} dimColor wrap="truncate">
-          {exitPending
-            ? '⚠ Press Ctrl+C again to exit'
-            : truncate(currentTask || 'no active task', 34)}
-        </Text>
-        <Box gap={1}>
+      <Box>
+        <Box flexGrow={1}>
+          <Text color={C.white} dimColor wrap="truncate-end">
+            {exitPending
+              ? '⚠ Press Ctrl+C again to exit'
+              : truncate(currentTask || 'no active task', taskMaxWidth)}
+          </Text>
+        </Box>
+        <Box gap={1} flexShrink={0}>
           <Text bold color={stageColor}>{stageLabel}</Text>
           {pulse ? <Text color={C.pink}>{pulse}</Text> : null}
           <Text color={C.teal} bold>[{tabLabel}]</Text>
-          <Text bold color={C.white}>{formatElapsed(elapsed)}</Text>
+          <Text bold color={C.white}>{timerStr}</Text>
         </Box>
       </Box>
     </Box>

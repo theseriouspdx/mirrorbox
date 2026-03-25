@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
+import chalk from 'chalk';
 import { type MboStage, type TuiStats, OPERATOR_PANEL_ROLES } from '../types.js';
 
 const STAGE_SHORT: Record<string, string> = {
@@ -30,6 +31,11 @@ interface Props {
   activeAction: string;
   activeModel: string;
   isActive: boolean;
+  // Arrow-key task selection in startup list
+  taskCount?: number;
+  selectedTaskIdx?: number;
+  onTaskSelect?: (idx: number) => void;
+  onTaskActivate?: (idx: number) => void;
 }
 
 function fmtTok(n: number): string {
@@ -81,6 +87,32 @@ function trimLine(value: string, max = 88): string {
   return value.slice(0, max - 1) + '…';
 }
 
+// BUG-231: Shimmer effect — a bright highlight that sweeps across the last line of text
+// Mimics the streaming text shimmer in Claude Code and Gemini
+const SHIMMER_COLORS = [
+  chalk.gray,         // dim
+  chalk.white,        // bright
+  chalk.magentaBright,// pink highlight (MBO accent)
+  chalk.white,        // bright
+  chalk.gray,         // dim
+];
+
+function shimmerLine(text: string, frame: number): string {
+  if (!text || text.length === 0) return '';
+  const windowSize = 6; // chars wide for the bright sweep
+  const pos = frame % (text.length + windowSize + 4);
+  let result = '';
+  for (let i = 0; i < text.length; i++) {
+    const dist = i - (pos - windowSize);
+    if (dist >= 0 && dist < SHIMMER_COLORS.length) {
+      result += SHIMMER_COLORS[dist](text[i]);
+    } else {
+      result += chalk.gray(text[i]);
+    }
+  }
+  return result;
+}
+
 export function OperatorPanel({
   lines,
   stage,
@@ -90,11 +122,22 @@ export function OperatorPanel({
   activeAction,
   activeModel,
   isActive,
+  taskCount = 0,
+  selectedTaskIdx = -1,
+  onTaskSelect,
+  onTaskActivate,
 }: Props) {
-  const available = useAvailableRows(9);
-  const panelRows = Math.max(8, Math.floor(available * 0.34));
+  // BUG-229: Use all available height minus header (2 lines) — not 34%
+  const available = useAvailableRows(3);
+  const panelRows = Math.max(8, available);
   const hasContent = lines.length > 0;
-  const sourceLines = hasContent ? lines : getHints(stage, pipelineRunning, auditPending);
+  // BUG-231: When pipeline running with no output yet, show a "thinking" line that shimmers
+  const thinkingLine = pipelineRunning && !hasContent ? 'Thinking…' : null;
+  const sourceLines = hasContent
+    ? lines
+    : thinkingLine
+      ? [thinkingLine, ...getHints(stage, pipelineRunning, auditPending)]
+      : getHints(stage, pipelineRunning, auditPending);
   const { visibleLines, canScrollUp, canScrollDown, scrollUp, scrollDown, topLine, total } =
     useScrollableLines(sourceLines, panelRows);
   const totals = getRoleTotals(stats);
@@ -105,12 +148,35 @@ export function OperatorPanel({
       setPulse(0);
       return;
     }
-    const timer = setInterval(() => setPulse((value) => (value + 1) % 3), 240);
+    // Fast tick for shimmer sweep animation
+    const timer = setInterval(() => setPulse((v) => v + 1), 80);
     return () => clearInterval(timer);
   }, [pipelineRunning]);
 
-  useInput((_input, key) => {
+  // BUG-233: Arrow-key task selection — find which source lines are task items (start with ▸)
+  const taskLineIndices: number[] = [];
+  for (let i = 0; i < sourceLines.length; i++) {
+    if (sourceLines[i]?.trimStart().startsWith('▸')) taskLineIndices.push(i);
+  }
+  const hasTaskSelection = taskCount > 0 && taskLineIndices.length > 0;
+
+  useInput((input, key) => {
     if (!isActive) return;
+    // When tasks are available, up/down navigate task selection; PageUp/PageDown still scroll
+    if (hasTaskSelection && key.upArrow) {
+      const next = selectedTaskIdx <= 0 ? taskCount - 1 : selectedTaskIdx - 1;
+      onTaskSelect?.(next);
+      return;
+    }
+    if (hasTaskSelection && key.downArrow) {
+      const next = selectedTaskIdx >= taskCount - 1 ? 0 : selectedTaskIdx + 1;
+      onTaskSelect?.(next);
+      return;
+    }
+    if (hasTaskSelection && key.return && selectedTaskIdx >= 0) {
+      onTaskActivate?.(selectedTaskIdx);
+      return;
+    }
     if (key.upArrow) scrollUp(1);
     if (key.downArrow) scrollDown(1);
     if (key.pageUp) scrollUp(10);
@@ -118,14 +184,14 @@ export function OperatorPanel({
   });
 
   const borderColor = auditPending ? C.audit : isActive ? C.teal : C.purple;
-  const shimmer = pipelineRunning ? ['·  ', '·· ', '···'][pulse] : '   ';
+  const dotPulse = pipelineRunning ? ['·  ', '·· ', '···'][pulse % 3] : '   ';
 
   return (
     <Box flexDirection="column" borderStyle="single" borderColor={borderColor} paddingX={1} flexGrow={1}>
       <Box justifyContent="space-between">
         <Text bold color={borderColor}>{isActive ? '▶ ' : '  '}OPERATOR</Text>
         <Box gap={2}>
-          <Text color={C.teal}>operator: {fmtTok(totals.tokens)} tok · {fmtCost(totals.costEst)}</Text>
+          <Text color={C.teal} wrap="truncate-end">operator: {fmtTok(totals.tokens)} tok · {fmtCost(totals.costEst)}</Text>
           {total > panelRows ? (
             <Text color={borderColor} dimColor>
               {canScrollUp ? '↑ ' : '  '}
@@ -136,17 +202,37 @@ export function OperatorPanel({
         </Box>
       </Box>
 
-      <Box marginBottom={1} justifyContent="space-between">
-        <Text color={pipelineRunning ? C.pink : C.gray}>{shimmer} {trimLine(activeAction || 'Ready for the next instruction', 42)}</Text>
-        <Text color={C.gray} dimColor>{trimLine(activeModel || 'no model selected', 22)}</Text>
+      <Box marginBottom={0} justifyContent="space-between">
+        <Text color={pipelineRunning ? C.pink : C.gray}>{dotPulse} {trimLine(activeAction || 'Ready for the next instruction', 42)}</Text>
+        <Text color={C.gray} dimColor wrap="truncate-end">{trimLine(activeModel || 'no model selected', 22)}</Text>
       </Box>
 
       <Box flexDirection="column" flexGrow={1}>
-        {visibleLines.map((line, index) => (
-          <Text key={topLine + index} color={hasContent ? C.white : borderColor} dimColor={!hasContent} wrap="wrap">
-            {line || ' '}
-          </Text>
-        ))}
+        {visibleLines.map((line, index) => {
+          const sourceIndex = topLine + index;
+          const isLastVisible = index === visibleLines.length - 1;
+          // BUG-231: Shimmer the last content line, or the "Thinking…" line when no output yet
+          const isThinkingLine = thinkingLine && sourceIndex === 0;
+          if (pipelineRunning && line && (isThinkingLine || (isLastVisible && !canScrollDown && hasContent))) {
+            return (
+              <Text key={sourceIndex}>{shimmerLine(line, pulse)}</Text>
+            );
+          }
+          // BUG-233: Highlight selected task line with inverse/bold
+          const taskIdx = taskLineIndices.indexOf(sourceIndex);
+          if (hasTaskSelection && taskIdx >= 0 && taskIdx === selectedTaskIdx) {
+            return (
+              <Text key={sourceIndex} bold color={C.teal} wrap="wrap">
+                {(line || '').replace('▸', '▶')}
+              </Text>
+            );
+          }
+          return (
+            <Text key={sourceIndex} color={hasContent ? C.white : borderColor} dimColor={!hasContent} wrap="wrap">
+              {line || ' '}
+            </Text>
+          );
+        })}
       </Box>
     </Box>
   );

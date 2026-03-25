@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
-import TextInput from 'ink-text-input';
+import { MboTextInput } from './MboTextInput.js';
 import { type MboStage } from '../types.js';
 import { C } from '../colors.js';
 
@@ -90,7 +90,7 @@ export function InputBar({ onSubmit, stage, pipelineRunning, auditPending, onCom
       ) : null}
       <Box borderStyle="single" borderColor={borderColor} paddingX={1}>
         <Text bold color={prefixColor}>{prefix}</Text>
-        <TextInput value={value} onChange={setValue} onSubmit={handleSubmit} placeholder={placeholder} />
+        <MboTextInput value={value} onChange={setValue} onSubmit={handleSubmit} placeholder={placeholder} />
       </Box>
     </Box>
   );

@@ -129,10 +129,18 @@ function isBugAuditCommand(value: string): boolean {
 function extractTaskId(value: string): string | null {
   const trimmed = String(value || '').trim();
   // Full-string anchors prevent matching within longer freeform text (§3.3)
-  const vMatch = trimmed.match(/^v0(?:\.\d+)+$/i);
-  if (vMatch) return vMatch[0];
-  const bugMatch = trimmed.match(/^BUG-\d+$/i);
-  if (bugMatch) return bugMatch[0].toUpperCase();
+  // PRINCIPLE 7: Accept with or without 'v' prefix — user shouldn't need to know exact syntax
+  const vMatch = trimmed.match(/^v?0(?:\.\d+)+$/i);
+  if (vMatch) {
+    const raw = vMatch[0];
+    // Normalize: ensure 'v' prefix
+    return raw.startsWith('v') || raw.startsWith('V') ? raw : 'v' + raw;
+  }
+  // Also accept bare lane.suffix like "13.02" or ".13.02" → "v0.13.02"
+  const bareMatch = trimmed.match(/^\.?(\d{1,2})\.(\d{2,3})$/);
+  if (bareMatch) return 'v0.' + bareMatch[1] + '.' + bareMatch[2];
+  const bugMatch = trimmed.match(/^BUG-?\d+$/i);
+  if (bugMatch) return bugMatch[0].toUpperCase().replace('BUG', 'BUG-').replace('BUG--', 'BUG-');
   return null;
 }
 
@@ -176,6 +184,7 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
 
   // BUG-221: Numbered task shortcuts displayed on startup (index 0→'1', 1→'2', etc.)
   const startupTasksRef = useRef<Array<{ id: string; title: string }>>([]);
+  const [selectedTaskIdx, setSelectedTaskIdx] = useState(-1);
 
   const appendOperator = useCallback((text: string) => {
     const nextLines = String(text || '').split('\n');
@@ -331,7 +340,14 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       } else {
         setLastClarificationMessage(null);
       }
-      if (result && result.status !== 'started') {
+      if (result && result.status === 'started' && result.needsApproval) {
+        // DID plan convergence complete — waiting for human approval
+        appendOperator('');
+        appendOperator('════════════════════════════════════════════════');
+        appendOperator('  PLAN READY — Review the plan above.');
+        appendOperator('  Type "go" to execute, or type feedback to refine.');
+        appendOperator('════════════════════════════════════════════════');
+      } else if (result && result.status !== 'started') {
         const formatted = formatResult(result);
         if (formatted) appendOperator(formatted);
       }
@@ -378,24 +394,24 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
     const trimmed = String(text || '').trim();
     const lower = trimmed.toLowerCase();
 
-    if (!trimmed) return;
+    // Empty submit with arrow-selected task → activate via overlay preflight
+    if (!trimmed) {
+      if (selectedTaskIdx >= 0 && selectedTaskIdx < startupTasksRef.current.length) {
+        const selected = startupTasksRef.current[selectedTaskIdx];
+        const found = findTaskById(projectRoot, selected.id);
+        if (found.task && found.section === 'active') {
+          setOverlayMode('tasks');
+          setOverlayInitialTaskId(selected.id);
+          setSelectedTaskIdx(-1);
+        }
+      }
+      return;
+    }
 
-    if (lower === '1') {
-      setActiveTab(1);
-      return;
-    }
-    if (lower === '2') {
-      setActiveTab(2);
-      return;
-    }
-    if (lower === '3') {
-      setActiveTab(3);
-      return;
-    }
-    if (lower === '4') {
-      setActiveTab(4);
-      return;
-    }
+    // PRINCIPLE 7: Digits 1-5 activate startup tasks when tasks exist.
+    // Tab switching uses [Tab] key (useInput handler), not digit submission.
+    // This resolves the BUG-221 conflict where digits 1-4 were consumed by tab switching
+    // before reaching the task activation handler.
     if (lower === 'exit' || lower === 'quit') {
       await operator.shutdown();
       exit();
@@ -513,6 +529,22 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       }
       return;
     }
+    // BUG-221: Numbered shortcut — single digit activates startup task list item via overlay preflight
+    if (/^[1-5]$/.test(trimmed)) {
+      const idx = parseInt(trimmed, 10) - 1;
+      const shortcut = startupTasksRef.current[idx];
+      if (shortcut) {
+        const found = findTaskById(projectRoot, shortcut.id);
+        if (found.task && found.section === 'active') {
+          setOverlayMode('tasks');
+          setOverlayInitialTaskId(shortcut.id);
+          return;
+        }
+      }
+      appendOperator(`[TASK] No task at position ${trimmed}. Type /tasks to browse.`);
+      return;
+    }
+
     // BUG-210 / SPEC 37.3B: Route "run next task" through overlay preflight dialogue
     if (/^(run|start|do|activate|execute)\s+(the\s+)?(next|first|top)\s+task$/i.test(trimmed)) {
       try {
@@ -623,7 +655,9 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
       return;
     }
 
-    if (pipelineRunning || operator._pipelineRunning) {
+    // BUG-236: 'go' must always reach operator.processMessage for plan approval,
+    // even when _pipelineRunning is true (activateTask leaves it set after needsApproval).
+    if ((pipelineRunning || operator._pipelineRunning) && lower !== 'go') {
       operator.userHintBuffer = Array.isArray(operator.userHintBuffer) ? operator.userHintBuffer : [];
       operator.userHintBuffer.push(trimmed);
       appendOperator('[HINT] ' + trimmed);
@@ -657,16 +691,37 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
         const formatted = formatResult(result);
         if (formatted) appendOperator(formatted);
       }
+
+      // Show approval gate when processMessage returns with pendingDecision set
+      if (operator.stateSummary?.pendingDecision && result?.status !== 'error' && result?.status !== 'blocked') {
+        appendOperator('');
+        appendOperator('════════════════════════════════════════════════');
+        appendOperator('  PLAN READY — Review the plan above.');
+        appendOperator('  Type "go" to execute, or type feedback to refine.');
+        appendOperator('════════════════════════════════════════════════');
+      }
     } catch (err: any) {
       appendOperator('[ERROR] ' + (err?.message || String(err)));
     } finally {
       setPipelineRunning(false);
     }
-  }, [appendOperator, exit, onSetupRequest, operator, pipelineRunning, lastClarificationMessage]);
+  }, [appendOperator, exit, onSetupRequest, operator, pipelineRunning, lastClarificationMessage, selectedTaskIdx]);
 
   const termRows = stdout?.rows ?? 40;
   const termCols = stdout?.columns ?? 120;
   const currentStageUsage = stageTokenTotals[stage] || { model: activeModel, tokens: 0 };
+
+  // BUG-222: Auto-resize terminal if too small (xterm escape sequence)
+  // MUST be before any conditional returns to satisfy React hooks ordering rules.
+  useEffect(() => {
+    const cols = stdout?.columns ?? 120;
+    const rows = stdout?.rows ?? 40;
+    if (cols < MIN_COLS || rows < MIN_ROWS) {
+      const newCols = Math.max(cols, MIN_COLS);
+      const newRows = Math.max(rows, MIN_ROWS);
+      process.stdout.write(`\x1b[8;${newRows};${newCols}t`);
+    }
+  }, [stdout?.columns, stdout?.rows]);
 
   // SPEC 37.3B §3.7: Two-tier graceful degradation
   // Tier 2: ultra-minimal (input bar + operator output only)
@@ -694,6 +749,13 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
             activeAction={activeAction}
             activeModel={String(currentStageUsage.model || activeModel || '')}
             isActive={true}
+            taskCount={startupTasksRef.current.length}
+            selectedTaskIdx={selectedTaskIdx}
+            onTaskSelect={setSelectedTaskIdx}
+            onTaskActivate={(idx) => {
+              const task = startupTasksRef.current[idx];
+              if (task) handleInput(task.id);
+            }}
           />
         </Box>
         <InputBar
@@ -734,17 +796,6 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
     );
   }
 
-  // BUG-222: Auto-resize terminal if too small (xterm escape sequence)
-  useEffect(() => {
-    const cols = stdout?.columns ?? 120;
-    const rows = stdout?.rows ?? 40;
-    if (cols < MIN_COLS || rows < MIN_ROWS) {
-      const newCols = Math.max(cols, MIN_COLS);
-      const newRows = Math.max(rows, MIN_ROWS);
-      process.stdout.write(`\x1b[8;${newRows};${newCols}t`);
-    }
-  }, [stdout?.columns, stdout?.rows]);
-
   return (
     <Box flexDirection="column" height={termRows}>
       <StatusBar
@@ -775,6 +826,13 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
               activeAction={activeAction}
               activeModel={String(currentStageUsage.model || activeModel || '')}
               isActive={activeTab === 1}
+              taskCount={startupTasksRef.current.length}
+              selectedTaskIdx={selectedTaskIdx}
+              onTaskSelect={setSelectedTaskIdx}
+              onTaskActivate={(idx) => {
+                const task = startupTasksRef.current[idx];
+                if (task) handleInput(task.id);
+              }}
             />
           )}
           {activeTab === 2 && (
@@ -800,7 +858,7 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
         </Box>
 
         {showStatsPanel && (
-          <Box width={statsPanelWidth} marginLeft={1} flexShrink={0} height="100%">
+          <Box width={statsPanelWidth} marginLeft={1} flexShrink={0}>
             <StatsPanel
               stage={stage}
               stats={stats}

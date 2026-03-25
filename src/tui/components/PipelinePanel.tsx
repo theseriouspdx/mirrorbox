@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useStdout } from 'ink';
 import { createRequire } from 'module';
 import { type PipelineEntry, ROLE_COLORS, PIPELINE_STAGE_SEQUENCE, STAGE_LABELS, type MboStage, type TuiStats } from '../types.js';
 import { C } from '../colors.js';
@@ -18,10 +18,35 @@ interface StageAnchor {
   line: number;
 }
 
-function entriesToLines(entries: PipelineEntry[]): { lines: string[]; stageAnchors: StageAnchor[] } {
+/** Word-wrap a single line to fit within maxWidth, breaking at word boundaries. */
+function wordWrap(text: string, maxWidth: number): string[] {
+  if (!text || text.length <= maxWidth) return [text];
+  const words = text.split(/(\s+)/); // preserve whitespace tokens
+  const result: string[] = [];
+  let current = '';
+  for (const word of words) {
+    if (current.length + word.length <= maxWidth) {
+      current += word;
+    } else if (current.length === 0) {
+      // Single word longer than maxWidth — hard break
+      for (let i = 0; i < word.length; i += maxWidth) {
+        result.push(word.slice(i, i + maxWidth));
+      }
+    } else {
+      result.push(current);
+      current = word.trimStart(); // new line starts without leading whitespace
+    }
+  }
+  if (current) result.push(current);
+  return result.length > 0 ? result : [''];
+}
+
+function entriesToLines(entries: PipelineEntry[], maxWidth: number): { lines: string[]; stageAnchors: StageAnchor[] } {
   const lines: string[] = [];
   const stageAnchors: StageAnchor[] = [];
   let lastStage: string | null = null;
+  // Account for border (2) + paddingX (2) = 4 chars consumed by the panel chrome
+  const wrapWidth = Math.max(40, maxWidth - 4);
 
   for (const entry of entries) {
     const stage = entry.stage || 'idle';
@@ -32,7 +57,9 @@ function entriesToLines(entries: PipelineEntry[]): { lines: string[]; stageAncho
     }
     lines.push('── [' + entry.role.toUpperCase() + ']' + (entry.model ? ' · ' + entry.model : ''));
     const chunkLines = String(entry.text || '').split('\n');
-    for (const line of chunkLines) lines.push(line);
+    for (const raw of chunkLines) {
+      for (const wrapped of wordWrap(raw, wrapWidth)) lines.push(wrapped);
+    }
     lines.push('');
   }
 
@@ -43,6 +70,13 @@ function fmtCost(n: number): string {
   return '$' + n.toFixed(4);
 }
 
+function fmtTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return (tokens / 1_000_000).toFixed(1) + 'M';
+  if (tokens >= 1_000) return (tokens / 1_000).toFixed(1) + 'k';
+  return String(Math.round(tokens || 0));
+}
+
+// BUG-228: Compact savings bar with truncation
 function SessionSavingsBar({ stats }: { stats: TuiStats }) {
   try {
     const _require = createRequire(import.meta.url);
@@ -51,14 +85,10 @@ function SessionSavingsBar({ stats }: { stats: TuiStats }) {
     const totalTok = Object.values(stats.session.models).reduce((s: number, m: any) => s + (m.optimized || 0), 0);
     if (rollup.totalCalls === 0) return null;
     return (
-      <Box gap={2} marginBottom={1} paddingX={1}>
-        <Text color="green" bold>SAVED {fmtCost(rollup.routingSavings)}</Text>
-        <Text color={C.gray} dimColor>·</Text>
-        <Text color={C.teal}>Actual {fmtCost(rollup.actualCost)}</Text>
-        <Text color={C.gray} dimColor>·</Text>
-        <Text color={C.white} dimColor>{formatTokens(totalTok)} tok total</Text>
-        <Text color={C.gray} dimColor>·</Text>
-        <Text color={C.gray} dimColor>vs {rollup.maxRateModel.slice(0, 24)}</Text>
+      <Box marginBottom={1} paddingX={1}>
+        <Text color="green" bold wrap="truncate-end">
+          SAVED {fmtCost(rollup.routingSavings)} · Actual {fmtCost(rollup.actualCost)} · {fmtTokens(totalTok)} tok
+        </Text>
       </Box>
     );
   } catch {
@@ -73,15 +103,12 @@ function getRoleColor(line: string): string {
   return ROLE_COLORS[key] ?? ROLE_COLORS.default;
 }
 
-function formatTokens(tokens: number): string {
-  if (tokens >= 1_000_000) return (tokens / 1_000_000).toFixed(1) + 'M';
-  if (tokens >= 1_000) return (tokens / 1_000).toFixed(1) + 'k';
-  return String(Math.round(tokens || 0));
-}
-
 export function PipelinePanel({ entries, isActive, currentStage, stats, stageTokenTotals }: Props) {
-  const available = useAvailableRows(10);
-  const { lines, stageAnchors } = entriesToLines(entries);
+  const { stdout } = useStdout();
+  const cols = stdout?.columns ?? 120;
+  // BUG-229: Use all available height for pipeline output (subtract only header + savings = ~4 lines)
+  const available = useAvailableRows(4);
+  const { lines, stageAnchors } = entriesToLines(entries, cols);
   const { visibleLines, canScrollUp, canScrollDown, scrollUp, scrollDown, scrollTo, topLine, total } =
     useScrollableLines(lines, available);
   const currentAnchorIndex = Math.max(0, stageAnchors.findIndex((anchor) => anchor.stage === currentStage));
@@ -112,7 +139,7 @@ export function PipelinePanel({ entries, isActive, currentStage, stats, stageTok
       <Box justifyContent="space-between">
         <Text bold color={borderColor}>{isActive ? '▶ ' : '  '}PIPELINE</Text>
         <Box gap={2}>
-          <Text color={C.teal}>pipeline: {formatTokens(pipelineRoleTokens)} tok</Text>
+          <Text color={C.teal}>pipeline: {fmtTokens(pipelineRoleTokens)} tok</Text>
           {total > available ? (
             <Text color={borderColor} dimColor>
               {canScrollUp ? '↑ ' : '  '}
@@ -123,22 +150,7 @@ export function PipelinePanel({ entries, isActive, currentStage, stats, stageTok
         </Box>
       </Box>
 
-      <Box marginBottom={1} gap={1} flexWrap="wrap">
-        {PIPELINE_STAGE_SEQUENCE.map((stage) => {
-          const isCurrent = stage === currentStage;
-          const snapshot = stageTokenTotals[stage] || {};
-          const tokenText = snapshot.tokens ? ' · ' + formatTokens(snapshot.tokens) : '';
-          return (
-            <Box key={stage} borderStyle="single" borderColor={isCurrent ? C.teal : C.purple} paddingX={1}>
-              <Text color={isCurrent ? C.white : C.gray} bold={isCurrent}>
-                {isCurrent ? '▶ ' : ''}
-                {STAGE_LABELS[stage]}
-                {tokenText}
-              </Text>
-            </Box>
-          );
-        })}
-      </Box>
+      {/* BUG-227: Removed redundant stage boxes — stage progress is in StatsPanel */}
 
       <SessionSavingsBar stats={stats} />
 
@@ -151,7 +163,7 @@ export function PipelinePanel({ entries, isActive, currentStage, stats, stageTok
             const isRoleHeader = line.startsWith('── [');
             const color = isStageHeader ? C.teal : isRoleHeader ? getRoleColor(line) : C.white;
             return (
-              <Text key={topLine + index} color={color} bold={isStageHeader || isRoleHeader} dimColor={line === ''} wrap="wrap">
+              <Text key={topLine + index} color={color} bold={isStageHeader || isRoleHeader} dimColor={line === ''}>
                 {line || ' '}
               </Text>
             );

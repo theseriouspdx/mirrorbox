@@ -91,7 +91,7 @@ async function main() {
   process.on('SIGINT', () => { cleanup().then(() => process.exit(0)); });
   process.on('SIGTERM', () => { cleanup().then(() => process.exit(0)); });
 
-  // SPEC 37.3B §3.7: Aligned with App.tsx MIN_COLS/MIN_ROWS
+  // Aligned with App.tsx MIN_COLS/MIN_ROWS — minimum for full TUI layout
   const MIN_COLS = 100;
   const MIN_ROWS = 30;
   if (process.stdout.isTTY) {

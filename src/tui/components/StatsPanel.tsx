@@ -59,8 +59,9 @@ export function StatsPanel({ stage, stats, filesInScope, auditPending, activeMod
   const stageIndex = PIPELINE_STAGE_SEQUENCE.indexOf(stage);
   const recentHistory = (stats.session.stageHistory || []).slice(-5).reverse();
 
+  // BUG-224: Use flexGrow={1} so the panel stretches to match the left panel height
   return (
-    <Box flexDirection="column" borderStyle="single" borderColor={C.purple} paddingX={1} height="100%">
+    <Box flexDirection="column" borderStyle="single" borderColor={C.purple} paddingX={1} flexGrow={1}>
       <Text bold color={C.purple}>PIPELINE</Text>
       <Box flexDirection="column">
         {PIPELINE_STAGE_SEQUENCE.map((entry, index) => {
@@ -70,10 +71,11 @@ export function StatsPanel({ stage, stats, filesInScope, auditPending, activeMod
           const color = isCurrent ? STAGE_COLORS[entry] : isPast ? C.done : C.purple;
           const prefix = isCurrent ? '▶ ' : isPast ? '✓ ' : '  ';
           const label = SHORT_LABELS[entry] || STAGE_LABELS[entry] || entry;
-          const tokenText = snapshot.tokens ? ' ' + fmtTokens(snapshot.tokens) : '';
+          const tokenText = snapshot.tokens ? fmtTokens(snapshot.tokens) : '';
           return (
-            <Text key={entry} color={color} bold={isCurrent} dimColor={!isCurrent && !isPast} wrap="truncate-end">
-              {prefix}{label}{tokenText}
+            <Text key={entry} wrap="truncate-end">
+              <Text color={color} bold={isCurrent} dimColor={!isCurrent && !isPast}>{prefix}{label}</Text>
+              {tokenText ? <Text color={C.white} dimColor> {tokenText}</Text> : null}
             </Text>
           );
         })}
@@ -81,7 +83,7 @@ export function StatsPanel({ stage, stats, filesInScope, auditPending, activeMod
 
       <Box marginTop={1} flexDirection="column">
         <Text color={C.purple} dimColor wrap="truncate-end">── Model</Text>
-        <Text color={C.teal} dimColor wrap="truncate-end">{activeModel || 'unassigned'}</Text>
+        <Text color={C.teal} dimColor wrap="truncate-end">{(activeModel || 'unassigned').slice(0, 24)}</Text>
       </Box>
 
       <Box marginTop={1} flexDirection="column">
@@ -94,11 +96,21 @@ export function StatsPanel({ stage, stats, filesInScope, auditPending, activeMod
       {recentHistory.length > 0 ? (
         <Box marginTop={1} flexDirection="column">
           <Text color={C.purple} dimColor wrap="truncate-end">── History</Text>
-          {recentHistory.map((snapshot, index) => (
-            <Text key={snapshot.stage + '-' + index} color={C.white} dimColor wrap="truncate-end">
-              {SHORT_LABELS[snapshot.stage] || snapshot.stage} · {(snapshot.model || '?').slice(0, 12)} · {fmtTokens(snapshot.tokens)}
-            </Text>
-          ))}
+          {recentHistory.map((snapshot, index) => {
+            // BUG-230: Use stage-specific color for the stage name; tokens first so they're never truncated
+            const stageColor = STAGE_COLORS[snapshot.stage] || C.white;
+            const label = SHORT_LABELS[snapshot.stage] || snapshot.stage;
+            // Strip vendor prefix: "google/gemini-2.0-flash-001" → "gemini-2.0-f…"
+            const rawModel = snapshot.model || '?';
+            const shortModel = (rawModel.includes('/') ? rawModel.split('/').pop()! : rawModel).slice(0, 10);
+            return (
+              <Text key={snapshot.stage + '-' + index} wrap="truncate-end">
+                <Text color={stageColor}>{label}</Text>
+                <Text color={C.white}> {fmtTokens(snapshot.tokens)}</Text>
+                <Text color={C.gray} dimColor> {shortModel}</Text>
+              </Text>
+            );
+          })}
         </Box>
       ) : null}
 
