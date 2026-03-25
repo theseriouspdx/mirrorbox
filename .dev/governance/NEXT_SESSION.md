@@ -1,5 +1,13 @@
 # Next Session Prompt — MBO
-> Generated: 2026-03-24 | Last commit: ff5aaef
+> Generated: 2026-03-24 | Last commit: b767b25
+
+---
+
+## Mandate — apply to every task, every step
+
+> **Identify all failure modes in your solution and solve for each one before submitting.**
+
+This applies at every stage: reading the problem, forming a plan, writing code, and reviewing the result. Do not submit a fix until you have enumerated what can go wrong with it and addressed each case.
 
 ---
 
