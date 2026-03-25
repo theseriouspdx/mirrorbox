@@ -17,7 +17,20 @@ Fixed a cluster of 9 TUI layout bugs (BUG-224 through BUG-233) in commit `9e92ba
 
 ---
 
-## Your first tasks: P0 regressions — fix before anything else
+## FIRST TASK — no exceptions: fix session logging (BUG-240)
+
+The operator has asked for this repeatedly. Do this before touching anything else.
+
+**BUG-240 / v0.3.55 — Session pipeline output not written to log file**
+Every TUI pipeline run must write a complete log of its output to `.mbo/logs/` so the operator can review it after the session ends. This was previously working and has regressed. Without it, the operator cannot review what the pipeline did — especially critical when scroll is broken.
+- Find where session logging was previously written (check git log on operator.js and db-manager.js for the log-write path)
+- Identify why it stopped writing (likely tied to the missing `mirrorbox.db` — BUG-238 — but confirm)
+- Fix it so every pipeline run produces a readable log file under `.mbo/logs/` with a timestamp
+- Verify a log file exists after a test run before moving on
+
+---
+
+## P0 regressions — fix after logging is confirmed working
 
 **Next Task: v0.3.56** (per projecttracking.md)
 
