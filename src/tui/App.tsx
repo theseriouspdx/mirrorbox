@@ -498,6 +498,9 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
     if (lower === 'stop' || lower === 'abort' || lower === "stop what you're doing") {
       operator.requestAbort();
       setPipelineRunning(false);
+      // BUG-243: Switch to Operator tab so the abort confirmation is visible
+      // (user is often on the Pipeline tab when they type 'stop').
+      setActiveTab(1 as ActiveTab);
       appendOperator('[OPERATOR] Abort requested. Active model work will stop at the next abort boundary.');
       return;
     }
@@ -666,7 +669,9 @@ export function App({ operator, statsManager, pkg, projectRoot, onSetupRequest }
 
     // BUG-236: 'go' must always reach operator.processMessage for plan approval,
     // even when _pipelineRunning is true (activateTask leaves it set after needsApproval).
-    if ((pipelineRunning || operator._pipelineRunning) && lower !== 'go') {
+    // BUG-243: 'stop'/'abort' must never be swallowed as hints — handled above, but
+    // this exemption is a safety belt in case ordering ever shifts.
+    if ((pipelineRunning || operator._pipelineRunning) && lower !== 'go' && lower !== 'stop' && lower !== 'abort') {
       operator.userHintBuffer = Array.isArray(operator.userHintBuffer) ? operator.userHintBuffer : [];
       operator.userHintBuffer.push(trimmed);
       appendOperator('[HINT] ' + trimmed);

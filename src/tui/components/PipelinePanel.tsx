@@ -106,8 +106,9 @@ function getRoleColor(line: string): string {
 export function PipelinePanel({ entries, isActive, currentStage, stats, stageTokenTotals }: Props) {
   const { stdout } = useStdout();
   const cols = stdout?.columns ?? 120;
-  // BUG-229: Use all available height for pipeline output (subtract only header + savings = ~4 lines)
-  const available = useAvailableRows(4);
+  // BUG-244: Reserve rows for ALL UI chrome outside the pipeline content area:
+  // StatusBar(2) + TabBar(1) + InputBar(3) + PipelinePanel border+header(3) + SavingsBar(2) + buffer(1) = 12
+  const available = useAvailableRows(12);
   const { lines, stageAnchors } = entriesToLines(entries, cols);
   const { visibleLines, canScrollUp, canScrollDown, scrollUp, scrollDown, scrollTo, topLine, total } =
     useScrollableLines(lines, available);
