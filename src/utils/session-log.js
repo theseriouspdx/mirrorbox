@@ -46,7 +46,8 @@ function startSessionLog({ projectRoot, runId = null, mode = 'runtime' } = {}) {
     } catch {}
   };
 
-  tee('stdout');
+  // tee('stdout') removed — Ink redraws stdout constantly, producing 60MB+ of ANSI noise.
+  // Pipeline output is captured cleanly via operator._chunkLogger → writeMeta instead.
   tee('stderr');
   writeMeta('start mode=' + mode + ' runId=' + (runId || 'none') + ' pid=' + process.pid + ' cwd=' + process.cwd());
 
