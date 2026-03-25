@@ -1,5 +1,5 @@
 # Next Session Prompt — MBO
-> Generated: 2026-03-25 | Last commit: fb9e599 | Current version: 0.3.58
+> Generated: 2026-03-25 | Last commit: 6795240 | Current version: 0.3.59
 
 ---
 
@@ -16,31 +16,49 @@ This applies at every stage — plan, code, review. Do not submit until you have
 - v0.3.53 (9e92ba9): Fixed TUI layout cluster BUG-224 through BUG-233
 - v0.3.57 (5ebe268): Fixed BUG-238/240/241/242 — session logging, approval gate, DB recovery
 - v0.3.58 (96bbd4d): Fixed BUG-243/244 — stop tab switch, pipeline scroll reserved rows
+- v0.3.59 (64d4a1f): Fixed BUG-245 — removed `tee('stdout')` from session-log.js, eliminating 60MB ANSI log bloat
 
-Governance drift: both fix sessions updated code but forgot to update BUGS.md statuses. This has now been corrected (fb9e599). All closed bugs now show FIXED in BUGS.md.
+Governance drift: multiple fix sessions updated code but forgot to update BUGS.md statuses. Corrected in fb9e599. All closed bugs now show FIXED in BUGS.md.
 
 ---
 
-## Session log location — READ THIS FIRST
+## Logs to analyze — compare these two
+
+**BEFORE fix (v0.3.58 — with stdout tee, ANSI noise):**
+```
+/Users/johnserious/MBO_Alpha/.mbo/logs/session-2026-03-25-09-26-58-tui-f0670b10-556.log
+```
+Size: ~40KB — contains ANSI escape codes from Ink render frames.
+
+**AFTER fix (v0.3.59 — stdout tee removed):**
+```
+/Users/johnserious/MBO_Alpha/.mbo/logs/session-2026-03-25-09-30-19-tui-556f2bda-370.log
+```
+Size: ~31KB, 449 lines, only 2 escape code lines — clean pipeline output.
+
+**NEXT RUN log** (whatever the next session generates after user smoke test):
+```
+/Users/johnserious/MBO_Alpha/.mbo/logs/   (ls -lt to find most recent)
+```
+
+To read cleanly (no escape codes):
+```bash
+cat /Users/johnserious/MBO_Alpha/.mbo/logs/<latest>.log | sed 's/\x1b\[[0-9;]*m//g'
+```
+
+**BUG-245 appears confirmed fixed.** 31KB vs 40KB before, no render frames captured. The remaining 31KB is legitimate: cold storage snapshot, DB health check, graph scan output — all useful.
+
+---
+
+## Session log location
 
 **The session log IS writing.** Location: `/Users/johnserious/MBO_Alpha/.mbo/logs/`
 
-The log captures full pipeline output but contains ANSI escape codes. To read cleanly:
-```
-cat /Users/johnserious/MBO_Alpha/.mbo/logs/<latest>.log | sed 's/\x1b\[[0-9;]*m//g' | grep "\[session"
-```
-
-The operator has been unable to read logs because they were looking in `MBO/.mbo/logs/` — logs only appear in `MBO_Alpha/.mbo/logs/` since that's where mbo actually runs. This distinction must be documented in the TUI (startup message or /help).
+Logs are in `MBO_Alpha`, NOT `MBO` — mbo runs from Alpha. This distinction must be documented in the TUI (/help or startup message).
 
 ---
 
 ## Open bugs — fix in this order
-
-### BUG-245 / v0.3.59 — P1 — Session log unreadable (ANSI codes)
-The session log writes raw terminal escape codes from Ink's stdout tee. The log is 44MB of ANSI noise. The `_chunkLogger` path (operator chunks written via `writeMeta`) is clean — but the `tee()` approach patches `process.stdout.write` and captures all of Ink's render frames.
-- **Fix:** Remove the `tee('stdout')` and `tee('stderr')` calls from `session-log.js`. The `_chunkLogger` in operator.js already captures all meaningful pipeline text cleanly via `writeMeta`. The tee is causing the noise and is redundant.
-- **File:** `src/utils/session-log.js`, `src/tui/index.tsx`
-- **Acceptance:** Session log is human-readable plain text with no escape codes. Contains all pipeline stage output.
 
 ### BUG-246 / v0.3.60 — P1 — 'go' after pipeline error loops back to planning
 After a pipeline error (e.g. code_derivation fails), the recommended action says "type 'go' to retry." Typing 'go' re-enters planning from scratch instead of retrying from the failure point.
@@ -70,8 +88,6 @@ The BUG-243 fix added `setActiveTab(1)` on stop but users report stop still has 
 3. Advance `package.json` version to highest resolved task lane
 4. Run `mbo alpha` to sync
 
-This has been missed in every session. The TUI task list has been showing closed bugs as open repeatedly. This must stop.
-
 **Next bug number: BUG-248**
-**Next task: v0.3.59**
+**Next task: v0.3.60**
 **Auth dir locked — `mbo auth src` before writing `src/auth/`**
