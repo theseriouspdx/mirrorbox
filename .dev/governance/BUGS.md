@@ -2,7 +2,7 @@
 
 **Protocol:** Bug found → logged immediately with severity. P0 blocks current milestone. P1 must be fixed before milestone complete. P2 deferred.
 **Archive:** Resolved/completed/superseded → `BUGS-resolved.md` (reference only).
-**Next bug number:** BUG-245
+**Next bug number:** BUG-248
 **Bug ID rule:** `BUG-001`–`BUG-184` are legacy-format entries and must not be renumbered. Starting with `BUG-185`, new bug headings must use dual identification: `BUG-### / v0.LL.NN`.
 **Version lane rule:** assign the version tag by subsystem, not by the most visible current series. Use the canonical lane definitions in `.dev/governance/VERSIONING.md`. The suffix after the second decimal resets within each lane (`v0.13.01`, `v0.13.02`, then separately `v0.14.01`). `v1.x` task lanes are invalid.
 
@@ -268,3 +268,29 @@ or upgrade to a version that handles these cases.
 - Forward Delete key removes the character after the cursor.
 - Inserting a character at any cursor position places it correctly.
 - Arrow keys, Home, End move the cursor without side effects.
+
+### BUG-245 / v0.3.59 — Session log filled with ANSI escape codes (60MB files)
+**Severity:** P1
+**Status:** FIXED (v0.3.59 / 64d4a1f)
+**Found:** 2026-03-25
+**Description:** `tee('stdout')` in session-log.js patched `process.stdout.write` and captured every Ink render frame, producing 44–60MB log files full of ANSI escape codes. Pipeline output is already captured cleanly via `operator._chunkLogger → writeMeta()`. The stdout tee was redundant.
+**Fix:** Removed `tee('stdout')`. Kept `tee('stderr')`. No other changes.
+**Acceptance:** Session log is human-readable plain text. Contains all pipeline stage output. No escape codes.
+
+### BUG-246 / v0.3.60 — 'go' after pipeline error re-enters planning from scratch
+**Severity:** P1
+**Status:** OPEN
+**Task:** v0.3.60
+**Found:** 2026-03-25
+**Description:** After a pipeline error (e.g. code_derivation fails), the TUI shows "[RECOMMENDED ACTION]: type 'go' to retry." Typing 'go' re-enters planning from scratch instead of retrying from the failure point. Root cause: the error recovery path does not set `waitingForApproval`, so the 'go' input falls through to `processMessage` which re-classifies the original task from scratch.
+**Files:** `src/tui/App.tsx` (handleApproval, error state), `src/auth/operator.js` (handleApproval)
+**Acceptance:** Typing 'go' after a pipeline error retries from the failure stage, not from planning.
+
+### BUG-247 / v0.3.61 — 'stop'/'abort' has no effect
+**Severity:** P1
+**Status:** OPEN
+**Task:** v0.3.61
+**Found:** 2026-03-25
+**Description:** Users report stop/abort does nothing. The BUG-243 fix added `setActiveTab(1)` on stop but the pipeline continues running. Likely cause: `requestAbort()` is registered but the pipeline does not check the abort flag during in-progress LLM streaming calls.
+**Files:** `src/tui/App.tsx` (handleInput stop handler), `src/auth/operator.js` (requestAbort)
+**Acceptance:** Typing 'stop' or 'abort' halts the pipeline, confirms to the user, and returns to idle.
