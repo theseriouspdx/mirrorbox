@@ -6,6 +6,60 @@
 
 ---
 
+### BUG-233 / v0.3.48: Numbered task shortcuts (1-5) deleted by prior commit regression | RESOLVED 2026-03-24
+- **Location:** `src/tui/App.tsx` — `handleInput`
+- **Severity:** P1
+- **Resolution:** Restored `if (/^[1-5]$/.test(trimmed))` handler accidentally deleted in commit f5d1731. Typing 1-5 activates corresponding startup task via overlay preflight; no matching task shows error in operator panel.
+- **Task:** v0.3.48 | **Commit:** 9e92ba9
+
+### BUG-231 / v0.3.46: No thinking/streaming indicator when LLM is generating | RESOLVED 2026-03-24
+- **Location:** `src/tui/components/OperatorPanel.tsx`
+- **Severity:** P2
+- **Resolution:** Shimmer animation added when `pipelineRunning` is true and output lines are empty. `SHIMMER_COLORS` sweep with 80ms interval; cleanup returns unsubscribe. Disappears when output arrives.
+- **Task:** v0.3.46 | **Commit:** 9e92ba9
+
+### BUG-230 / v0.3.45: StatsPanel history entries all same color | RESOLVED 2026-03-24
+- **Location:** `src/tui/components/StatsPanel.tsx`
+- **Severity:** P2
+- **Resolution:** History entries now use `STAGE_COLORS[snapshot.stage]` with `C.white` fallback. Token counts and model names remain dim.
+- **Task:** v0.3.45 | **Commit:** 9e92ba9
+
+### BUG-229 / v0.3.44: OperatorPanel uses only 34% of available height | RESOLVED 2026-03-24
+- **Location:** `src/tui/components/OperatorPanel.tsx`
+- **Severity:** P1
+- **Resolution:** `panelRows = Math.max(8, Math.floor(available * 0.34))` → `panelRows = Math.max(8, available)`. `useAvailableRows` guard reduced to 3 for header. Panel now uses all available vertical space.
+- **Task:** v0.3.44 | **Commit:** 9e92ba9
+
+### BUG-228 / v0.3.43: SessionSavingsBar text collision in PipelinePanel | RESOLVED 2026-03-24
+- **Location:** `src/tui/components/PipelinePanel.tsx`
+- **Severity:** P2
+- **Resolution:** Compact single-line savings bar with `fmtTokens()` for abbreviated counts. Model name truncated to fit. No collisions at narrow widths.
+- **Task:** v0.3.43 | **Commit:** 9e92ba9
+
+### BUG-227 / v0.3.42: PipelinePanel redundant stage boxes consume all vertical space | RESOLVED 2026-03-24
+- **Location:** `src/tui/components/PipelinePanel.tsx`
+- **Severity:** P1
+- **Resolution:** Removed all 11 redundant stage bordered boxes. Stage progress remains in StatsPanel only. Added `wordWrap()` helper for word-boundary line wrapping using terminal column count. Pipeline output content now has full vertical space.
+- **Task:** v0.3.42 | **Commit:** 9e92ba9
+
+### BUG-226 / v0.3.41: StatusBar header jumbled at 100 cols | RESOLVED 2026-03-24
+- **Location:** `src/tui/components/StatusBar.tsx`
+- **Severity:** P1
+- **Resolution:** Replaced hardcoded truncation widths with dynamic per-item widths derived from `useStdout()` terminal column count each render. `wrap="truncate-end"` on all text elements.
+- **Task:** v0.3.41 | **Commit:** 9e92ba9
+
+### BUG-225 / v0.3.40: TabBar hints wrapping and overlapping | RESOLVED 2026-03-24
+- **Location:** `src/tui/components/TabBar.tsx`
+- **Severity:** P1
+- **Resolution:** Hints use `wrap="truncate-end"` with fixed-height `overflow="hidden"` container. No wrapping or overlap at narrow widths.
+- **Task:** v0.3.40 | **Commit:** 9e92ba9
+
+### BUG-224 / v0.3.39: StatsPanel does not fill vertical space | RESOLVED 2026-03-24
+- **Location:** `src/tui/components/StatsPanel.tsx`
+- **Severity:** P1
+- **Resolution:** `flexGrow={1}` applied correctly to outer StatsPanel container. Border matches operator panel height at all terminal sizes.
+- **Task:** v0.3.39 | **Commit:** 9e92ba9
+
 ### BUG-222 / v0.3.37: TUI layout 65/35 split wastes space — right panel too wide, no minimum size check | RESOLVED 2026-03-24
 - **Location:** `src/tui/App.tsx`
 - **Severity:** P1
