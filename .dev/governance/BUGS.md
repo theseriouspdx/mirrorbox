@@ -129,7 +129,7 @@ the first press has no visible feedback, making the double-quit pattern opaque.
 
 ### BUG-224 / v0.3.39 — StatsPanel does not fill vertical space
 **Severity:** P1
-**Status:** OPEN (reopened — prior fix was incomplete)
+**Status:** FIXED (v0.3.53 / commit 9e92ba9)
 **Found:** 2026-03-24
 **Description:** StatsPanel right column doesn't stretch to match the operator panel height. Prior `height="100%"` removal + `flexGrow={1}` fix was not verified.
 **Acceptance:**
@@ -138,7 +138,7 @@ the first press has no visible feedback, making the double-quit pattern opaque.
 
 ### BUG-225 / v0.3.40 — TabBar hints wrapping and overlapping with content below
 **Severity:** P1
-**Status:** OPEN (reopened — prior fix was incomplete)
+**Status:** FIXED (v0.3.53 / commit 9e92ba9)
 **Found:** 2026-03-24
 **Description:** Tab bar hint text still wraps/overlaps with content below it. `wrap="truncate-end"` alone doesn't fix the layout collision.
 **Acceptance:**
@@ -147,7 +147,7 @@ the first press has no visible feedback, making the double-quit pattern opaque.
 
 ### BUG-226 / v0.3.41 — StatusBar header jumbled at 100 cols
 **Severity:** P1
-**Status:** OPEN
+**Status:** FIXED (v0.3.53 / commit 9e92ba9)
 **Found:** 2026-03-24
 **Description:** StatusBar two-row layout uses `justifyContent="space-between"` with hardcoded truncation widths (36, 34 chars). At 100 cols, the three items per row don't fit and collide/overlap. StatusBar needs terminal-width-aware truncation and `wrap="truncate-end"` on text elements.
 **Acceptance:**
@@ -156,7 +156,7 @@ the first press has no visible feedback, making the double-quit pattern opaque.
 
 ### BUG-227 / v0.3.42 — PipelinePanel redundant stage boxes consume all vertical space
 **Severity:** P1
-**Status:** OPEN
+**Status:** FIXED (v0.3.53 / commit 9e92ba9)
 **Found:** 2026-03-24
 **Description:** PipelinePanel (Tab 2) renders all 11 pipeline stages as bordered boxes with `flexWrap="wrap"` (lines 126-141). These duplicate the StatsPanel's pipeline list on the right and consume massive vertical space, leaving no room for the actual pipeline output content.
 **Acceptance:**
@@ -165,7 +165,7 @@ the first press has no visible feedback, making the double-quit pattern opaque.
 
 ### BUG-228 / v0.3.43 — SessionSavingsBar text collision in PipelinePanel
 **Severity:** P2
-**Status:** OPEN
+**Status:** FIXED (v0.3.53 / commit 9e92ba9)
 **Found:** 2026-03-24
 **Description:** `SessionSavingsBar` in PipelinePanel renders 4+ items in a row with `gap={2}` and no truncation. At available width (~70 chars), items collide.
 **Acceptance:**
@@ -174,7 +174,7 @@ the first press has no visible feedback, making the double-quit pattern opaque.
 
 ### BUG-229 / v0.3.44 — OperatorPanel scrollable area uses only 34% of available height
 **Severity:** P1
-**Status:** OPEN
+**Status:** FIXED (v0.3.53 / commit 9e92ba9)
 **Found:** 2026-03-24
 **Description:** `OperatorPanel.tsx` line 95: `panelRows = Math.max(8, Math.floor(available * 0.34))`. The operator panel is the primary content area when Tab 1 is active — it should use all available vertical space, not 34%. This causes classifier output to be cut off and unreadable.
 **Acceptance:**
@@ -183,7 +183,7 @@ the first press has no visible feedback, making the double-quit pattern opaque.
 
 ### BUG-230 / v0.3.45 — StatsPanel history entries all same color
 **Severity:** P2
-**Status:** OPEN
+**Status:** FIXED (v0.3.53 / commit 9e92ba9)
 **Found:** 2026-03-24
 **Description:** StatsPanel history section renders all entries with `C.white dimColor`. Stage names in history should use their stage-specific colors from `STAGE_COLORS` for visual differentiation.
 **Acceptance:**
@@ -192,7 +192,7 @@ the first press has no visible feedback, making the double-quit pattern opaque.
 
 ### BUG-231 / v0.3.46 — No thinking/streaming indicator when LLM is generating
 **Severity:** P2
-**Status:** OPEN
+**Status:** FIXED (v0.3.53 / commit 9e92ba9)
 **Found:** 2026-03-24
 **Description:** When the pipeline is running and waiting for LLM output, there's only a three-dot pulse on the OperatorPanel status line. There's no visible "thinking" or streaming text indicator in the main content area. The user can't tell if the system is working.
 **Acceptance:**
@@ -209,7 +209,7 @@ the first press has no visible feedback, making the double-quit pattern opaque.
 
 ### BUG-233 / v0.3.48 — Numbered task shortcuts (1-5) deleted by prior commit regression
 **Severity:** P1
-**Status:** OPEN (restored in working tree, needs verification)
+**Status:** FIXED (v0.3.53 / commit 9e92ba9)
 **Found:** 2026-03-24
 **Description:** Commit f5d1731 accidentally deleted the `if (/^[1-5]$/.test(trimmed))` handler from handleInput that was added in commit 2a102f9. Restored in working tree but uncommitted.
 **Acceptance:**
